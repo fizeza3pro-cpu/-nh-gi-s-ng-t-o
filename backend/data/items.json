@@ -1,0 +1,92 @@
+{
+  "dua": {
+    "name": "Đũa",
+    "description": "Một đôi đũa tre/gỗ thông thường dùng trong bữa ăn của người Việt.",
+    "codes": [
+      "Vũ khí",
+      "Nhạc cụ",
+      "Dụng cụ đo",
+      "Trang trí",
+      "Xây dựng",
+      "Nông nghiệp",
+      "Giáo dục",
+      "Y tế",
+      "Trò chơi",
+      "Vật dụng bếp khác",
+      "Nghệ thuật",
+      "Văn phòng phẩm"
+    ]
+  },
+  "non_la": {
+    "name": "Nón lá",
+    "description": "Chiếc nón lá hình chóp truyền thống của người Việt.",
+    "codes": [
+      "Đồ chứa",
+      "Trang trí",
+      "Nghệ thuật",
+      "Vũ khí phòng thủ",
+      "Che chắn",
+      "Quạt",
+      "Dụng cụ làm vườn",
+      "Nhạc cụ",
+      "Trò chơi",
+      "Giáo dục",
+      "Đạo cụ biểu diễn",
+      "Đồ chơi trẻ em"
+    ]
+  },
+  "chai_nhua": {
+    "name": "Chai nhựa",
+    "description": "Một chai nhựa rỗng 500ml đã uống hết nước.",
+    "codes": [
+      "Đồ chứa",
+      "Dụng cụ làm vườn",
+      "Nhạc cụ",
+      "Trang trí",
+      "Đồ chơi trẻ em",
+      "Vật liệu xây dựng",
+      "Phao",
+      "Dụng cụ đo",
+      "Nghệ thuật",
+      "Y tế / sơ cứu",
+      "Vũ khí",
+      "Đèn / chiếu sáng"
+    ]
+  },
+  "to_bao": {
+    "name": "Tờ báo cũ",
+    "description": "Một tờ báo giấy đã đọc xong.",
+    "codes": [
+      "Bao gói",
+      "Vệ sinh",
+      "Lót đồ",
+      "Thủ công",
+      "Nghệ thuật",
+      "Cách nhiệt / cách ẩm",
+      "Đồ chơi trẻ em",
+      "Vũ khí",
+      "Nông nghiệp",
+      "Trang trí",
+      "Giáo dục",
+      "Đốt / nhiên liệu"
+    ]
+  },
+  "day_thung": {
+    "name": "Dây thừng",
+    "description": "Một sợi dây thừng dài khoảng 5 mét.",
+    "codes": [
+      "Buộc / cố định",
+      "Vận chuyển",
+      "Trang trí",
+      "Trò chơi",
+      "Vũ khí",
+      "Tập thể dục",
+      "An toàn / cứu hộ",
+      "Nghệ thuật",
+      "Vật liệu xây dựng",
+      "Đồ nội thất",
+      "Đo lường",
+      "Nông nghiệp"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: aut-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install uv && uv sync --no-dev
+    startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: gemini-3.6-flash
+      - key: MOCK_MODE
+        value: false
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: MAPPING_TEMPERATURE
+        value: "0.1"
+      - key: SCORING_TEMPERATURE
+        value: "0.4"
+      - key: SCORING_RUNS
+        value: "1"
+      - key: CORS_ORIGINS
+        value: "*"

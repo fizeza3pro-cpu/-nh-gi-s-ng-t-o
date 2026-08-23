@@ -1,0 +1,19 @@
+[
+  { "item_id": "dua", "text": "gõ hai chiếc đũa vào nhau tạo nhịp trống", "code": "Nhạc cụ" },
+  { "item_id": "dua", "text": "vót nhọn một đầu làm phi tiêu phóng vào bia", "code": "Vũ khí" },
+  { "item_id": "dua", "text": "dùng để đo độ sâu của cốc nước", "code": "Dụng cụ đo" },
+  { "item_id": "dua", "text": "cắm xuống đất làm cọc đỡ cây con mới trồng", "code": "Nông nghiệp" },
+  { "item_id": "dua", "text": "làm que tính dạy trẻ em học đếm số", "code": "Giáo dục" },
+  { "item_id": "non_la", "text": "úp ngược lại để đựng trái cây vừa hái", "code": "Đồ chứa" },
+  { "item_id": "non_la", "text": "phe phẩy làm quạt cho mát khi trời nóng", "code": "Quạt" },
+  { "item_id": "non_la", "text": "đội che nắng khi đi làm ngoài đồng", "code": "Che chắn" },
+  { "item_id": "chai_nhua", "text": "cắt đôi phần đáy làm chậu trồng cây nhỏ", "code": "Dụng cụ làm vườn" },
+  { "item_id": "chai_nhua", "text": "buộc nhiều chai rỗng lại làm phao tập bơi", "code": "Phao" },
+  { "item_id": "chai_nhua", "text": "cho ít sỏi vào lắc làm đồ chơi phát ra tiếng", "code": "Nhạc cụ" },
+  { "item_id": "to_bao", "text": "dùng gói con cá mua ngoài chợ", "code": "Bao gói" },
+  { "item_id": "to_bao", "text": "vo tròn nhồi vào giày ướt cho hút ẩm", "code": "Cách nhiệt / cách ẩm" },
+  { "item_id": "to_bao", "text": "gấp thành chiếc thuyền giấy cho trẻ chơi", "code": "Thủ công" },
+  { "item_id": "day_thung", "text": "cột chặt hàng hóa lên yên xe máy", "code": "Buộc / cố định" },
+  { "item_id": "day_thung", "text": "căng ngang hai cây cột làm dây nhảy", "code": "Trò chơi" },
+  { "item_id": "day_thung", "text": "thắt nút thành thang để leo xuống thoát hiểm", "code": "An toàn / cứu hộ" }
+]

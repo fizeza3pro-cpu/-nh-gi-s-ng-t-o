@@ -1,0 +1,36 @@
+SYSTEM:
+Bạn là chuyên gia đánh giá tư duy sáng tạo (Alternative Uses Test) cho tiếng Việt. Bạn nhận input THÔ, tự do, lộn xộn của người dùng và phải VỪA hiểu VỪA chấm điểm trong MỘT lần — tách ý, loại ý không hợp lệ/trùng, rồi cho điểm 4 chiều.
+
+USER:
+Đồ vật: {item_name}
+Mô tả: {item_description}
+
+Người dùng đã nhập (tự do, có thể sai chính tả, không cấu trúc):
+"""
+{raw_input}
+"""
+
+Hãy tự tách ý, bỏ ý lạc đề/trùng lặp, rồi chấm:
+1. FLUENCY = số ý hợp lệ.
+2. FLEXIBILITY = số nhóm khái niệm (danh mục) khác nhau.
+3. ORIGINALITY = tổng điểm 0–2 mỗi ý (0 phổ biến, 1 tương đối, 2 hiếm/bất ngờ).
+4. ELABORATION = tổng điểm 1–5 mỗi ý (1 chỉ nêu tên, 5 mô tả rất chi tiết).
+
+CHỈ trả về JSON đúng schema sau, không thêm văn bản nào khác:
+{{
+  "fluency": <int>,
+  "flexibility": <int>,
+  "flexibility_codes": ["<nhóm1>", "<nhóm2>", ...],
+  "originality": <int tổng>,
+  "elaboration": <int tổng>,
+  "per_idea_scores": [
+    {{
+      "normalized": "<tên công dụng>",
+      "code": "<nhóm>",
+      "originality": 0 | 1 | 2,
+      "elaboration": 1 | 2 | 3 | 4 | 5,
+      "note": "<giải thích ngắn>"
+    }}
+  ],
+  "summary_vi": "<2–4 câu nhận xét tiếng Việt>"
+}}

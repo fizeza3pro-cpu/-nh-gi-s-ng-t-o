@@ -1,0 +1,50 @@
+[
+  {
+    "item_id": "dua",
+    "raw_input": "gõ tạo nhịp nhạc; vót nhọn làm phi tiêu; xỏ tóc; que tính dạy học; cắm đất đỡ cây; đo độ sâu cốc nước",
+    "human": { "originality_avg": 1.17, "elaboration_avg": 2.0, "fluency": 6, "flexibility": 6 },
+    "note": "Nhãn seed do 1 người gán — cần 2-3 rater cho ICC chính thức."
+  },
+  {
+    "item_id": "dua",
+    "raw_input": "để ăn cơm, gắp thức ăn, khuấy canh",
+    "human": { "originality_avg": 0.0, "elaboration_avg": 1.33, "fluency": 3, "flexibility": 1 },
+    "note": "Toàn công dụng thông thường, originality thấp."
+  },
+  {
+    "item_id": "non_la",
+    "raw_input": "che nắng che mưa; quạt cho mát; úp lại đựng trái cây; làm đạo cụ múa; treo tường trang trí quán",
+    "human": { "originality_avg": 1.0, "elaboration_avg": 2.6, "fluency": 5, "flexibility": 5 },
+    "note": "Nhãn seed."
+  },
+  {
+    "item_id": "non_la",
+    "raw_input": "đội đầu che nắng thôi",
+    "human": { "originality_avg": 0.0, "elaboration_avg": 1.0, "fluency": 1, "flexibility": 1 },
+    "note": "Một ý phổ biến duy nhất."
+  },
+  {
+    "item_id": "chai_nhua",
+    "raw_input": "cắt làm chậu cây; làm phao bơi buộc nhiều chai; bỏ sỏi lắc làm nhạc cụ; cắt làm phễu rót dầu; làm đèn lồng nhỏ",
+    "human": { "originality_avg": 1.2, "elaboration_avg": 2.4, "fluency": 5, "flexibility": 5 },
+    "note": "Nhãn seed."
+  },
+  {
+    "item_id": "chai_nhua",
+    "raw_input": "đựng nước, đựng nước sôi để nguội, đựng xăng",
+    "human": { "originality_avg": 0.33, "elaboration_avg": 1.33, "fluency": 3, "flexibility": 1 },
+    "note": "Cùng nhóm đồ chứa, flexibility thấp."
+  },
+  {
+    "item_id": "to_bao",
+    "raw_input": "gói cá ngoài chợ; nhồi giày cho hút ẩm; gấp thuyền cho trẻ; lót đáy lồng chim; vò làm mồi nhóm lửa",
+    "human": { "originality_avg": 1.0, "elaboration_avg": 2.6, "fluency": 5, "flexibility": 5 },
+    "note": "Nhãn seed."
+  },
+  {
+    "item_id": "day_thung",
+    "raw_input": "cột hàng lên xe; căng làm dây nhảy; thắt thang thoát hiểm; làm võng tạm; kéo co; buộc lều cắm trại",
+    "human": { "originality_avg": 0.83, "elaboration_avg": 2.5, "fluency": 6, "flexibility": 6 },
+    "note": "Nhãn seed."
+  }
+]
