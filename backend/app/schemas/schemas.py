@@ -18,7 +18,7 @@ class UserLogin(BaseModel):
 
 class UserOut(BaseModel):
     id: str
-    email: str
+    username: str
     full_name: str
     role: Literal["user", "admin"]
     created_at: datetime

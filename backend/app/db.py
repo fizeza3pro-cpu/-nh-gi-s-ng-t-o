@@ -31,6 +31,6 @@ def init_db() -> None:
     Ở giai đoạn sau khi đã ổn định schema, nên chuyển sang dùng Alembic
     (`alembic upgrade head`) thay vì gọi hàm này, để có lịch sử migration.
     """
-    from app import models  # noqa: F401
+    from app.models import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

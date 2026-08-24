@@ -40,7 +40,7 @@ from google import genai
 
 from app.config import settings
 from app.pipeline.llm import chat_json
-from app.schemas import Item, ScoringResult
+from app.schemas.schemas import Item, ScoringResult
 
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "single_call.txt"

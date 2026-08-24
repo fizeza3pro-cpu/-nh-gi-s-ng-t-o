@@ -12,9 +12,9 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Item as ItemModel
-from app.models import Response as ResponseModel
-from app.schemas import Item
+from app.models.models import Item as ItemModel
+from app.models.models import Response as ResponseModel
+from app.schemas.schemas import Item
 
 
 def load_items(db: Session) -> dict[str, Item]:

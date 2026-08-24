@@ -4,17 +4,17 @@ version = "0.1.0"
 description = "Backend cho phần mềm đánh giá AUT tiếng Việt"
 requires-python = ">=3.11"
 dependencies = [
-     "fastapi>=0.115.0",
-     "uvicorn[standard]>=0.30.0",
-     "pydantic>=2.8.0",
-     "pydantic-settings>=2.4.0",
-     "google-genai>=1.50.0",
-     "python-dotenv>=1.0.0",
-     "sqlalchemy>=2.0.30",
-     "psycopg[binary]>=3.2.0",
-     "alembic>=1.13.0",
-     "passlib[bcrypt]>=1.7.4",
-     "pyjwt>=2.9.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.4.0",
+    "google-genai>=1.50.0",
+    "python-dotenv>=1.0.0",
+    "sqlalchemy>=2.0.30",
+    "psycopg[binary]>=3.2.0",
+    "alembic>=1.13.0",
+    "bcrypt>=4.1.0",
+    "pyjwt>=2.9.0",
 ]
 
 [dependency-groups]

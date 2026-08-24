@@ -38,7 +38,7 @@ from google import genai
 
 from app.config import settings
 from app.pipeline.llm import chat_json
-from app.schemas import Item, MappingResult
+from app.schemas.schemas import Item, MappingResult
 
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "mapping.txt"

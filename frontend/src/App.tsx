@@ -5,6 +5,9 @@ import Home from "@/pages/Home";
 import Test from "@/pages/Test";
 import Result from "@/pages/Result";
 import Dashboard from "@/pages/Dashboard";
+import Login from "./components/auth/Login";
+import Register from "./components/auth/Register";
+import RequireAuth from "./components/auth/RequireAuth";
 
 export default function App() {
   return (
@@ -12,10 +15,17 @@ export default function App() {
       <SiteHeader />
       <main className="flex-1">
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/test/:itemId" element={<Test />} />
-          <Route path="/result/:responseId" element={<Result />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          {/* public router */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+
+          {/* protected router */}
+          <Route element={<RequireAuth />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/test/:itemId" element={<Test />} />
+            <Route path="/result/:responseId" element={<Result />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+          </Route>
         </Routes>
       </main>
       <SiteFooter />

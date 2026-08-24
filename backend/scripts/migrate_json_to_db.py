@@ -10,8 +10,8 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.db import SessionLocal, init_db
-from app.models import Item as ItemModel
-from app.models import Response as ResponseModel
+from app.models.models import Item as ItemModel
+from app.models.models import Response as ResponseModel
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BACKEND_DIR / "data"

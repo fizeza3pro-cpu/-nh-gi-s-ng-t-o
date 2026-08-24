@@ -12,7 +12,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from app.config import settings   # đọc DATABASE_URL từ .env
 from app.db import Base           # để autogenerate detect model
-from app import models            # noqa: F401  -- BẮT BUỘC import để models được đăng ký vào Base.metadata
+from app.models import models            # noqa: F401  -- BẮT BUỘC import để models được đăng ký vào Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

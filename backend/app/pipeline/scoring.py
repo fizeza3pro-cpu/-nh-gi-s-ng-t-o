@@ -129,7 +129,7 @@ from google import genai
 
 from app.config import settings
 from app.pipeline.llm import chat_json
-from app.schemas import Item, MappingResult, PerIdeaScore, ScoringResult
+from app.schemas.schemas import Item, MappingResult, PerIdeaScore, ScoringResult
 
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "scoring.txt"

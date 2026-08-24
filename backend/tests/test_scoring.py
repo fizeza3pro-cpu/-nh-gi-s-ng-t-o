@@ -1,6 +1,6 @@
 import json
 
-from app.schemas import Item, MappedIdea, MappingResult
+from app.schemas.schemas import Item, MappedIdea, MappingResult
 from app.pipeline.scoring import run_scoring
 from tests.fake_llm import FakeClient
 

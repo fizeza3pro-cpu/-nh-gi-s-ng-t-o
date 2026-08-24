@@ -55,3 +55,20 @@ export interface ResponseSummary {
   originality: number;
   elaboration: number;
 }
+
+// --- Auth ---
+
+export type UserRole = "user" | "admin";
+
+export interface User {
+  id: string;
+  username: string;
+  full_name: string;
+  role: UserRole;
+  created_at: string;
+}
+
+export interface AuthTokenResponse {
+  access_token: string;
+  token_type: string;
+}
