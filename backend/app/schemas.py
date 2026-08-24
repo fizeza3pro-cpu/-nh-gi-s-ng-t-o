@@ -2,17 +2,43 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+from datetime import datetime
+
+
+class UserRegister(BaseModel):
+    username: str
+    password: str = Field(min_length=8)
+    full_name: str = ""
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    full_name: str
+    role: Literal["user", "admin"]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}  # cho phép tạo trực tiếp từ models.User
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+
 class Item(BaseModel):
     id: str
     name: str
     description: str
     codes: list[str]
 
-class User(BaseModel):
-    id: str
-    name: str
-    username: str
-    password_hash
+
 
 
 class MappedIdea(BaseModel):
