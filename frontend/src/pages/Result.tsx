@@ -13,26 +13,54 @@ const STATUS_LABEL: Record<IdeaStatus, string> = {
   DUPLICATE: "Trùng",
 };
 
-const STATUS_VARIANT: Record<IdeaStatus, "success" | "secondary" | "warning"> = {
-  VALID: "success",
-  INVALID: "secondary",
-  DUPLICATE: "warning",
-};
+const STATUS_VARIANT: Record<IdeaStatus, "success" | "secondary" | "warning"> =
+  {
+    VALID: "success",
+    INVALID: "secondary",
+    DUPLICATE: "warning",
+  };
 
 export default function Result() {
   const { responseId } = useParams<{ responseId: string }>();
   const [resp, setResp] = useState<ScoreResponse | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!responseId) return;
+    if (!responseId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     const cached = readCachedResponse(responseId);
     if (cached) {
       setResp(cached);
+      setLoading(false);
       return;
     }
     // Cache miss (mở từ lịch sử hoặc reload) → lấy từ backend.
-    api.getResponse(responseId).then(setResp).catch(() => setResp(null));
+    api
+      .getResponse(responseId)
+      .then((data) => {
+        setResp(data);
+        setLoading(false);
+      })
+      .catch(() => {
+        setResp(null);
+        setLoading(false);
+      });
   }, [responseId]);
+
+  if (loading) {
+    return (
+      <div className="container max-w-xl py-24 text-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-muted-foreground">Đang tải kết quả...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!resp) {
     return (
@@ -66,8 +94,7 @@ export default function Result() {
           </p>
           <div className="mt-3 flex flex-wrap items-end justify-between gap-6">
             <h1 className="font-serif text-4xl font-medium tracking-tight md:text-5xl">
-              {item.name}{" "}
-              <span className="text-muted-foreground">·</span>{" "}
+              {item.name} <span className="text-muted-foreground">·</span>{" "}
               <span className="text-muted-foreground">đánh giá hoàn tất</span>
             </h1>
             <p className="font-mono text-xs text-muted-foreground">
@@ -75,10 +102,10 @@ export default function Result() {
             </p>
           </div>
           <p className="mt-4 max-w-2xl text-muted-foreground">
-            AI đã tách <strong className="text-foreground">{totalIdeas}</strong> ý
-            tưởng, trong đó{" "}
-            <strong className="text-foreground">{validCount}</strong> ý hợp lệ.
-            Dưới đây là điểm 4 chiều và bảng mapping minh bạch.
+            Bạn đã nghĩ ra{" "}
+            <strong className="text-foreground">{totalIdeas}</strong> ý tưởng,
+            trong đó <strong className="text-foreground">{validCount}</strong> ý
+            hợp lệ. Dưới đây là chi tiết đánh giá về ý tưởng của bạn.
           </p>
         </div>
       </section>
@@ -122,7 +149,9 @@ export default function Result() {
                 <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
                   Nhận xét tổng thể
                 </p>
-                <h2 className="mt-3 font-serif text-2xl">Bạn tư duy thế nào?</h2>
+                <h2 className="mt-3 font-serif text-2xl">
+                  Bạn tư duy thế nào?
+                </h2>
               </div>
               <blockquote className="border-l-2 border-foreground/40 pl-6 font-serif text-xl leading-relaxed text-foreground/90">
                 “{scoring.summary_vi}”
@@ -140,11 +169,10 @@ export default function Result() {
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
                 Tầng 1 · Semantic Normalization
               </p>
-              <h2 className="mt-3 font-serif text-2xl">AI đã hiểu mỗi ý ra sao</h2>
+              <h2 className="mt-3 font-serif text-2xl">
+                Chi tiết ý tưởng của bạn
+              </h2>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Bảng minh bạch giúp bạn kiểm tra mapping có đúng ý mình không.
-            </p>
           </div>
 
           <div className="mt-8 overflow-hidden rounded-xl border border-border">
@@ -164,13 +192,17 @@ export default function Result() {
                   return (
                     <tr
                       key={idx}
-                      className={cn(dimmed && "bg-muted/20 text-muted-foreground")}
+                      className={cn(
+                        dimmed && "bg-muted/20 text-muted-foreground",
+                      )}
                     >
                       <td className="px-4 py-4 align-top font-mono text-xs text-muted-foreground">
                         {(idx + 1).toString().padStart(2, "0")}
                       </td>
                       <td className="px-4 py-4 align-top leading-relaxed">
-                        {idea.original || <span className="italic">(trống)</span>}
+                        {idea.original || (
+                          <span className="italic">(trống)</span>
+                        )}
                       </td>
                       <td className="px-4 py-4 align-top leading-relaxed">
                         {idea.normalized}
@@ -240,7 +272,9 @@ function Metric({
   accent?: boolean;
 }) {
   return (
-    <div className={cn("bg-card p-7", accent && "bg-foreground text-background")}>
+    <div
+      className={cn("bg-card p-7", accent && "bg-foreground text-background")}
+    >
       <p
         className={cn(
           "text-[11px] uppercase tracking-[0.18em]",
@@ -249,7 +283,9 @@ function Metric({
       >
         {label}
       </p>
-      <p className="mt-3 font-serif text-5xl tabular-nums leading-none">{value}</p>
+      <p className="mt-3 font-serif text-5xl tabular-nums leading-none">
+        {value}
+      </p>
       <p
         className={cn(
           "mt-3 text-xs",
@@ -315,7 +351,15 @@ function PerIdeaSection({ resp }: { resp: ScoreResponse }) {
   );
 }
 
-function ScorePill({ label, value, max }: { label: string; value: number; max: number }) {
+function ScorePill({
+  label,
+  value,
+  max,
+}: {
+  label: string;
+  value: number;
+  max: number;
+}) {
   return (
     <div className="rounded-md border border-border bg-muted/40 px-3 py-1.5 text-center">
       <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ArrowRight, Sparkles, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,8 +35,26 @@ const DIMENSIONS = [
 ] as const;
 
 export default function Home() {
+  const location = useLocation();
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const hash = location.hash;
+    if (hash) {
+      const elementId = hash.replace("#", "");
+      const element = document.getElementById(elementId);
+
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }, 300);
+      }
+    }
+  }, [location]);
 
   useEffect(() => {
     api
@@ -62,8 +80,11 @@ export default function Home() {
             </h1>
             <p className="mt-6 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
               Alternative Uses Test (AUT) là bài kiểm tra kinh điển của Guilford
-              đo khả năng sáng tạo. Phiên bản tiếng Việt này dùng pipeline 2 tầng{" "}
-              <span className="font-medium text-foreground">Mapping → Scoring</span>{" "}
+              đo khả năng sáng tạo. Phiên bản tiếng Việt này dùng pipeline 2
+              tầng{" "}
+              <span className="font-medium text-foreground">
+                Mapping → Scoring
+              </span>{" "}
               để hiểu ý định người dùng trước khi chấm — kể cả khi câu trả lời
               tự do, lộn xộn, không cấu trúc.
             </p>
@@ -104,7 +125,9 @@ export default function Home() {
                       <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                         {label}
                       </p>
-                      <p className="mt-1 font-serif text-3xl tabular-nums">{value}</p>
+                      <p className="mt-1 font-serif text-3xl tabular-nums">
+                        {value}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -119,7 +142,10 @@ export default function Home() {
       </section>
 
       {/* Phương pháp */}
-      <section id="phuong-phap" className="border-b border-border/80 bg-muted/30">
+      <section
+        id="phuong-phap"
+        className="border-b border-border/80 bg-muted/30"
+      >
         <div className="container py-20">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
@@ -130,7 +156,8 @@ export default function Home() {
             </h2>
             <p className="mt-4 text-pretty text-muted-foreground">
               Pipeline tách bước hiểu nghĩa khỏi bước chấm điểm, để mỗi chiều
-              được đo trên ý tưởng đã chuẩn hoá — không bị nhiễu bởi cách diễn đạt.
+              được đo trên ý tưởng đã chuẩn hoá — không bị nhiễu bởi cách diễn
+              đạt.
             </p>
           </div>
 
@@ -138,13 +165,17 @@ export default function Home() {
             {DIMENSIONS.map((d) => (
               <article key={d.code} className="bg-card p-7">
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs text-muted-foreground">{d.code}</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {d.code}
+                  </span>
                   <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                     {d.vi}
                   </span>
                 </div>
                 <h3 className="mt-6 font-serif text-2xl">{d.name}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{d.body}</p>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                  {d.body}
+                </p>
               </article>
             ))}
           </div>

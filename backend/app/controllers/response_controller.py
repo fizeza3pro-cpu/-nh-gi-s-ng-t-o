@@ -14,6 +14,8 @@ from app.models.models import Response as ResponseModel
 from app.models.models import User as UserModel
 from app.pipeline.mapping import run_mapping
 from app.pipeline.scoring import run_scoring
+from app.pipeline.compute_scores import compute_response_scores
+from app.pipeline.code_stats_db import DBCodeStatsStore
 from app.schemas.schemas import (
     Item,
     MappedIdea,
@@ -75,7 +77,19 @@ def create_response(db: Session, req: ScoreRequest, current_user: UserModel) -> 
     else:
         client = _client()
         mapping, mapping_meta = run_mapping(item, raw, client)
-        scoring, scoring_meta = run_scoring(item, mapping, client)
+
+        # Fluency/Flexibility/Originality: công thức, dùng DBCodeStatsStore
+        # (cộng dồn ngay response này vào bảng tần suất tích lũy của item).
+        stats_store = DBCodeStatsStore(db)
+        fluency, flexibility, flex_codes, per_idea_orig, sufficient_data = (
+            compute_response_scores(item.id, mapping, stats_store)
+        )
+
+        # Elaboration: LLM, nhận điểm Originality đã tính sẵn để ghép lại.
+        scoring, scoring_meta = run_scoring(
+            item, fluency, flexibility, flex_codes, per_idea_orig, client
+        )
+        scoring_meta["originality_sufficient_data"] = sufficient_data
 
     response_id = str(uuid.uuid4())
     row = ResponseModel(

@@ -1,0 +1,25 @@
+{
+  "item_id": "day_thung",
+  "norm_version": "pilot_v1_synthetic_2026-08-30",
+  "total_valid_responses": 310,
+  "code_counts": {
+    "Buộc cây (làm giá đỡ)": 28,
+    "Buộc hàng hóa (vận chuyển)": 22,
+    "Buộc/cột đồ chung": 63,
+    "Dây cứu hộ tạm thời": 4,
+    "Dây leo trèo": 4,
+    "Dây nhảy": 21,
+    "Dây trang trí": 21,
+    "Dây treo": 25,
+    "Dây tập thể dục": 20,
+    "Giỏ đan": 5,
+    "Khung trang trí": 4,
+    "Kéo đồ": 28,
+    "Phơi quần áo": 29,
+    "Rào tạm": 3,
+    "Tay cầm xách đồ": 4,
+    "Tay kéo": 22,
+    "Võng đơn giản": 4,
+    "Đạo cụ sân khấu": 3
+  }
+}

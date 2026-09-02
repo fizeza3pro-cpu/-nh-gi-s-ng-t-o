@@ -119,7 +119,7 @@ export default function Dashboard() {
                 Làm một bài test để kết quả xuất hiện ở đây.
               </p>
               <Button asChild>
-                <Link to="/">
+                <Link to="/#chon-do-vat">
                   Bắt đầu test <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
@@ -142,15 +142,28 @@ export default function Dashboard() {
                 </thead>
                 <tbody className="divide-y divide-border bg-card">
                   {rows.map((r) => (
-                    <tr key={r.response_id} className="transition-colors hover:bg-muted/30">
+                    <tr
+                      key={r.response_id}
+                      className="transition-colors hover:bg-muted/30"
+                    >
                       <td className="whitespace-nowrap px-4 py-4 font-mono text-xs text-muted-foreground">
                         {fmtDate(r.created_at)}
                       </td>
-                      <td className="px-4 py-4 font-serif text-base">{r.item_name}</td>
-                      <td className="px-4 py-4 text-right font-mono tabular-nums">{r.fluency}</td>
-                      <td className="px-4 py-4 text-right font-mono tabular-nums">{r.flexibility}</td>
-                      <td className="px-4 py-4 text-right font-mono tabular-nums">{r.originality}</td>
-                      <td className="px-4 py-4 text-right font-mono tabular-nums">{r.elaboration}</td>
+                      <td className="px-4 py-4 font-serif text-base">
+                        {r.item_name}
+                      </td>
+                      <td className="px-4 py-4 text-right font-mono tabular-nums">
+                        {r.fluency}
+                      </td>
+                      <td className="px-4 py-4 text-right font-mono tabular-nums">
+                        {r.flexibility}
+                      </td>
+                      <td className="px-4 py-4 text-right font-mono tabular-nums">
+                        {r.originality}
+                      </td>
+                      <td className="px-4 py-4 text-right font-mono tabular-nums">
+                        {r.elaboration}
+                      </td>
                       <td className="px-4 py-4 text-right">
                         <Link
                           to={`/result/${r.response_id}`}

@@ -44,13 +44,23 @@ class Item(BaseModel):
 class MappedIdea(BaseModel):
     original: str
     normalized: str
-    code: str
+    code: str | None = None
     status: Literal["VALID", "INVALID", "DUPLICATE"]
+    is_valid: bool  # suy từ status trong mapping.py, KHÔNG do LLM trả về —
+                     # tách biệt khỏi status để logic tính điểm không phải
+                     # so string "VALID" rải rác nhiều nơi
     reason: str = ""
 
 
 class MappingResult(BaseModel):
     ideas: list[MappedIdea]
+
+
+# Trạng thái tần suất code của 1 item, đọc từ bảng item_code_counts/item_stats.
+class ItemCodeStats(BaseModel):
+    item_id: str
+    total_valid_responses: int
+    code_counts: dict[str, int]
 
 
 class PerIdeaScore(BaseModel):
