@@ -6,8 +6,8 @@ này ở response_controller.py, rồi ghép kết quả lại.
 """
 import json
 from pathlib import Path
-from google import genai
-
+# from google import genai
+from openai import OpenAI
 from app.config import settings
 from app.pipeline.llm import chat_json
 from app.schemas.schemas import Item, PerIdeaScore, ScoringResult
@@ -25,7 +25,7 @@ def build_prompt(item: Item, valid_ideas: list[dict]) -> str:
 
 
 def _elaborate_once(
-    item: Item, valid_ideas: list[dict], client: genai.Client
+    item: Item, valid_ideas: list[dict], client: OpenAI
 ) -> tuple[dict, dict]:
     prompt = build_prompt(item, valid_ideas)
     data, meta = chat_json(
@@ -53,7 +53,7 @@ def run_scoring(
     flexibility: int,
     flexibility_codes: list[str],
     per_idea_originality: list[PerIdeaScore],
-    client: genai.Client,
+    client: OpenAI,
     runs: int | None = None,
 ) -> tuple[ScoringResult, dict]:
     """Nhận Fluency/Flexibility/Originality ĐÃ TÍNH SẴN (từ compute_scores.py)

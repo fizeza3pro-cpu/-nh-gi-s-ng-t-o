@@ -116,24 +116,23 @@ export default function Result() {
           <div className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-2 lg:grid-cols-4">
             <Metric
               label="Fluency"
-              vi="Số ý hợp lệ"
+              vi="Số ý tưởng hợp lệ"
               value={scoring.fluency}
               accent
             />
             <Metric
               label="Flexibility"
-              vi="Số danh mục unique"
+              vi="Danh mục bạn đã nghĩ ra"
               value={scoring.flexibility}
-              hint={scoring.flexibility_codes.join(" · ")}
             />
             <Metric
               label="Originality"
-              vi={`Trung bình ${avgOriginality} / 2`}
+              vi={`Điểm độc đáo về các ý tưởng của bạn Trung bình ${avgOriginality} / 2`}
               value={scoring.originality}
             />
             <Metric
               label="Elaboration"
-              vi={`Trung bình ${avgElaboration} / 5`}
+              vi={`Điểm số thể hiện độ mạch lạc của ý tưởng; Trung bình ${avgElaboration} / 5`}
               value={scoring.elaboration}
             />
           </div>

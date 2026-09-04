@@ -4,9 +4,10 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from google import genai
+# from google import genai
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from openai import OpenAI
 
 from app.config import settings
 from app.models.models import Item as ItemModel
@@ -28,10 +29,22 @@ from app.schemas.schemas import (
 )
 
 
-def _client() -> genai.Client:
-    if not settings.google_api_key:
+def _client() -> OpenAI:
+    if not settings.openrouter_api_key:
         raise HTTPException(status_code=500, detail="GOOGLE_API_KEY chưa được cấu hình.")
-    return genai.Client(api_key=settings.google_api_key)
+    return OpenAI(api_key=settings.openrouter_api_key)
+
+
+
+
+
+def _client() -> OpenAI:
+    if not settings.openrouter_api_key:
+        raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY chưa được cấu hình.")
+    return OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.openrouter_api_key,
+    )
 
 
 def _mock_score(item: Item, raw: str) -> tuple:
@@ -73,7 +86,7 @@ def create_response(db: Session, req: ScoreRequest, current_user: UserModel) -> 
     item = Item(id=item_row.id, name=item_row.name, description=item_row.description, codes=item_row.codes)
 
     if settings.mock_mode:
-        mapping, mapping_meta, scoring, scoring_meta = _mock_score(item, raw)
+        mapping, mapping_meta, scoring, scoring_meta = _mock_score(item, raw) 
     else:
         client = _client()
         mapping, mapping_meta = run_mapping(item, raw, client)

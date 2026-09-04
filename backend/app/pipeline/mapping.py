@@ -1,6 +1,6 @@
 from pathlib import Path
-from google import genai
-
+# from google import genai
+from openai import OpenAI
 from app.config import settings
 from app.pipeline.llm import chat_json
 from app.schemas.schemas import Item, MappingResult
@@ -20,7 +20,7 @@ def build_prompt(item: Item, raw_input: str) -> str:
     )
 
 
-def run_mapping(item: Item, raw_input: str, client: genai.Client) -> tuple[MappingResult, dict]:
+def run_mapping(item: Item, raw_input: str, client: OpenAI) -> tuple[MappingResult, dict]:
     prompt = build_prompt(item, raw_input)
     data, meta = chat_json(
         client,
