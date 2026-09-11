@@ -72,3 +72,46 @@ export interface AuthTokenResponse {
   access_token: string;
   token_type: string;
 }
+
+// --- Admin ---
+
+export interface AdminItemBreakdown {
+  item_id: string;
+  item_name: string;
+  response_count: number;
+  avg_fluency: number;
+  avg_flexibility: number;
+  avg_originality: number;
+  avg_elaboration: number;
+}
+
+export interface AdminDailyStat {
+  date: string;
+  count: number;
+  avg_score: number;
+}
+
+export interface AdminDashboardStats {
+  total_users: number;
+  total_responses: number;
+  responses_last_7_days: number;
+  responses_previous_7_days: number;
+  daily_stats: AdminDailyStat[];
+  by_item: AdminItemBreakdown[];
+  recent_responses: ResponseSummary[];
+}
+
+export interface AdminUserSummary {
+  id: string;
+  username: string;
+  full_name: string;
+  role: UserRole;
+  created_at: string;
+  response_count: number;
+  last_submitted_at: string | null;
+}
+
+export interface AdminUserDetail {
+  user: User;
+  responses: ResponseSummary[];
+}

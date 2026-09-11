@@ -1,10 +1,5 @@
 """
-Tính Fluency, Flexibility, Originality bằng công thức xác định
-(deterministic), KHÔNG dùng LLM — cho MỘT response vừa submit.
 
-Nhận stats_store (DBCodeStatsStore) làm tham số thay vì import singleton
-toàn cục — vì mỗi request có 1 Session/transaction riêng (FastAPI
-Depends(get_db)), không thể dùng chung 1 store cho mọi request.
 """
 from app.schemas.schemas import MappingResult, PerIdeaScore
 from app.pipeline.code_stats_db import DBCodeStatsStore

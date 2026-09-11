@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, items, responses
+from app.routers import auth, items, responses,admin
 
 app = FastAPI(title="AUT tiếng Việt — API")
 
@@ -17,6 +17,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(items.router)
 app.include_router(responses.router)
+app.include_router(admin.router)
 
 
 @app.get("/api/health")

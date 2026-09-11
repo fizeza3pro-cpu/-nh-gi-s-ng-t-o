@@ -110,7 +110,9 @@ export default function Test() {
               <p
                 className={cn(
                   "font-mono text-2xl font-medium tabular-nums tracking-tight",
-                  lowTime && secondsLeft > 0 && "text-destructive animate-pulse",
+                  lowTime &&
+                    secondsLeft > 0 &&
+                    "text-destructive animate-pulse",
                   secondsLeft === 0 && "text-destructive",
                 )}
               >
@@ -125,7 +127,11 @@ export default function Test() {
                 disabled={secondsLeft === 0 || submitting}
                 aria-label={running ? "Tạm dừng" : "Tiếp tục"}
               >
-                {running ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                {running ? (
+                  <Pause className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
               </Button>
             ) : (
               <Button onClick={startTimer} disabled={!item}>
@@ -175,15 +181,12 @@ export default function Test() {
             <ol className="mt-3 space-y-2.5 text-sm leading-relaxed text-muted-foreground">
               <li>
                 <span className="font-medium text-foreground">1.</span> Liệt kê
-                càng nhiều cách dùng <em>khác công dụng thông thường</em> càng tốt.
+                càng nhiều cách dùng <em>khác công dụng thông thường</em> càng
+                tốt.
               </li>
               <li>
                 <span className="font-medium text-foreground">2.</span> Viết tự
                 do — gạch đầu dòng, viết hoa thường, sai chính tả đều được.
-              </li>
-              <li>
-                <span className="font-medium text-foreground">3.</span> AI sẽ
-                tự tách ý, hiểu nghĩa, và gán danh mục trước khi chấm điểm.
               </li>
             </ol>
           </div>
@@ -223,8 +226,8 @@ export default function Test() {
           <div className="mt-6 flex flex-col-reverse items-stretch justify-between gap-4 sm:flex-row sm:items-center">
             <p className="text-xs leading-relaxed text-muted-foreground">
               Khi bấm <strong className="text-foreground">Nộp bài</strong>, AI
-              sẽ chạy 2 lượt: chuẩn hoá ý tưởng, sau đó chấm Fluency · Flexibility
-              · Originality · Elaboration.
+              sẽ chạy 2 lượt: chuẩn hoá ý tưởng, sau đó chấm Fluency ·
+              Flexibility · Originality · Elaboration.
             </p>
             <Button
               size="lg"

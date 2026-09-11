@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     openrouter_api_key: str
-    llm_model: str = "minimax/minimax-m3:free"
+    llm_model: str = "poolside/laguna-s-2.1:free"
     mapping_temperature: float = 0.1
     scoring_temperature: float = 0.4
     scoring_runs: int = 1

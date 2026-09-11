@@ -37,6 +37,9 @@ export default function SiteHeader() {
             { to: "/#phuong-phap", label: "Phương pháp" },
             { to: "/#chon-do-vat", label: "Bắt đầu test" },
             { to: "/dashboard", label: "Lịch sử" },
+            ...(user?.role === "admin"
+              ? [{ to: "/admin", label: "Admin" }]
+              : []),
           ].map((link) => (
             <NavLink
               key={link.to}

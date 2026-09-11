@@ -87,7 +87,3 @@ class DBCodeStatsStore:
         )
 
 
-# LƯU Ý: các hàm trên chỉ flush(), KHÔNG tự commit(). response_controller.py
-# gọi db.commit() SAU KHI toàn bộ pipeline (mapping + compute_scores +
-# elaboration LLM + lưu Response) chạy xong không lỗi — để tần suất
-# code_stats và bản ghi Response luôn nhất quán trong CÙNG 1 transaction.

@@ -1,4 +1,7 @@
 import type {
+  AdminDashboardStats,
+  AdminUserDetail,
+  AdminUserSummary,
   AuthTokenResponse,
   Item,
   ResponseSummary,
@@ -65,7 +68,6 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }).then(handle<AuthTokenResponse>),
 
-
   me: () =>
     fetch(`${BASE}/auth/me`, { headers: authHeaders() }).then(handle<User>),
 
@@ -91,6 +93,22 @@ export const api = {
   getResponse: (id: string) =>
     fetch(`${BASE}/responses/${id}`, { headers: authHeaders() }).then(
       handle<ScoreResponse>,
+    ),
+
+  // --- Admin (cần role admin, backend tự chặn 403 nếu không đủ quyền) ---
+  adminDashboard: () =>
+    fetch(`${BASE}/admin/dashboard`, { headers: authHeaders() }).then(
+      handle<AdminDashboardStats>,
+    ),
+
+  adminListUsers: () =>
+    fetch(`${BASE}/admin/users`, { headers: authHeaders() }).then(
+      handle<AdminUserSummary[]>,
+    ),
+
+  adminUserDetail: (userId: string) =>
+    fetch(`${BASE}/admin/users/${userId}`, { headers: authHeaders() }).then(
+      handle<AdminUserDetail>,
     ),
 };
 
