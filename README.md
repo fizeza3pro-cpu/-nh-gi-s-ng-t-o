@@ -1,5 +1,5 @@
-# Hướng dẫn chạy phần mềm đánh giá AUT tiếng Việt
 
+<<<<<<< HEAD
 Làm theo đúng thứ tự từ trên xuống. Ứng dụng gồm **2 phần chạy song song**:
 backend (FastAPI, cổng 8000) và frontend (React/Vite, cổng 5173). Vì vậy bạn
 cần **mở 2 cửa sổ terminal**.
@@ -141,3 +141,5 @@ Về mỗi terminal (1 và 2) bấm **Ctrl + C**. Đóng 2 cửa sổ là xong.
 | `npm: command not found`                                  | Chưa cài Node.js. Cài lại (Bước 0).                                                    |
 | Cổng 8000 hoặc 5173 báo "address already in use"          | Đã có tiến trình cũ chiếm cổng. Đóng terminal cũ, hoặc khởi động lại máy rồi chạy lại. |
 | Nộp bài báo lỗi khi `MOCK_MODE=false`                     | Sai/thiếu `OPENAI_API_KEY` trong `backend/.env`, hoặc key hết hạn mức.                 |
+=======
+>>>>>>> be79ab9818d0bb564329d76515b25d60e4f28afa
