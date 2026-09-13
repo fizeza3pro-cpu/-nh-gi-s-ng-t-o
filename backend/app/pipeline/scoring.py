@@ -1,9 +1,4 @@
-"""Scoring stage — CHỈ còn Elaboration dùng LLM.
-
-Fluency/Flexibility/Originality được tính bằng công thức trong
-compute_scores.py (dùng DBCodeStatsStore), gọi TRƯỚC hàm run_scoring()
-này ở response_controller.py, rồi ghép kết quả lại.
-"""
+"""Tầng chấm điểm: công thức cho ba chỉ số và LLM cho Elaboration."""
 import json
 from pathlib import Path
 # from google import genai
@@ -56,8 +51,7 @@ def run_scoring(
     client: OpenAI,
     runs: int | None = None,
 ) -> tuple[ScoringResult, dict]:
-    """Nhận Fluency/Flexibility/Originality ĐÃ TÍNH SẴN (từ compute_scores.py)
-    làm tham số, chỉ gọi LLM để chấm Elaboration rồi ghép kết quả."""
+    """Nhận ba chỉ số đã tính từ snapshot động, rồi chấm Elaboration."""
     if not per_idea_originality:
         return (
             ScoringResult(

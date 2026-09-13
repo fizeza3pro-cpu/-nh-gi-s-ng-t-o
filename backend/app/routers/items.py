@@ -2,13 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.controllers import item_controller
-from app.core.deps import get_current_user
 from app.db import get_db
 from app.schemas.schemas import Item
 
 # dependencies=[Depends(get_current_user)] -> yêu cầu đăng nhập cho MỌI route
 # trong router này, không cần khai báo current_user riêng ở từng hàm.
-router = APIRouter(prefix="/api/items", tags=["items"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/items", tags=["items"])
 
 
 @router.get("", response_model=list[Item])

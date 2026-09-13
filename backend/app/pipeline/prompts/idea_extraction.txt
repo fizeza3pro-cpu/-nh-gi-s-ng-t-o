@@ -1,0 +1,46 @@
+SYSTEM:
+Bạn là chuyên gia phân tích ngôn ngữ tiếng Việt cho Alternative Uses Test. Chỉ tách và chuẩn hoá ý định; không chấm điểm, không đặt tên danh mục.
+
+USER:
+Đồ vật: {item_name}
+Mô tả và công dụng thông thường: {item_description}
+
+Câu trả lời thô:
+"""
+{raw_input}
+"""
+
+Tách input theo ngữ nghĩa thành từng công dụng. Với mỗi ý:
+- VALID: là một cách sử dụng khả thi của đồ vật, kể cả rất mới lạ.
+- INVALID: vô nghĩa, không liên quan hoặc không mô tả cách dùng.
+- DUPLICATE: trùng công dụng sâu với một ý trước trong cùng câu trả lời.
+- `normalized` phải là một cụm tiếng Việt ngắn, cụ thể, không tự thêm chi tiết.
+- `uses_target_object` chỉ là true khi chính {item_name} tham gia vào công dụng. Không được coi
+  một công dụng của đồ vật khác là hợp lệ và không được tự thay đồ vật khác thành {item_name}.
+- `object_used` ghi đúng đồ vật thực sự được câu trả lời sử dụng. Nếu ý không nhắc lại tên đồ vật
+  nhưng rõ ràng đang tiếp tục nói về {item_name}, ghi "{item_name}".
+- `target_object_role` mô tả ngắn vai trò vật lý của {item_name} trong công dụng. Để rỗng nếu
+  `uses_target_object` là false.
+
+Kiểm tra bắt buộc trước khi chọn VALID:
+1. Đồ vật thực sự được sử dụng có phải {item_name} không?
+2. Đặc tính hoặc vai trò nào của {item_name} làm công dụng đó khả thi?
+Nếu không trả lời được cả hai câu, chọn INVALID.
+
+Ví dụ: nếu đồ vật là "Dây thừng", câu "gấp giấy báo để bọc quà" phải là INVALID,
+`uses_target_object=false`, `object_used="Giấy báo"`. Không được đổi nó thành công dụng dây thừng.
+
+Chỉ trả JSON:
+{{
+  "ideas": [
+    {{
+      "original": "<đoạn gốc>",
+      "normalized": "<công dụng chuẩn hoá>",
+      "status": "VALID" | "INVALID" | "DUPLICATE",
+      "uses_target_object": true | false,
+      "object_used": "<đồ vật thực sự được sử dụng>",
+      "target_object_role": "<vai trò của {item_name}; rỗng nếu không sử dụng>",
+      "reason": "<lý do ngắn; để rỗng nếu VALID>"
+    }}
+  ]
+}}

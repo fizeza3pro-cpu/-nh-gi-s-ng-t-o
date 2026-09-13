@@ -8,7 +8,7 @@ from app.schemas.schemas import Item
 
 
 def _to_schema(row: ItemModel) -> Item:
-    return Item(id=row.id, name=row.name, description=row.description, codes=row.codes)
+    return Item(id=row.id, name=row.name, description=row.description)
 
 
 def get_all_items(db: Session) -> list[Item]:

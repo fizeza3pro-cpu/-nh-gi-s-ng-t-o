@@ -21,31 +21,29 @@
 |---|---|---|
 | Backend | **FastAPI** (Python ≥ 3.11) | Gọi LLM, chạy pipeline, tính ICC/Pearson |
 | Frontend | **React + Vite** (TypeScript) | Trang test + dashboard kết quả |
-| LLM | **OpenAI GPT-4o** | Cả 2 tầng; temperature thấp cho Mapping, 0.3–0.5 cho Scoring |
-| Storage | **JSON files** (giai đoạn pilot) | Một file/response trong `data/responses/`; migrate sang SQLite khi cần |
+| LLM | **OpenRouter qua OpenAI SDK** | Model cấu hình trong `.env`; có `MOCK_MODE` để kiểm thử |
+| Storage | **PostgreSQL + SQLAlchemy** | Participant, response, ý tưởng, code động và snapshot phiên bản |
 | Ngôn ngữ UI | **Tiếng Việt toàn bộ** | Không trộn tiếng Anh ở giao diện người dùng |
 
 Khi pipeline đã ổn (cuối Giai đoạn 3), có thể bọc LLM call qua adapter để dễ swap sang Claude/local model — **chưa làm sớm**.
 
-### A.3. Cấu trúc thư mục (gợi ý, tạo dần khi có code)
+### A.3. Cấu trúc thư mục hiện tại
 
 ```
-D:\AUT\
-├── CLAUDE.md                  ← file này
+D:\AUT-demo\
+├── md.md                      ← file này
 ├── backend/
 │   ├── app/
 │   │   ├── main.py            ← FastAPI entry
 │   │   ├── pipeline/
-│   │   │   ├── mapping.py     ← Tầng 1
+│   │   │   ├── dynamic_mapping.py  ← tách ý + curator code động
+│   │   │   ├── codebook_service.py ← snapshot và tần suất code
 │   │   │   ├── scoring.py     ← Tầng 2
 │   │   │   └── prompts/       ← prompt templates (.txt riêng)
-│   │   ├── items/             ← bộ đồ vật + Code List tiếng Việt
-│   │   ├── storage.py         ← read/write JSON
-│   │   └── validation/        ← script tính ICC, Pearson, mapping accuracy
-│   ├── data/
-│   │   ├── items.json
-│   │   ├── responses/         ← raw + mapped + scored, 1 file/response
-│   │   └── human_ratings/     ← ground truth do human rater gán
+│   │   ├── models/             ← SQLAlchemy ORM
+│   │   ├── controllers/        ← nghiệp vụ API
+│   │   └── validation/stats.py ← hàm thống kê thuần tuý
+│   ├── alembic/                ← lịch sử schema PostgreSQL
 │   ├── tests/
 │   └── pyproject.toml
 └── frontend/
@@ -58,9 +56,9 @@ D:\AUT\
 - **Tất cả text hiển thị cho người dùng → tiếng Việt.** Identifier (biến/hàm/class) → tiếng Anh. Bình luận: chỉ khi WHY không hiển nhiên.
 - **Đừng** tự tạo file `.md` mới (notes, design doc) nếu không được yêu cầu.
 - **Đừng** thêm framework hoặc abstraction "phòng tương lai" (auth provider, plugin system, multi-tenancy…).
-- LLM API key đọc từ `OPENAI_API_KEY` qua `.env` (**không commit**); có `.env.example`.
+- LLM API key đọc từ `OPENROUTER_API_KEY` qua `.env` (**không commit**).
 - Prompt template lưu thành file `.txt` riêng, **không hard-code** vào logic Python (để dễ A/B test).
-- Log nguyên văn mọi LLM response (timestamp, model, temperature, response_id) vào `data/responses/<id>/`. Đây là nguồn duy nhất để debug và rerun.
+- Metadata và kết quả LLM được lưu cùng response/idea trong PostgreSQL để debug và tái xử lý.
 
 ### A.5. Lệnh dev (cập nhật khi có code)
 
@@ -68,6 +66,7 @@ D:\AUT\
 # Backend
 cd backend
 uv sync
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload   # http://localhost:8000
 
 # Frontend
@@ -75,9 +74,9 @@ cd frontend
 npm install
 npm run dev                            # http://localhost:5173
 
-# Validation
-uv run python -m app.validation.mapping_accuracy
-uv run python -m app.validation.icc
+# Test
+cd ../backend
+uv run pytest -q
 ```
 
 ---

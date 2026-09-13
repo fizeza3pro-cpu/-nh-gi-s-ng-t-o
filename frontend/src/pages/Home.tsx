@@ -10,26 +10,22 @@ import type { Item } from "@/lib/types";
 const DIMENSIONS = [
   {
     code: "I",
-    name: "Fluency",
-    vi: "Số lượng ý tưởng",
+    name: "Số lượng ý tưởng",
     body: "Đếm số ý tưởng hợp lệ. Càng nhiều ý tưởng phù hợp, điểm càng cao.",
   },
   {
     code: "II",
-    name: "Flexibility",
-    vi: "Sự đa dạng",
+    name: "Sự đa dạng",
     body: "Đo số nhóm ý tưởng khác nhau. Các ý tưởng cùng nhóm không cộng thêm.",
   },
   {
     code: "III",
-    name: "Originality",
-    vi: "Độ độc đáo",
+    name: "Độ độc đáo",
     body: "Đánh giá mức độ mới lạ và khác biệt của từng ý tưởng.",
   },
   {
     code: "IV",
-    name: "Elaboration",
-    vi: "Mức độ chi tiết",
+    name: "Mức độ chi tiết",
     body: "Đánh giá độ rõ ràng, cụ thể và đầy đủ trong cách mô tả ý tưởng.",
   },
 ] as const;
@@ -73,10 +69,10 @@ const SAMPLE_RESULTS = [
   {
     object: "Đũa",
     scores: [
-      { label: "Fluency", value: "7" },
-      { label: "Flexibility", value: "5" },
-      { label: "Originality", value: "3" },
-      { label: "Elaboration", value: "16" },
+      { label: "Số ý", value: "7" },
+      { label: "Đa dạng", value: "5" },
+      { label: "Độc đáo", value: "3" },
+      { label: "Chi tiết", value: "16" },
     ],
     quote:
       "Ý tưởng linh hoạt ở nhóm vũ khí và nhạc cụ, nhưng có thể đẩy độ độc đáo của ý tưởng cao hơn bằng các công dụng trong nấu nướng.",
@@ -84,10 +80,10 @@ const SAMPLE_RESULTS = [
   {
     object: "Ly giấy",
     scores: [
-      { label: "Fluency", value: "9" },
-      { label: "Flexibility", value: "6" },
-      { label: "Originality", value: "5" },
-      { label: "Elaboration", value: "21" },
+      { label: "Số ý", value: "9" },
+      { label: "Đa dạng", value: "6" },
+      { label: "Độc đáo", value: "5" },
+      { label: "Chi tiết", value: "21" },
     ],
     quote:
       "Ý tưởng trải đều nhiều danh mục, đặc biệt mạnh ở nhóm đồ chơi và dụng cụ đo lường tự chế.",
@@ -95,10 +91,10 @@ const SAMPLE_RESULTS = [
   {
     object: "Kẹp giấy",
     scores: [
-      { label: "Fluency", value: "11" },
-      { label: "Flexibility", value: "4" },
-      { label: "Originality", value: "6" },
-      { label: "Elaboration", value: "12" },
+      { label: "Số ý", value: "11" },
+      { label: "Đa dạng", value: "4" },
+      { label: "Độc đáo", value: "6" },
+      { label: "Chi tiết", value: "12" },
     ],
     quote:
       "Nhiều ý táo bạo nhưng tập trung quanh nhóm công cụ nhỏ, thử mở rộng sang nghệ thuật hoặc trang sức.",
@@ -197,7 +193,7 @@ export default function Home() {
             <p className="mt-6 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
               {" "}
               <span className="font-medium text-foreground">
-                Alternative Uses Test (AUT)
+                Bài kiểm tra công dụng thay thế (AUT)
               </span>{" "}
               là bài kiểm tra tư duy sáng tạo của Guilford. Từ những đồ vật quen
               thuộc, hãy thử nghĩ ra những cách sử dụng khác biệt nhất. Mỗi câu
@@ -209,7 +205,7 @@ export default function Home() {
             <div className="mt-10 flex flex-wrap items-center gap-4">
               <Button asChild size="lg">
                 <a href="#chon-do-vat">
-                  Bắt đầu test <ArrowRight className="h-4 w-4" />
+                  Bắt đầu khảo sát <ArrowRight className="h-4 w-4" />
                 </a>
               </Button>
               <Button asChild variant="ghost" size="lg">
@@ -274,7 +270,7 @@ export default function Home() {
               BỐN KHÍA CẠNH CỦA TƯ DUY SÁNG TẠO
             </p>
             <h2 className="mt-3 font-serif text-3xl font-medium tracking-tight md:text-4xl">
-              Một bài test, bốn lăng kính.
+              Một bài khảo sát, bốn lăng kính.
             </h2>
             <p className="mt-4 text-pretty text-muted-foreground">
               Mỗi câu trả lời được phân tích qua bốn khía cạnh khác nhau, từ số
@@ -298,7 +294,7 @@ export default function Home() {
                     {d.code}
                   </span>
                   <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                    {d.vi}
+                    Tiêu chí {d.code}
                   </span>
                 </div>
                 <h3 className="mt-6 font-serif text-2xl text-center">
@@ -367,7 +363,7 @@ export default function Home() {
                           {(idx + 1).toString().padStart(2, "0")}
                         </span>
                         <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                          {item.codes.length} danh mục
+                          Sổ mã động
                         </span>
                       </div>
                       <h3 className="font-serif text-3xl">{item.name}</h3>

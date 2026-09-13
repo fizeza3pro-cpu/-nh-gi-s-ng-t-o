@@ -1,9 +1,16 @@
 import type {
   AdminDashboardStats,
-  AdminUserDetail,
-  AdminUserSummary,
+  AdminCuratorAudit,
+  AdminExtractionAudit,
+  AdminCodePatch,
+  AdminCodebookSummary,
+  AdminParticipantDetail,
+  AdminParticipantSummary,
   AuthTokenResponse,
   Item,
+  ParticipantIdentity,
+  ParticipantIdentifyResult,
+  ParticipantProfile,
   ResponseSummary,
   ScoreResponse,
   User,
@@ -11,6 +18,8 @@ import type {
 
 const BASE = "/api";
 const TOKEN_KEY = "aut:token";
+const PARTICIPANT_ID_KEY = "aut:participant-id";
+const PARTICIPANT_PROFILE_KEY = "aut:participant-email-profile:v1";
 
 // --- Quản lý token (localStorage) ---
 export function getToken(): string | null {
@@ -23,6 +32,35 @@ export function setToken(token: string) {
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getParticipantId(): string | null {
+  return localStorage.getItem(PARTICIPANT_ID_KEY);
+}
+
+export function hasParticipantProfile(): boolean {
+  return Boolean(
+    getParticipantId() && localStorage.getItem(PARTICIPANT_PROFILE_KEY) === "created",
+  );
+}
+
+export function clearParticipantProfile(): void {
+  localStorage.removeItem(PARTICIPANT_PROFILE_KEY);
+  localStorage.removeItem(PARTICIPANT_ID_KEY);
+}
+
+function rememberParticipant<T extends { id: string }>(participant: T): T {
+  localStorage.setItem(PARTICIPANT_ID_KEY, participant.id);
+  localStorage.setItem(PARTICIPANT_PROFILE_KEY, "created");
+  return participant;
+}
+
+function participantHeaders(extra?: Record<string, string>): Record<string, string> {
+  const participantId = getParticipantId();
+  return {
+    ...extra,
+    ...(participantId ? { "X-Participant-Id": participantId } : {}),
+  };
 }
 
 async function handle<T>(res: Response): Promise<T> {
@@ -53,14 +91,7 @@ export const api = {
   health: () =>
     fetch(`${BASE}/health`).then(handle<{ status: string; model: string }>),
 
-  // --- Auth (không cần token) ---
-  register: (username: string, password: string, fullName: string) =>
-    fetch(`${BASE}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, full_name: fullName }),
-    }).then(handle<User>),
-
+  // --- Auth chỉ dành cho admin ---
   login: (username: string, password: string) =>
     fetch(`${BASE}/auth/login`, {
       method: "POST",
@@ -71,17 +102,38 @@ export const api = {
   me: () =>
     fetch(`${BASE}/auth/me`, { headers: authHeaders() }).then(handle<User>),
 
-  // --- Cần đăng nhập ---
-  listItems: () =>
-    fetch(`${BASE}/items`, { headers: authHeaders() }).then(handle<Item[]>),
+  // --- Khảo sát công khai ---
+  listItems: () => fetch(`${BASE}/items`).then(handle<Item[]>),
 
-  getItem: (id: string) =>
-    fetch(`${BASE}/items/${id}`, { headers: authHeaders() }).then(handle<Item>),
+  getItem: (id: string) => fetch(`${BASE}/items/${id}`).then(handle<Item>),
+
+  identifyParticipant: async (email: string) => {
+    const participantId = getParticipantId();
+    const result = await fetch(`${BASE}/participants/identify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        ...(participantId ? { participant_id: participantId } : {}),
+      }),
+    }).then(handle<ParticipantIdentifyResult>);
+    if (result.participant) rememberParticipant(result.participant);
+    return result;
+  },
+
+  createParticipant: async (email: string, profile: ParticipantProfile) => {
+    const participant = await fetch(`${BASE}/participants`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, ...profile }),
+    }).then(handle<ParticipantIdentity>);
+    return rememberParticipant(participant);
+  },
 
   score: (itemId: string, rawInput: string) =>
     fetch(`${BASE}/score`, {
       method: "POST",
-      headers: authHeaders({ "Content-Type": "application/json" }),
+      headers: participantHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ item_id: itemId, raw_input: rawInput }),
     }).then(handle<ScoreResponse>),
 
@@ -91,9 +143,7 @@ export const api = {
     ),
 
   getResponse: (id: string) =>
-    fetch(`${BASE}/responses/${id}`, { headers: authHeaders() }).then(
-      handle<ScoreResponse>,
-    ),
+    fetch(`${BASE}/responses/${id}`).then(handle<ScoreResponse>),
 
   // --- Admin (cần role admin, backend tự chặn 403 nếu không đủ quyền) ---
   adminDashboard: () =>
@@ -101,15 +151,85 @@ export const api = {
       handle<AdminDashboardStats>,
     ),
 
-  adminListUsers: () =>
-    fetch(`${BASE}/admin/users`, { headers: authHeaders() }).then(
-      handle<AdminUserSummary[]>,
+  adminListParticipants: () =>
+    fetch(`${BASE}/admin/participants`, { headers: authHeaders() }).then(
+      handle<AdminParticipantSummary[]>,
     ),
 
-  adminUserDetail: (userId: string) =>
-    fetch(`${BASE}/admin/users/${userId}`, { headers: authHeaders() }).then(
-      handle<AdminUserDetail>,
+  adminParticipantDetail: (participantId: string) =>
+    fetch(`${BASE}/admin/participants/${participantId}`, { headers: authHeaders() }).then(
+      handle<AdminParticipantDetail>,
     ),
+
+  adminListCodebooks: () =>
+    fetch(`${BASE}/admin/items/codebooks`, { headers: authHeaders() }).then(
+      handle<AdminCodebookSummary[]>,
+    ),
+
+  adminCodebook: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/codebook`, { headers: authHeaders() }).then(
+      handle<AdminCodebookSummary>,
+    ),
+
+  adminExtractionAudit: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/extraction-audit`, {
+      headers: authHeaders(),
+    }).then(handle<AdminExtractionAudit>),
+
+  adminCuratorAudit: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/curator-audit`, {
+      headers: authHeaders(),
+    }).then(handle<AdminCuratorAudit>),
+
+  adminUpdateCode: (itemId: string, codeId: string, patch: AdminCodePatch) =>
+    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}`, {
+      method: "PATCH",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(patch),
+    }).then(handle<AdminCodebookSummary>),
+
+  adminArchiveCode: (itemId: string, codeId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}/archive`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handle<AdminCodebookSummary>),
+
+  adminRestoreCode: (itemId: string, codeId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}/restore`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handle<AdminCodebookSummary>),
+
+  adminMergeCode: (itemId: string, codeId: string, targetCodeId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}/merge`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ target_code_id: targetCodeId }),
+    }).then(handle<AdminCodebookSummary>),
+
+  adminDeleteCode: (itemId: string, codeId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(handle<AdminCodebookSummary>),
+
+  adminDeleteAllCodes: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/codes`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(handle<AdminCodebookSummary>),
+
+  adminReprocessItem: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/reprocess`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handle<{ processed: number }>),
+
+  adminRemapItem: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/remap`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handle<{ processed: number }>),
 };
 
 const SESSION_KEY = "aut:last-response";

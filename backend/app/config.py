@@ -9,6 +9,14 @@ class Settings(BaseSettings):
     mapping_temperature: float = 0.1
     scoring_temperature: float = 0.4
     scoring_runs: int = 1
+    code_curator_model: str | None = None
+    code_curator_temperature: float = 0.1
+    code_accept_confidence: float = 0.82
+    code_uncertain_confidence: float = 0.60
+    code_stable_min_participants: int = 3
+    calibration_min_participants: int = 30
+    originality_min_participants: int = 100
+    codebook_refresh_interval: int = 20
     cors_origins: str = "http://localhost:5173"
     mock_mode: bool = False
 
@@ -18,6 +26,7 @@ class Settings(BaseSettings):
     # --- Auth (dùng ở bước tiếp theo: đăng nhập / phân quyền) ---
     jwt_secret: str = "change-me-in-env"
     jwt_expire_minutes: int = 60 * 24
+    participant_email_secret: str | None = None
 
 
 settings = Settings()

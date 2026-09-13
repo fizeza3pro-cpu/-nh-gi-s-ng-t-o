@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -20,7 +20,7 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const from = (location.state as { from?: Location })?.from?.pathname ?? "/";
+  const from = (location.state as { from?: Location })?.from?.pathname ?? "/admin";
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -51,9 +51,9 @@ export default function Login() {
       <div className="container flex min-h-[70vh] items-center justify-center py-16 relative z-10  ">
         <Card className="w-full max-w-sm animate-fade-in-up">
           <CardHeader>
-            <CardTitle className="text-center">Đăng nhập</CardTitle>
+            <CardTitle className="text-center">Đăng nhập quản trị</CardTitle>
             <CardDescription>
-              Đăng nhập để làm bài test và xem lịch sử của bạn.
+              Khu vực dành cho quản trị viên theo dõi dữ liệu khảo sát.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -92,16 +92,6 @@ export default function Login() {
                 {submitting ? "Đang đăng nhập..." : "Đăng nhập"}
               </Button>
             </form>
-
-            <p className="mt-4 text-center text-sm text-muted-foreground">
-              Chưa có tài khoản?{" "}
-              <Link
-                to="/register"
-                className="text-primary underline-offset-4 hover:underline"
-              >
-                Đăng ký
-              </Link>
-            </p>
           </CardContent>
         </Card>
       </div>

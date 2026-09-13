@@ -36,12 +36,12 @@ const SECTIONS: NavSection[] = [
   {
     label: "Tổng quan",
     items: [
-      { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
-      { to: "/admin/users", label: "Người dùng", icon: Users2 },
+      { to: "/admin", label: "Trang tổng quan", icon: LayoutDashboard },
+      { to: "/admin/participants", label: "Người tham gia", icon: Users2 },
       { label: "Đồ vật", icon: Box, disabled: true },
-      { label: "Mục của đồ vật", icon: Layers, disabled: true },
-      { label: "Bài test", icon: ClipboardList, disabled: true },
-      { label: "Lượt submit", icon: Send, disabled: true },
+      { to: "/admin/codebooks", label: "Sổ mã động", icon: Layers },
+      { label: "Bài khảo sát", icon: ClipboardList, disabled: true },
+      { label: "Lượt trả lời", icon: Send, disabled: true },
     ],
   },
   {
@@ -73,7 +73,10 @@ function SidebarContent({ pathname }: { pathname: string }) {
             <div className="space-y-0.5">
               {section.items.map((item) => {
                 const Icon = item.icon;
-                const active = item.to && pathname === item.to;
+                const active = item.to && (
+                  pathname === item.to ||
+                  (item.to !== "/admin" && pathname.startsWith(`${item.to}/`))
+                );
 
                 if (item.disabled || !item.to) {
                   return (

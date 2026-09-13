@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowRight, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,15 @@ const STATUS_VARIANT: Record<IdeaStatus, "success" | "secondary" | "warning"> =
 
 export default function Result() {
   const { responseId } = useParams<{ responseId: string }>();
-  const [resp, setResp] = useState<ScoreResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const location = useLocation();
+  const navigatedResponse = (
+    location.state as { response?: ScoreResponse } | null
+  )?.response;
+  const initialResponse = navigatedResponse ?? (
+    responseId ? readCachedResponse(responseId) : null
+  );
+  const [resp, setResp] = useState<ScoreResponse | null>(initialResponse);
+  const [loading, setLoading] = useState(!initialResponse);
 
   useEffect(() => {
     if (!responseId) {
@@ -31,13 +38,13 @@ export default function Result() {
       return;
     }
 
-    setLoading(true);
-    const cached = readCachedResponse(responseId);
-    if (cached) {
-      setResp(cached);
+    const immediate = navigatedResponse ?? readCachedResponse(responseId);
+    if (immediate) {
+      setResp(immediate);
       setLoading(false);
       return;
     }
+    setLoading(true);
     // Cache miss (mở từ lịch sử hoặc reload) → lấy từ backend.
     api
       .getResponse(responseId)
@@ -49,7 +56,7 @@ export default function Result() {
         setResp(null);
         setLoading(false);
       });
-  }, [responseId]);
+  }, [navigatedResponse, responseId]);
 
   if (loading) {
     return (
@@ -67,7 +74,7 @@ export default function Result() {
       <div className="container max-w-xl py-24 text-center">
         <p className="font-serif text-2xl">Không tìm thấy kết quả.</p>
         <p className="mt-2 text-muted-foreground">
-          Phiên có thể đã hết. Hãy quay lại trang chủ và làm lại bài test.
+          Phiên có thể đã hết. Hãy quay lại trang chủ và làm lại bài khảo sát.
         </p>
         <Button asChild className="mt-6">
           <Link to="/">Về trang chủ</Link>
@@ -79,6 +86,56 @@ export default function Result() {
   const { item, mapping, scoring } = resp;
   const validCount = mapping.ideas.filter((i) => i.status === "VALID").length;
   const totalIdeas = mapping.ideas.length;
+  if (!scoring) {
+    return (
+      <div className="animate-fade-in">
+        <section className="border-b border-border/80 bg-muted/30">
+          <div className="container max-w-4xl py-16 md:py-24">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+              Dữ liệu đã được ghi nhận · {item.name}
+            </p>
+            <h1 className="mt-4 max-w-3xl font-serif text-4xl font-medium tracking-tight md:text-6xl">
+              Câu trả lời của bạn đang giúp hình thành chuẩn đánh giá.
+            </h1>
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground">
+              {resp.status_message}
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Badge variant={resp.scoring_status === "PENDING_REVIEW" ? "warning" : "secondary"}>
+                {resp.scoring_status === "PENDING_REVIEW" ? "AI đang đối chiếu lại" : "Giai đoạn thu thập"}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {validCount}/{totalIdeas} ý đã được nhận diện
+              </span>
+            </div>
+          </div>
+        </section>
+        <section>
+          <div className="container max-w-4xl py-12">
+            <div className="border-l-2 border-foreground/20 pl-6">
+              <p className="font-serif text-2xl">Không có ý nào bị tính điểm 0 vì thiếu dữ liệu.</p>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                Khi đồ vật đạt ngưỡng hiệu chuẩn, hệ thống sẽ tự đóng phiên bản sổ mã và chấm bù
+                mọi lượt đã gửi. Kết quả vẫn được lưu để truy xuất sau.
+              </p>
+            </div>
+            <div className="mt-10 flex flex-wrap gap-3">
+              <Button asChild>
+                <Link to={`/test/${item.id}`}>
+                  <RotateCcw className="h-4 w-4" /> Thử thêm một lượt
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/">
+                  Chọn đồ vật khác <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
   const avgOriginality =
     validCount > 0 ? (scoring.originality / validCount).toFixed(2) : "0.00";
   const avgElaboration =
@@ -90,16 +147,13 @@ export default function Result() {
       <section className="border-b border-border/80 bg-muted/30">
         <div className="container py-14 md:py-20">
           <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-            Kết quả bài test
+            Kết quả bài khảo sát
           </p>
           <div className="mt-3 flex flex-wrap items-end justify-between gap-6">
             <h1 className="font-serif text-4xl font-medium tracking-tight md:text-5xl">
               {item.name} <span className="text-muted-foreground">·</span>{" "}
               <span className="text-muted-foreground">đánh giá hoàn tất</span>
             </h1>
-            <p className="font-mono text-xs text-muted-foreground">
-              ID · {resp.response_id}
-            </p>
           </div>
           <p className="mt-4 max-w-2xl text-muted-foreground">
             Bạn đã nghĩ ra{" "}
@@ -115,23 +169,23 @@ export default function Result() {
         <div className="container py-12">
           <div className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-2 lg:grid-cols-4">
             <Metric
-              label="Fluency"
+              label="Số lượng ý"
               vi="Số ý tưởng hợp lệ"
               value={scoring.fluency}
               accent
             />
             <Metric
-              label="Flexibility"
+              label="Độ linh hoạt"
               vi="Danh mục bạn đã nghĩ ra"
               value={scoring.flexibility}
             />
             <Metric
-              label="Originality"
+              label="Độ độc đáo"
               vi={`Điểm độc đáo về các ý tưởng của bạn Trung bình ${avgOriginality} / 2`}
               value={scoring.originality}
             />
             <Metric
-              label="Elaboration"
+              label="Độ chi tiết"
               vi={`Điểm số thể hiện độ mạch lạc của ý tưởng; Trung bình ${avgElaboration} / 5`}
               value={scoring.elaboration}
             />
@@ -166,7 +220,7 @@ export default function Result() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                Tầng 1 · Semantic Normalization
+                Tầng 1 · Chuẩn hoá ngữ nghĩa
               </p>
               <h2 className="mt-3 font-serif text-2xl">
                 Chi tiết ý tưởng của bạn
@@ -181,7 +235,7 @@ export default function Result() {
                   <th className="w-12 px-4 py-3 font-medium">#</th>
                   <th className="px-4 py-3 font-medium">Câu gốc</th>
                   <th className="px-4 py-3 font-medium">Diễn giải</th>
-                  <th className="px-4 py-3 font-medium">Code</th>
+                  <th className="px-4 py-3 font-medium">Mã</th>
                   <th className="px-4 py-3 font-medium">Trạng thái</th>
                 </tr>
               </thead>
@@ -236,7 +290,7 @@ export default function Result() {
         <div className="container flex flex-col items-center gap-5 py-16 text-center">
           <h2 className="font-serif text-3xl">Thử với một đồ vật khác?</h2>
           <p className="max-w-md text-muted-foreground">
-            Mỗi đồ vật mở ra một bộ danh mục khác. Điểm Flexibility chỉ thật sự
+            Mỗi đồ vật mở ra một bộ danh mục khác. Điểm linh hoạt chỉ thật sự
             nói lên điều gì khi bạn thử qua nhiều đồ vật.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
@@ -309,14 +363,14 @@ function Metric({
 }
 
 function PerIdeaSection({ resp }: { resp: ScoreResponse }) {
-  const items = useMemo(() => resp.scoring.per_idea_scores, [resp]);
+  const items = useMemo(() => resp.scoring?.per_idea_scores ?? [], [resp]);
   if (items.length === 0) return null;
 
   return (
     <section className="border-b border-border/80">
       <div className="container py-12">
         <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-          Tầng 2 · Scoring
+          Tầng 2 · Chấm điểm
         </p>
         <h2 className="mt-3 font-serif text-2xl">Điểm chi tiết từng ý</h2>
 
@@ -333,8 +387,8 @@ function PerIdeaSection({ resp }: { resp: ScoreResponse }) {
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  <ScorePill label="Orig" value={it.originality} max={2} />
-                  <ScorePill label="Elab" value={it.elaboration} max={5} />
+                  <ScorePill label="Độc đáo" value={it.originality} max={2} />
+                  <ScorePill label="Chi tiết" value={it.elaboration} max={5} />
                 </div>
               </div>
               {it.note && (

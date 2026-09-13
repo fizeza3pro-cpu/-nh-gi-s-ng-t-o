@@ -6,7 +6,6 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean; // đang kiểm tra token lúc mới load trang
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string, fullName: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -41,18 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(me);
   }
 
-  async function register(username: string, password: string, fullName: string) {
-    await api.register(username, password, fullName);
-    await login(username, password); // đăng ký xong thì đăng nhập luôn cho tiện
-  }
-
   function logout() {
     clearToken();
     setUser(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

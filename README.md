@@ -32,6 +32,7 @@ Mở **terminal thứ nhất**, gõ lần lượt:
 ```bash
 cd d:/AUT/backend
 uv sync / .venv\Scripts\Activate.ps1 / pip install uvicorn fastapi
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
@@ -74,8 +75,10 @@ Mở trình duyệt vào **http://localhost:5173**
 
 1. Ở trang chủ, cuộn xuống mục **"Chọn một đồ vật bản địa"** → bấm vào một đồ
    vật (ví dụ **Đũa**).
-2. Bấm nút **"Bắt đầu"** → đồng hồ đếm ngược 180 giây bắt đầu chạy, ô nhập mở ra.
-3. Gõ **tự do** càng nhiều cách dùng khác thường càng tốt — mỗi ý một dòng hoặc
+2. Nhập email. Email mới cần bổ sung tuổi, giới tính và ngành/nghề một lần; email đã có sẽ nhận
+   lại đúng hồ sơ participant. Phiên bản hiện tại chưa gửi OTP.
+3. Bấm nút **"Bắt đầu"** → đồng hồ đếm ngược 180 giây bắt đầu chạy, ô nhập mở ra.
+4. Gõ **tự do** càng nhiều cách dùng khác thường càng tốt — mỗi ý một dòng hoặc
    ngăn bằng dấu phẩy. Ví dụ:
    ```
    làm vũ khí phi tiêu
@@ -83,8 +86,8 @@ Mở trình duyệt vào **http://localhost:5173**
    que đo độ sâu chậu nước
    ghim cố định búi tóc
    ```
-4. Bấm **"Nộp bài"** → AI chạy pipeline 2 tầng (chuẩn hoá ý → chấm điểm).
-5. Trang kết quả hiện:
+5. Bấm **"Nộp bài"** → AI chạy pipeline 2 tầng (chuẩn hoá ý → chấm điểm).
+6. Trang kết quả hiện:
    - Điểm 4 chiều: **Fluency · Flexibility · Originality · Elaboration**
    - **Bảng mapping minh bạch**: AI đã hiểu và phân loại từng ý ra sao
    - Nhận xét tổng thể bằng tiếng Việt

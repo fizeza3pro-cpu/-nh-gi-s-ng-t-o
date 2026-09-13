@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Pause, Play, Send } from "lucide-react";
+import { Loader2, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, cacheResponse } from "@/lib/api";
-import { cn, formatMmSs } from "@/lib/utils";
+import ParticipantProfileForm from "@/components/participant/ParticipantProfileForm";
+import {
+  api,
+  cacheResponse,
+  clearParticipantProfile,
+  hasParticipantProfile,
+} from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { Item } from "@/lib/types";
-
-const TOTAL_SECONDS = 180;
 
 export default function Test() {
   const { itemId } = useParams<{ itemId: string }>();
@@ -16,18 +20,14 @@ export default function Test() {
 
   const [item, setItem] = useState<Item | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
-  const [running, setRunning] = useState(false);
-  const [started, setStarted] = useState(false);
-
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [profileReady, setProfileReady] = useState(hasParticipantProfile);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load item
+  // Load item data
   useEffect(() => {
     if (!itemId) return;
     api
@@ -36,51 +36,51 @@ export default function Test() {
       .catch((err: Error) => setLoadError(err.message));
   }, [itemId]);
 
-  // Timer tick
+  // UX: Auto-focus vào textarea khi load xong để người dùng có thể bắt đầu ngay
   useEffect(() => {
-    if (!running) return;
-    const id = window.setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          window.clearInterval(id);
-          setRunning(false);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [running]);
-
-  const startTimer = () => {
-    setStarted(true);
-    setRunning(true);
-    setTimeout(() => textareaRef.current?.focus(), 60);
-  };
+    if (item && profileReady && textareaRef.current) {
+      // Delay nhẹ để đảm bảo animation render xong
+      const timer = setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [item, profileReady]);
 
   const handleSubmit = async () => {
     if (!itemId || !text.trim() || submitting) return;
+
     setSubmitError(null);
     setSubmitting(true);
-    setRunning(false);
+
     try {
       const resp = await api.score(itemId, text);
       cacheResponse(resp);
-      navigate(`/result/${resp.response_id}`);
+      // Truyền response trực tiếp cho route đích để Result render ngay trong cùng lượt
+      // điều hướng; sessionStorage chỉ còn là fallback cho F5/mở lại tab.
+      navigate(`/result/${resp.response_id}`, { state: { response: resp } });
     } catch (err) {
-      setSubmitError((err as Error).message);
+      const message = (err as Error).message;
+      if (message.includes("hồ sơ người tham gia")) {
+        clearParticipantProfile();
+        setProfileReady(false);
+      }
+      setSubmitError(message);
       setSubmitting(false);
     }
   };
 
   const charCount = text.length;
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
-  const lowTime = secondsLeft <= 30 && started;
+  const isReadyToSubmit = text.trim().length > 0 && !submitting;
 
+  // Loading / Error States
   if (loadError) {
     return (
-      <div className="container max-w-xl py-24 text-center">
-        <p className="font-serif text-2xl">Không tải được đồ vật.</p>
+      <div className="container flex min-h-[60vh] max-w-xl flex-col items-center justify-center py-24 text-center">
+        <p className="font-serif text-2xl text-destructive">
+          Không tải được dữ liệu.
+        </p>
         <p className="mt-2 text-muted-foreground">{loadError}</p>
         <Button asChild variant="outline" className="mt-6">
           <Link to="/">Quay lại trang chủ</Link>
@@ -90,115 +90,83 @@ export default function Test() {
   }
 
   return (
-    <div className="animate-fade-in">
-      {/* Sub-header / status bar */}
-      <div className="sticky top-16 z-20 border-b border-border/80 bg-background/95 backdrop-blur">
-        <div className="container flex items-center justify-between gap-4 py-4">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Thoát bài test
-          </Link>
-
-          <div className="flex items-center gap-5">
-            <div className="text-right">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                Thời gian còn lại
-              </p>
-              <p
-                className={cn(
-                  "font-mono text-2xl font-medium tabular-nums tracking-tight",
-                  lowTime &&
-                    secondsLeft > 0 &&
-                    "text-destructive animate-pulse",
-                  secondsLeft === 0 && "text-destructive",
-                )}
-              >
-                {formatMmSs(secondsLeft)}
-              </p>
-            </div>
-            {started ? (
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setRunning((r) => !r)}
-                disabled={secondsLeft === 0 || submitting}
-                aria-label={running ? "Tạm dừng" : "Tiếp tục"}
-              >
-                {running ? (
-                  <Pause className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-              </Button>
-            ) : (
-              <Button onClick={startTimer} disabled={!item}>
-                Bắt đầu
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="h-px w-full bg-border">
-          <div
-            className={cn(
-              "h-px bg-foreground transition-all duration-1000 ease-linear",
-              lowTime && "bg-destructive",
-            )}
-            style={{ width: `${(secondsLeft / TOTAL_SECONDS) * 100}%` }}
-          />
-        </div>
+    <div className="animate-in fade-in duration-500">
+      {/* --- STICKY HEADER: Tối giản, tập trung vào ngữ cảnh --- */}
+      <div className="sticky top-0 z-20 border-b border-border/80 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        {/* Modern Divider: Thay thế cho thanh progress bar chạy theo thời gian */}
+        <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
       </div>
 
-      <section className="container grid gap-12 py-12 md:grid-cols-[1fr_2fr] md:py-16">
-        {/* Object panel */}
-        <aside className="md:sticky md:top-44 md:self-start">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-            Đồ vật
-          </p>
+      {/* --- MAIN CONTENT: Bố cục 2 cột hài hòa --- */}
+      {!profileReady ? (
+        <div className="container py-10 md:py-16">
+          <ParticipantProfileForm onComplete={() => setProfileReady(true)} />
+        </div>
+      ) : (
+      <section className="container grid gap-10 py-10 md:grid-cols-[1fr_1.4fr] md:py-16">
+        {/* Cột trái: Thông tin đồ vật & Hướng dẫn (Sticky khi cuộn) */}
+        <aside className="md:sticky md:top-28 md:self-start">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              Đối tượng
+            </p>
+          </div>
+
           {item ? (
-            <h1 className="mt-3 font-serif text-5xl font-medium tracking-tight md:text-6xl">
+            <h1 className="mt-3 font-serif text-5xl font-medium tracking-tight text-foreground md:text-6xl">
               {item.name}
             </h1>
           ) : (
             <Skeleton className="mt-3 h-14 w-40" />
           )}
+
           {item ? (
-            <p className="mt-5 max-w-sm text-pretty text-muted-foreground">
+            <p className="mt-5 max-w-sm text-pretty text-lg leading-relaxed text-muted-foreground">
               {item.description}
             </p>
           ) : (
-            <Skeleton className="mt-5 h-12 w-full max-w-sm" />
+            <Skeleton className="mt-5 h-16 w-full max-w-sm" />
           )}
 
-          <div className="mt-10 rounded-xl border border-border bg-card/60 p-6">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+          {/* Hướng dẫn được đóng gói gọn gàng */}
+          <div className="mt-10 rounded-2xl border border-border/60 bg-muted/30 p-6 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               Hướng dẫn
             </p>
-            <ol className="mt-3 space-y-2.5 text-sm leading-relaxed text-muted-foreground">
-              <li>
-                <span className="font-medium text-foreground">1.</span> Liệt kê
-                càng nhiều cách dùng <em>khác công dụng thông thường</em> càng
-                tốt.
+            <ol className="mt-4 space-y-3 text-sm leading-relaxed text-muted-foreground">
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-medium text-primary">
+                  1
+                </span>
+                <span>
+                  Liệt kê càng nhiều cách dùng khác công dụng thông thường càng
+                  tốt.
+                </span>
               </li>
-              <li>
-                <span className="font-medium text-foreground">2.</span> Viết tự
-                do — gạch đầu dòng, viết hoa thường, sai chính tả đều được.
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 font-medium text-primary">
+                  2
+                </span>
+                <span>
+                  Viết tự do — gạch đầu dòng, viết hoa thường, sai chính tả đều
+                  được. AI sẽ tự hiểu.
+                </span>
               </li>
             </ol>
           </div>
         </aside>
 
-        {/* Input area */}
+        {/* Cột phải: Khu vực nhập liệu (Focus chính) */}
         <div className="flex flex-col">
           <div className="flex items-baseline justify-between gap-4">
-            <label className="font-serif text-lg" htmlFor="aut-input">
+            <label
+              className="font-serif text-xl text-foreground"
+              htmlFor="aut-input"
+            >
               Các cách dùng bạn nghĩ ra
             </label>
-            <span className="font-mono text-xs text-muted-foreground tabular-nums">
+            <span className="rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground tabular-nums">
               {wordCount} từ · {charCount} ký tự
             </span>
           </div>
@@ -208,48 +176,52 @@ export default function Test() {
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            disabled={!started || submitting || secondsLeft === 0}
-            placeholder={
-              started
-                ? "VD: làm que đo độ sâu chậu nước, gõ tạo nhịp khi nấu cơm, ghim tóc, làm cọc cắm hoa nhỏ..."
-                : "Bấm “Bắt đầu” để khởi động đồng hồ và mở ô nhập."
-            }
-            className="mt-4 min-h-[340px] resize-y bg-card font-sans text-base leading-7"
+            disabled={submitting}
+            placeholder="Ví dụ:- Làm que đo độ sâu chậu nước; Gõ tạo nhịp khi nấu cơm; Ghim tóc tạm thời; Làm cọc cắm hoa nhỏ..."
+            className="mt-5 min-h-[400px] resize-y rounded-xl border-border/80 bg-card/50 p-5 font-sans text-base leading-8 shadow-sm transition-all focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/20"
           />
 
           {submitError && (
-            <p className="mt-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-              {submitError}
-            </p>
+            <div className="mt-4 flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+              <span className="mt-0.5 text-lg">⚠️</span>
+              <p>{submitError}</p>
+            </div>
           )}
 
-          <div className="mt-6 flex flex-col-reverse items-stretch justify-between gap-4 sm:flex-row sm:items-center">
+          {/* Action Area */}
+          <div className="mt-8 flex flex-col-reverse items-stretch justify-between gap-4 rounded-xl border border-border/60 bg-muted/20 p-5 md:flex-row md:items-center">
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Khi bấm <strong className="text-foreground">Nộp bài</strong>, AI
-              sẽ chạy 2 lượt: chuẩn hoá ý tưởng, sau đó chấm Fluency ·
-              Flexibility · Originality · Elaboration.
+              Khi bấm <strong className="text-foreground">Nộp bài</strong>, hệ
+              thống AI sẽ chuẩn hoá ý tưởng, đối chiếu mã và chấm 4 tiêu chí
+              sáng tạo.
             </p>
+
             <Button
               size="lg"
-              disabled={!text.trim() || submitting || !started}
+              disabled={!isReadyToSubmit}
               onClick={handleSubmit}
-              className="sm:min-w-[180px]"
+              className={cn(
+                "w-full transition-all md:w-auto md:min-w-[200px]",
+                isReadyToSubmit &&
+                  "shadow-lg shadow-primary/20 hover:shadow-primary/30",
+              )}
             >
               {submitting ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Đang chấm…
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Đang phân tích...
                 </>
               ) : (
                 <>
                   Nộp bài
-                  <Send className="h-4 w-4" />
+                  <Send className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                 </>
               )}
             </Button>
           </div>
         </div>
       </section>
+      )}
     </div>
   );
 }
