@@ -19,7 +19,7 @@ import type {
 const BASE = "/api";
 const TOKEN_KEY = "aut:token";
 const PARTICIPANT_ID_KEY = "aut:participant-id";
-const PARTICIPANT_PROFILE_KEY = "aut:participant-email-profile:v1";
+const PARTICIPANT_PROFILE_KEY = "aut:participant-email-profile:v2";
 
 // --- Quản lý token (localStorage) ---
 export function getToken(): string | null {
@@ -39,9 +39,19 @@ export function getParticipantId(): string | null {
 }
 
 export function hasParticipantProfile(): boolean {
-  return Boolean(
-    getParticipantId() && localStorage.getItem(PARTICIPANT_PROFILE_KEY) === "created",
-  );
+  return getParticipantIdentity() !== null;
+}
+
+export function getParticipantIdentity(): ParticipantIdentity | null {
+  const participantId = getParticipantId();
+  const raw = localStorage.getItem(PARTICIPANT_PROFILE_KEY);
+  if (!participantId || !raw) return null;
+  try {
+    const participant = JSON.parse(raw) as ParticipantIdentity;
+    return participant.id === participantId ? participant : null;
+  } catch {
+    return null;
+  }
 }
 
 export function clearParticipantProfile(): void {
@@ -51,7 +61,7 @@ export function clearParticipantProfile(): void {
 
 function rememberParticipant<T extends { id: string }>(participant: T): T {
   localStorage.setItem(PARTICIPANT_ID_KEY, participant.id);
-  localStorage.setItem(PARTICIPANT_PROFILE_KEY, "created");
+  localStorage.setItem(PARTICIPANT_PROFILE_KEY, JSON.stringify(participant));
   return participant;
 }
 

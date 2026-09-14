@@ -95,7 +95,7 @@ export default function Result() {
               Dữ liệu đã được ghi nhận · {item.name}
             </p>
             <h1 className="mt-4 max-w-3xl font-serif text-4xl font-medium tracking-tight md:text-6xl">
-              Câu trả lời của bạn đang giúp hình thành chuẩn đánh giá.
+              Câu trả lời của bạn đang đóng góp vào dữ liệu chấm điểm.
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground">
               {resp.status_message}
@@ -115,8 +115,8 @@ export default function Result() {
             <div className="border-l-2 border-foreground/20 pl-6">
               <p className="font-serif text-2xl">Không có ý nào bị tính điểm 0 vì thiếu dữ liệu.</p>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                Khi đồ vật đạt ngưỡng hiệu chuẩn, hệ thống sẽ tự đóng phiên bản sổ mã và chấm bù
-                mọi lượt đã gửi. Kết quả vẫn được lưu để truy xuất sau.
+                Khi đồ vật đồng thời đạt 30 người tham gia và 100 response đủ điều kiện,
+                hệ thống sẽ chấm một lần cho mọi lượt đang chờ. Điểm đã chốt không tự đổi khi có dữ liệu mới.
               </p>
             </div>
             <div className="mt-10 flex flex-wrap gap-3">

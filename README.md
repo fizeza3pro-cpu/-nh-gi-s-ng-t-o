@@ -75,7 +75,7 @@ Mở trình duyệt vào **http://localhost:5173**
 
 1. Ở trang chủ, cuộn xuống mục **"Chọn một đồ vật bản địa"** → bấm vào một đồ
    vật (ví dụ **Đũa**).
-2. Nhập email. Email mới cần bổ sung tuổi, giới tính và ngành/nghề một lần; email đã có sẽ nhận
+2. Nhập email. Email mới cần bổ sung họ và tên, tuổi, giới tính và ngành/nghề một lần; email đã có sẽ nhận
    lại đúng hồ sơ participant. Phiên bản hiện tại chưa gửi OTP.
 3. Bấm nút **"Bắt đầu"** → đồng hồ đếm ngược 180 giây bắt đầu chạy, ô nhập mở ra.
 4. Gõ **tự do** càng nhiều cách dùng khác thường càng tốt — mỗi ý một dòng hoặc

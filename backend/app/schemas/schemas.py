@@ -47,22 +47,24 @@ class ParticipantIdentify(BaseModel):
 
 
 class ParticipantCreate(ParticipantIdentify):
+    full_name: str = Field(min_length=2, max_length=255)
     age: int = Field(ge=10, le=100)
     gender: Literal["male", "female", "other", "prefer_not_to_say"]
     occupation: str = Field(min_length=2, max_length=255)
 
-    @field_validator("occupation")
+    @field_validator("full_name", "occupation")
     @classmethod
-    def normalize_occupation(cls, value: str) -> str:
-        """Loại khoảng trắng thừa trước khi lưu thông tin ngành/nghề."""
+    def normalize_profile_text(cls, value: str) -> str:
+        """Loại khoảng trắng thừa trước khi lưu họ tên và ngành/nghề."""
         normalized = " ".join(value.split())
         if len(normalized) < 2:
-            raise ValueError("Ngành học hoặc nghề nghiệp phải có ít nhất 2 ký tự.")
+            raise ValueError("Thông tin phải có ít nhất 2 ký tự.")
         return normalized
 
 
 class ParticipantOut(BaseModel):
     id: str
+    full_name: str | None
     email_masked: str | None
     email_verified_at: datetime | None
     age: int | None
@@ -77,6 +79,7 @@ class ParticipantIdentityOut(BaseModel):
     """Thông tin tối thiểu được phép trả về khi chỉ mới đối chiếu email."""
 
     id: str
+    full_name: str | None
     email_masked: str | None
     email_verified_at: datetime | None
 
@@ -216,10 +219,10 @@ class AdminItemBreakdown(BaseModel):
     item_name: str
     response_count: int
     calibration_status: str = "COLLECTING"
-    eligible_response_count: int = 0
-    eligible_participant_count: int = 0
-    calibration_min_participants: int
-    originality_min_participants: int
+    qualifying_response_count: int = 0
+    qualifying_participant_count: int = 0
+    scoring_min_participants: int
+    scoring_min_responses: int
     accepted_code_count: int = 0
     uncertain_code_count: int = 0
     rejected_code_count: int = 0
@@ -242,7 +245,7 @@ class AdminScoringStatusCounts(BaseModel):
 class AdminDashboardStats(BaseModel):
     total_participants: int
     total_responses: int
-    eligible_response_count: int
+    qualifying_response_count: int
     responses_last_7_days: int
     responses_previous_7_days: int
     accepted_code_count: int
@@ -256,6 +259,7 @@ class AdminDashboardStats(BaseModel):
 
 class AdminParticipantSummary(BaseModel):
     id: str
+    full_name: str | None
     email_masked: str | None
     email_verified_at: datetime | None
     age: int | None
@@ -301,9 +305,9 @@ class AdminCodebookCode(BaseModel):
     response_count: int
     participant_count: int
     idea_count: int
-    eligible_response_count: int
-    eligible_participant_count: int
-    eligible_idea_count: int
+    contributing_response_count: int
+    contributing_participant_count: int
+    contributing_idea_count: int
     frequency: float
     created_at: datetime
 
@@ -360,11 +364,11 @@ class AdminCodebookSummary(BaseModel):
     item_id: str
     item_name: str
     calibration_status: str
-    eligible_response_count: int
-    eligible_participant_count: int
-    eligible_idea_count: int
-    calibration_min_participants: int
-    originality_min_participants: int
+    qualifying_response_count: int
+    qualifying_participant_count: int
+    contributing_idea_count: int
+    scoring_min_participants: int
+    scoring_min_responses: int
     active_version: int | None
     pending_idea_count: int
     extraction_invalid_count: int

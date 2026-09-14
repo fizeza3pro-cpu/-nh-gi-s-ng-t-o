@@ -20,9 +20,10 @@ from app.models.models import (
 )
 from app.pipeline.codebook_service import (
     create_codebook_version,
-    eligible_participant_count,
-    eligible_response_count as count_eligible_responses,
-    mark_item_for_recalculation,
+    item_is_ready_for_scoring,
+    maybe_refresh_codebook,
+    qualifying_participant_count,
+    qualifying_response_count,
 )
 from app.pipeline.dynamic_mapping import normalize_code_name
 from app.controllers.response_controller import (
@@ -82,12 +83,14 @@ def _to_recent(row: ResponseModel) -> AdminRecentResponse:
 
 
 def get_dashboard_stats(db: Session) -> AdminDashboardStats:
-    """Tổng hợp tiến độ thu thập dữ liệu và hiệu chỉnh codebook động."""
+    """Tổng hợp tiến độ thu thập dữ liệu và trạng thái chấm một lần."""
     total_participants = db.scalar(select(func.count()).select_from(ParticipantModel)) or 0
     total_responses = db.scalar(select(func.count()).select_from(ResponseModel)) or 0
-    total_eligible_responses = db.scalar(
+    total_qualifying_responses = db.scalar(
         select(func.count()).select_from(ResponseModel).where(
-            ResponseModel.calibration_eligible.is_(True)
+            ResponseModel.scoring_status.notin_(
+                [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
+            )
         )
     ) or 0
     now = datetime.now(timezone.utc)
@@ -160,10 +163,10 @@ def get_dashboard_stats(db: Session) -> AdminDashboardStats:
                 item_name=item.name,
                 response_count=response_count,
                 calibration_status=item.calibration_status.value,
-                eligible_response_count=count_eligible_responses(db, item.id),
-                eligible_participant_count=eligible_participant_count(db, item.id),
-                calibration_min_participants=item.calibration_min_participants,
-                originality_min_participants=item.originality_min_participants,
+                qualifying_response_count=qualifying_response_count(db, item.id),
+                qualifying_participant_count=qualifying_participant_count(db, item.id),
+                scoring_min_participants=item.scoring_min_participants,
+                scoring_min_responses=item.scoring_min_responses,
                 accepted_code_count=item_code_counts.get(CodeValidationStatus.ACCEPTED, 0),
                 uncertain_code_count=item_code_counts.get(CodeValidationStatus.UNCERTAIN, 0),
                 rejected_code_count=item_code_counts.get(CodeValidationStatus.REJECTED, 0),
@@ -177,7 +180,7 @@ def get_dashboard_stats(db: Session) -> AdminDashboardStats:
     return AdminDashboardStats(
         total_participants=total_participants,
         total_responses=total_responses,
-        eligible_response_count=total_eligible_responses,
+        qualifying_response_count=total_qualifying_responses,
         responses_last_7_days=responses_last_7_days,
         responses_previous_7_days=responses_previous_7_days,
         accepted_code_count=accepted_code_count,
@@ -210,6 +213,7 @@ def list_participants_with_stats(db: Session) -> list[AdminParticipantSummary]:
     return [
         AdminParticipantSummary(
             id=participant.id,
+            full_name=participant.full_name,
             email_masked=participant.email_masked,
             email_verified_at=participant.email_verified_at,
             age=participant.age,
@@ -242,10 +246,10 @@ def _code_counts(
     db: Session,
     item_id: str,
     *,
-    calibration_only: bool = False,
+    qualifying_only: bool = False,
     scoring_only: bool = False,
 ) -> dict[str, tuple[int, int, int]]:
-    """Đếm bằng chứng mapping; tuỳ chọn chỉ lấy các lượt thuộc mẫu hiệu chuẩn."""
+    """Đếm bằng chứng mapping; có thể chỉ lấy response đủ điều kiện đóng góp."""
     query = (
         select(
             ResponseIdea.code_id,
@@ -262,8 +266,12 @@ def _code_counts(
         )
         .group_by(ResponseIdea.code_id)
     )
-    if calibration_only:
-        query = query.where(ResponseModel.calibration_eligible.is_(True))
+    if qualifying_only:
+        query = query.where(
+            ResponseModel.scoring_status.notin_(
+                [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
+            )
+        )
     if scoring_only:
         query = query.where(
             or_(
@@ -418,12 +426,12 @@ def get_codebook(db: Session, item_id: str) -> AdminCodebookSummary:
     item = db.get(ItemModel, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
-    participant_count = eligible_participant_count(db, item_id)
-    sample_response_count = count_eligible_responses(db, item_id)
-    # Admin cần thấy đồng thời tổng bằng chứng, số lượt thuộc mẫu chuẩn và số người khác nhau.
+    participant_count = qualifying_participant_count(db, item_id)
+    response_count = qualifying_response_count(db, item_id)
+    # Admin thấy cả bằng chứng thô và phần thực sự đóng góp vào tần suất.
     counts = _code_counts(db, item_id)
-    eligible_counts = _code_counts(
-        db, item_id, calibration_only=True, scoring_only=True
+    contributing_counts = _code_counts(
+        db, item_id, qualifying_only=True, scoring_only=True
     )
     rows = db.scalars(
         select(ItemCode)
@@ -446,14 +454,14 @@ def get_codebook(db: Session, item_id: str) -> AdminCodebookSummary:
         )
     ) or 0
     extraction_counts = _extraction_exclusion_counts(db, item_id)
-    sample_idea_count = sum(
-        idea_count for _, _, idea_count in eligible_counts.values()
+    contributing_idea_count = sum(
+        idea_count for _, _, idea_count in contributing_counts.values()
     )
-    denominator = max(sample_idea_count, 1)
+    denominator = max(contributing_idea_count, 1)
     codes = []
     for row in rows:
         code_response_count, code_participants, idea_count = counts.get(row.id, (0, 0, 0))
-        eligible_responses, eligible_participants, eligible_ideas = eligible_counts.get(
+        contributing_responses, contributing_participants, contributing_ideas = contributing_counts.get(
             row.id, (0, 0, 0)
         )
         codes.append(
@@ -472,10 +480,10 @@ def get_codebook(db: Session, item_id: str) -> AdminCodebookSummary:
                 response_count=code_response_count,
                 participant_count=code_participants,
                 idea_count=idea_count,
-                eligible_response_count=eligible_responses,
-                eligible_participant_count=eligible_participants,
-                eligible_idea_count=eligible_ideas,
-                frequency=eligible_ideas / denominator,
+                contributing_response_count=contributing_responses,
+                contributing_participant_count=contributing_participants,
+                contributing_idea_count=contributing_ideas,
+                frequency=contributing_ideas / denominator,
                 created_at=row.created_at,
             )
         )
@@ -483,11 +491,11 @@ def get_codebook(db: Session, item_id: str) -> AdminCodebookSummary:
         item_id=item.id,
         item_name=item.name,
         calibration_status=item.calibration_status.value,
-        eligible_response_count=sample_response_count,
-        eligible_participant_count=participant_count,
-        eligible_idea_count=sample_idea_count,
-        calibration_min_participants=item.calibration_min_participants,
-        originality_min_participants=item.originality_min_participants,
+        qualifying_response_count=response_count,
+        qualifying_participant_count=participant_count,
+        contributing_idea_count=contributing_idea_count,
+        scoring_min_participants=item.scoring_min_participants,
+        scoring_min_responses=item.scoring_min_responses,
         active_version=active_version.version if active_version else None,
         pending_idea_count=pending_count,
         extraction_invalid_count=extraction_counts.get("INVALID", 0),
@@ -509,11 +517,12 @@ def remap_item(item_id: str) -> int:
 
 
 def _refresh_after_admin_change(db: Session, item: ItemModel) -> None:
-    """Đóng version mới ngay để thao tác admin không sửa ngầm snapshot cũ."""
-    mark_item_for_recalculation(db, item.id)
-    if item.active_codebook_version_id:
-        item.calibration_status = ItemCalibrationStatus.RECALIBRATING
-        create_codebook_version(db, item, eligible_participant_count(db, item.id))
+    """Ghi dấu mốc cấu trúc mới nhưng không tự ghi đè bất kỳ điểm FINAL nào."""
+    db.flush()
+    if item.active_codebook_version_id and item_is_ready_for_scoring(db, item):
+        create_codebook_version(db, item, qualifying_participant_count(db, item.id))
+    else:
+        maybe_refresh_codebook(db, item)
 
 
 def _update_mapping_after_code_decision(
@@ -571,7 +580,7 @@ def _reset_responses_after_code_decision(
     replacement_name: str | None = None,
     reject: bool = False,
 ) -> None:
-    """Bỏ điểm cũ và giải phóng PENDING khi quyết định admin đã đủ rõ."""
+    """Giải phóng lượt chờ; điểm FINAL cũ chỉ đổi khi admin bấm chấm lại."""
     if not response_ids:
         return
     rows = db.scalars(
@@ -585,6 +594,13 @@ def _reset_responses_after_code_decision(
             replacement_name=replacement_name,
             reject=reject,
         )
+        if row.scoring_status == ResponseScoringStatus.FINAL:
+            row.scoring_meta = {
+                **(row.scoring_meta or {}),
+                "codebook_changed_after_scoring_at": datetime.now(timezone.utc).isoformat(),
+                "requires_manual_rescore": True,
+            }
+            continue
         row.scoring = {}
         row.scoring_meta = {"invalidated_by": "ADMIN_CODE_DECISION"}
         row.fluency = 0
@@ -731,8 +747,15 @@ def _mapping_without_code(mapping: dict, code_name: str | None = None) -> dict:
 
 
 def _reset_affected_response(row: ResponseModel, code_name: str) -> None:
-    """Không để điểm cũ tiếp tục xuất hiện sau khi code cấu thành điểm đã bị xoá."""
+    """Giữ điểm FINAL bất biến; lượt chưa chấm quay về chờ phân loại lại."""
     row.mapping = _mapping_without_code(row.mapping, code_name)
+    if row.scoring_status == ResponseScoringStatus.FINAL:
+        row.scoring_meta = {
+            **(row.scoring_meta or {}),
+            "codebook_changed_after_scoring_at": datetime.now(timezone.utc).isoformat(),
+            "requires_manual_rescore": True,
+        }
+        return
     row.scoring = {}
     row.scoring_meta = {"invalidated_by": "ADMIN_CODE_DELETE"}
     row.fluency = 0
@@ -796,19 +819,9 @@ def delete_all_codes(db: Session, item_id: str) -> AdminCodebookSummary:
     if item is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
 
-    response_ids = list(
-        db.scalars(
-            select(ResponseIdea.response_id)
-            .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
-            .where(ResponseModel.item_id == item_id)
-            .distinct()
-        ).all()
-    )
-    affected_responses = (
-        db.scalars(select(ResponseModel).where(ResponseModel.id.in_(response_ids))).all()
-        if response_ids
-        else []
-    )
+    affected_responses = db.scalars(
+        select(ResponseModel).where(ResponseModel.item_id == item_id)
+    ).all()
     for response in affected_responses:
         response.mapping = _mapping_without_code(response.mapping)
         response.scoring = {}
@@ -817,9 +830,8 @@ def delete_all_codes(db: Session, item_id: str) -> AdminCodebookSummary:
         response.flexibility = 0
         response.originality = 0
         response.elaboration = 0
-        response.scoring_status = ResponseScoringStatus.EXCLUDED
+        response.scoring_status = ResponseScoringStatus.COLLECTING
         response.codebook_version_id = None
-        response.calibration_eligible = False
         response.scored_at = None
 
     version_ids = select(CodebookVersion.id).where(CodebookVersion.item_id == item_id)

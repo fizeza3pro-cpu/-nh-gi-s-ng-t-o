@@ -55,9 +55,9 @@ const MATURITY_LABEL: Record<AdminCodebookCode["maturity_status"], string> = {
 
 const CALIBRATION_LABEL: Record<string, string> = {
   COLLECTING: "Đang thu thập",
-  CALIBRATING: "Đang hiệu chuẩn",
+  CALIBRATING: "Đang mở chấm điểm",
   ACTIVE: "Đang sử dụng",
-  RECALIBRATING: "Đang hiệu chuẩn lại",
+  RECALIBRATING: "Đang cập nhật sổ mã",
   PAUSED: "Tạm dừng",
 };
 
@@ -76,49 +76,44 @@ const CURATOR_LABEL: Record<AdminCuratorDecisionIdea["decision"], string> = {
   MISSING_DECISION: "Thiếu quyết định",
 };
 
-function CalibrationRuler({ summary }: { summary: AdminCodebookSummary }) {
-  const max = summary.originality_min_participants;
-  const current = Math.min(summary.eligible_participant_count, max);
-  const opening = Math.min(summary.calibration_min_participants, max);
-  const progress = (current / max) * 100;
-  const openingAt = (opening / max) * 100;
+function ScoringReadiness({ summary }: { summary: AdminCodebookSummary }) {
+  const participantProgress = Math.min(
+    100,
+    (summary.qualifying_participant_count / Math.max(summary.scoring_min_participants, 1)) * 100,
+  );
+  const responseProgress = Math.min(
+    100,
+    (summary.qualifying_response_count / Math.max(summary.scoring_min_responses, 1)) * 100,
+  );
 
   return (
     <div className="border-y border-border bg-muted/20 px-5 py-6">
       <div className="flex items-end justify-between gap-4">
         <div>
           <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            Thước hiệu chuẩn · người tham gia độc lập
+            Mức sẵn sàng chấm điểm
           </p>
-          <p className="mt-2 font-serif text-3xl">
-            {summary.eligible_participant_count}
-            <span className="ml-2 text-base text-muted-foreground">/ {max}</span>
-          </p>
-          <p className="mt-1 font-mono text-xs text-muted-foreground">
-            {summary.eligible_response_count} lượt trong mẫu chuẩn
-          </p>
+          <p className="mt-2 font-serif text-2xl">Cần đồng thời đủ cả hai ngưỡng</p>
         </div>
-        <div className="text-right text-xs text-muted-foreground">
-          <p>Mở điểm tạm tại {opening}</p>
-          <p>Ổn định độ độc đáo tại {max}</p>
-        </div>
+        <p className="max-w-56 text-right text-xs leading-5 text-muted-foreground">
+          Mỗi response đủ điều kiện sẽ được chấm một lần bằng tần suất tại thời điểm đó.
+        </p>
       </div>
-      <div className="relative mt-6 h-7">
-        <div className="absolute inset-x-0 top-2 h-px bg-border" />
-        <div className="absolute left-0 top-2 h-px bg-foreground" style={{ width: `${progress}%` }} />
-        <div className="absolute top-0 h-5 w-px bg-amber-700" style={{ left: `${openingAt}%` }} />
-        <div className="absolute top-0 h-5 w-px bg-foreground" style={{ left: "100%" }} />
-        {Array.from({ length: 11 }).map((_, index) => (
-          <span
-            key={index}
-            className="absolute top-1 h-3 w-px bg-border"
-            style={{ left: `${index * 10}%` }}
-          />
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        {[
+          ["Người tham gia", summary.qualifying_participant_count, summary.scoring_min_participants, participantProgress],
+          ["Response đủ điều kiện", summary.qualifying_response_count, summary.scoring_min_responses, responseProgress],
+        ].map(([label, current, target, progress]) => (
+          <div key={label}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-xs text-muted-foreground">{label}</span>
+              <span className="font-mono text-sm">{current} / {target}</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border">
+              <div className="h-full rounded-full bg-foreground" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
         ))}
-        <span
-          className="absolute top-0 h-4 w-4 -translate-x-1/2 rounded-full border-2 border-background bg-foreground shadow-sm"
-          style={{ left: `${progress}%` }}
-        />
       </div>
     </div>
   );
@@ -126,7 +121,7 @@ function CalibrationRuler({ summary }: { summary: AdminCodebookSummary }) {
 
 function CodeRow({
   code,
-  totalEligibleIdeas,
+  totalContributingIdeas,
   targets,
   busy,
   onSave,
@@ -136,7 +131,7 @@ function CodeRow({
   onDelete,
 }: {
   code: AdminCodebookCode;
-  totalEligibleIdeas: number;
+  totalContributingIdeas: number;
   targets: AdminCodebookCode[];
   busy: boolean;
   onSave: (patch: AdminCodePatch) => void;
@@ -203,8 +198,8 @@ function CodeRow({
         {code.validation_status === "ACCEPTED" && !inactive ? (
           <div className="ml-auto w-40">
             <div className="flex items-baseline justify-end gap-1.5">
-              <span className="font-serif text-2xl text-foreground">{code.eligible_idea_count}</span>
-              <span className="text-xs text-muted-foreground">/ {totalEligibleIdeas} ý</span>
+              <span className="font-serif text-2xl text-foreground">{code.contributing_idea_count}</span>
+              <span className="text-xs text-muted-foreground">/ {totalContributingIdeas} ý</span>
             </div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
               <div
@@ -214,7 +209,7 @@ function CodeRow({
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               <span className="font-mono text-foreground">{(code.frequency * 100).toFixed(1)}%</span>
-              {" · "}{code.eligible_participant_count} người
+              {" · "}{code.contributing_participant_count} người
             </p>
           </div>
         ) : (
@@ -585,7 +580,7 @@ function CodebookPicker({
           </h1>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Mỗi đồ vật có mẫu hiệu chuẩn, hệ thống mã và lịch sử phiên bản riêng.
+          Mỗi đồ vật có dữ liệu đóng góp, hệ thống mã và lịch sử thay đổi riêng.
         </p>
       </header>
 
@@ -593,17 +588,16 @@ function CodebookPicker({
         <div className="hidden grid-cols-[minmax(0,1fr)_9rem_12rem_7rem_9rem_2rem] gap-5 border-b border-border bg-muted/35 px-5 py-3 text-xs text-muted-foreground md:grid">
           <span>Đồ vật</span>
           <span>Trạng thái</span>
-          <span>Tiến độ hiệu chuẩn</span>
+          <span>Điều kiện chấm điểm</span>
           <span className="text-right">Mã đang dùng</span>
           <span className="text-right">Ý bị loại</span>
           <span />
         </div>
         <div className="divide-y divide-border">
           {items.map((item) => {
-            const progress = Math.min(
-              100,
-              (item.eligible_participant_count / item.originality_min_participants) * 100,
-            );
+            const participantProgress = item.qualifying_participant_count / Math.max(item.scoring_min_participants, 1);
+            const responseProgress = item.qualifying_response_count / Math.max(item.scoring_min_responses, 1);
+            const progress = Math.min(100, Math.min(participantProgress, responseProgress) * 100);
             return (
               <button
                 key={item.item_id}
@@ -625,7 +619,7 @@ function CodebookPicker({
                     <div className="h-full bg-foreground" style={{ width: `${progress}%` }} />
                   </div>
                   <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-                    {item.eligible_idea_count} ý hợp lệ từ {item.eligible_participant_count}/{item.originality_min_participants} người
+                    {item.qualifying_participant_count}/{item.scoring_min_participants} người · {item.qualifying_response_count}/{item.scoring_min_responses} response
                   </p>
                 </div>
                 <p className="font-mono text-lg text-foreground md:text-right">
@@ -804,7 +798,7 @@ export default function AdminCodebooks() {
             disabled={busy || summary.codes.length === 0}
             onClick={() => {
               const confirmed = window.confirm(
-                `Xoá toàn bộ mã của “${summary.item_name}”? Nội dung trả lời gốc vẫn được giữ, nhưng sổ mã, các phiên bản và mẫu hiệu chuẩn của đồ vật này sẽ được đặt lại.`,
+                `Xoá toàn bộ mã của “${summary.item_name}”? Nội dung trả lời gốc vẫn được giữ; mapping, điểm và các phiên bản sẽ được đặt lại để có thể phân loại lại.`,
               );
               if (confirmed) void apply(() => api.adminDeleteAllCodes(summary.item_id));
             }}
@@ -819,7 +813,7 @@ export default function AdminCodebooks() {
 
       <div className="mt-7 overflow-hidden rounded-xl border border-border bg-card">
         <div className="grid divide-y divide-border md:grid-cols-[1fr_auto] md:divide-x md:divide-y-0">
-          <CalibrationRuler summary={summary} />
+          <ScoringReadiness summary={summary} />
           <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3 md:w-[34rem]">
             {[
               ["Trạng thái", CALIBRATION_LABEL[summary.calibration_status] ?? summary.calibration_status],
@@ -876,7 +870,7 @@ export default function AdminCodebooks() {
               <CodeRow
                 key={code.id}
                 code={code}
-                totalEligibleIdeas={summary.eligible_idea_count}
+                totalContributingIdeas={summary.contributing_idea_count}
                 targets={summary.codes.filter((target) => target.id !== code.id && target.validation_status === "ACCEPTED" && !["ARCHIVED", "MERGED"].includes(target.maturity_status))}
                 busy={busy}
                 onSave={(patch) => apply(

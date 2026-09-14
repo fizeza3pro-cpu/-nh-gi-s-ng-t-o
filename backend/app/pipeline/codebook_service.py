@@ -1,10 +1,10 @@
-"""Nghiệp vụ codebook động, snapshot tần suất và tính Originality có thể tái lập."""
+"""Nghiệp vụ codebook động và tính Originality từ dữ liệu realtime có lưu căn cứ."""
 
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
 
-from sqlalchemy import distinct, func, or_, select, update
+from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -19,6 +19,7 @@ from app.models.models import (
     ItemCode,
     Response,
     ResponseIdea,
+    ResponseScoringStatus,
 )
 from app.pipeline.dynamic_mapping import normalize_code_name
 from app.schemas.schemas import CuratorResult, IdeaExtractionResult, MappedIdea, MappingResult, PerIdeaScore
@@ -265,25 +266,30 @@ def persist_mapping(
     return MappingResult(ideas=mapped), has_uncertain
 
 
-def eligible_participant_count(db: Session, item_id: str) -> int:
+def qualifying_participant_count(db: Session, item_id: str) -> int:
+    """Đếm người có ít nhất một response đã phân loại xong và có thể đóng góp dữ liệu."""
     return int(
         db.scalar(
             select(func.count(distinct(Response.participant_id))).where(
                 Response.item_id == item_id,
-                Response.calibration_eligible.is_(True),
+                Response.scoring_status.notin_(
+                    [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
+                ),
             )
         )
         or 0
     )
 
 
-def eligible_response_count(db: Session, item_id: str) -> int:
-    """Đếm mọi lượt được đưa vào mẫu chuẩn, kể cả một người làm lại cùng đồ vật."""
+def qualifying_response_count(db: Session, item_id: str) -> int:
+    """Đếm mọi response đã phân loại xong, kể cả một người gửi nhiều lượt."""
     return int(
         db.scalar(
             select(func.count()).select_from(Response).where(
                 Response.item_id == item_id,
-                Response.calibration_eligible.is_(True),
+                Response.scoring_status.notin_(
+                    [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
+                ),
             )
         )
         or 0
@@ -302,7 +308,9 @@ def _code_live_counts(db: Session, item_id: str) -> dict[str, tuple[int, int, in
         .join(ItemCode, ItemCode.id == ResponseIdea.code_id)
         .where(
             Response.item_id == item_id,
-            Response.calibration_eligible.is_(True),
+            Response.scoring_status.notin_(
+                [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
+            ),
             ResponseIdea.mapping_status == "VALID",
             or_(
                 ResponseIdea.confidence >= settings.code_uncertain_confidence,
@@ -346,7 +354,9 @@ def create_codebook_version(db: Session, item: Item, participant_count: int) -> 
     response_count = db.scalar(
         select(func.count()).select_from(Response).where(
             Response.item_id == item.id,
-            Response.calibration_eligible.is_(True),
+            Response.scoring_status.notin_(
+                [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
+            ),
         )
     ) or 0
     version = CodebookVersion(
@@ -388,28 +398,30 @@ def create_codebook_version(db: Session, item: Item, participant_count: int) -> 
     return version
 
 
+def item_is_ready_for_scoring(db: Session, item: Item) -> bool:
+    """Một đồ vật chỉ được chấm khi đồng thời đủ số người và số response."""
+    return (
+        qualifying_participant_count(db, item.id)
+        >= (item.scoring_min_participants or settings.scoring_min_participants)
+        and qualifying_response_count(db, item.id)
+        >= (item.scoring_min_responses or settings.scoring_min_responses)
+        and item.calibration_status != ItemCalibrationStatus.PAUSED
+    )
+
+
 def maybe_refresh_codebook(db: Session, item: Item) -> tuple[CodebookVersion | None, bool]:
-    """Kích hoạt/refresh tự động; trả cờ cho biết vừa đóng một snapshot mới."""
+    """Chỉ tạo version khi lần đầu đủ ngưỡng; response mới không làm refresh version."""
     promote_stable_codes(db, item.id)
-    participant_count = eligible_participant_count(db, item.id)
-    response_count = eligible_response_count(db, item.id)
-    minimum = item.calibration_min_participants or settings.calibration_min_participants
-    if participant_count < minimum or item.calibration_status == ItemCalibrationStatus.PAUSED:
+    participant_count = qualifying_participant_count(db, item.id)
+    if not item_is_ready_for_scoring(db, item):
         return None, False
 
-    first_activation = not item.active_codebook_version_id
     active_version = (
         db.get(CodebookVersion, item.active_codebook_version_id)
         if item.active_codebook_version_id
         else None
     )
-    # Mọi lượt làm lại đều thay đổi phân bố tần suất, vì vậy nhịp refresh phải dựa trên số response
-    # mới kể từ snapshot gần nhất. Ngưỡng mở/final vẫn dựa trên participant độc lập.
-    last_version_response_count = active_version.response_count if active_version else 0
-    refresh_due = (
-        response_count - last_version_response_count >= settings.codebook_refresh_interval
-    )
-    if first_activation or refresh_due:
+    if active_version is None:
         item.calibration_status = ItemCalibrationStatus.CALIBRATING
         version = create_codebook_version(db, item, participant_count)
         return version, True
@@ -417,9 +429,9 @@ def maybe_refresh_codebook(db: Session, item: Item) -> tuple[CodebookVersion | N
 
 
 def originality_for_response(
-    db: Session, response: Response, version: CodebookVersion
-) -> tuple[int, int, list[str], list[PerIdeaScore], bool]:
-    """Tính ba chỉ số công thức từ response_ideas và snapshot/live frequency."""
+    db: Session, response: Response
+) -> tuple[int, int, list[str], list[PerIdeaScore], dict]:
+    """Tính chỉ số bằng tần suất realtime và trả toàn bộ căn cứ để đóng băng cùng điểm."""
     valid_ideas = db.scalars(
         select(ResponseIdea)
         .join(ItemCode, ItemCode.id == ResponseIdea.code_id)
@@ -435,25 +447,11 @@ def originality_for_response(
         )
         .order_by(ResponseIdea.created_at, ResponseIdea.id)
     ).all()
-    if not valid_ideas:
-        return 0, 0, [], [], True
-
-    snapshot = {
-        row.code_id: row.frequency
-        for row in db.scalars(
-            select(CodebookVersionCode).where(CodebookVersionCode.version_id == version.id)
-        ).all()
-    }
     live_counts = _code_live_counts(db, response.item_id)
-    denominator = max(
-        sum(idea_total for _, _, idea_total in live_counts.values()),
-        1,
-    )
-    uses_live = any(idea.code_id not in snapshot for idea in valid_ideas)
+    valid_idea_count = sum(idea_total for _, _, idea_total in live_counts.values())
+    denominator = max(valid_idea_count, 1)
 
     def frequency(code_id: str) -> float:
-        if code_id in snapshot:
-            return snapshot[code_id]
         return live_counts.get(code_id, (0, 0, 0))[2] / denominator
 
     def originality(code_id: str) -> int:
@@ -466,6 +464,27 @@ def originality_for_response(
 
     code_names = {idea.code_id: idea.code.name for idea in valid_ideas if idea.code}
     flexibility_codes = sorted(set(code_names.values()))
+    frequency_rows = []
+    for code_id in sorted(code_names):
+        response_count, participant_count, idea_count = live_counts.get(code_id, (0, 0, 0))
+        frequency_rows.append(
+            {
+                "code_id": code_id,
+                "code_name": code_names[code_id],
+                "response_count": response_count,
+                "participant_count": participant_count,
+                "idea_count": idea_count,
+                "frequency": idea_count / denominator,
+            }
+        )
+    basis = {
+        "frequency_source": "realtime_at_scoring",
+        "qualifying_participant_count": qualifying_participant_count(db, response.item_id),
+        "qualifying_response_count": qualifying_response_count(db, response.item_id),
+        "valid_idea_count": valid_idea_count,
+        "formula": {"rare_at_or_below": 0.01, "uncommon_at_or_below": 0.05},
+        "code_frequencies": frequency_rows,
+    }
     per_idea = [
         PerIdeaScore(
             normalized=idea.normalized,
@@ -475,13 +494,4 @@ def originality_for_response(
         )
         for idea in valid_ideas
     ]
-    return len(valid_ideas), len(flexibility_codes), flexibility_codes, per_idea, uses_live
-
-
-def mark_item_for_recalculation(db: Session, item_id: str) -> None:
-    """Can thiệp admin làm điểm cũ trở thành provisional cho tới khi chạy lại."""
-    db.execute(
-        update(Response)
-        .where(Response.item_id == item_id, Response.scoring_status == "FINAL")
-        .values(scoring_status="PROVISIONAL")
-    )
+    return len(valid_ideas), len(flexibility_codes), flexibility_codes, per_idea, basis

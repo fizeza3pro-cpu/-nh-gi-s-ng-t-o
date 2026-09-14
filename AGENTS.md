@@ -146,7 +146,8 @@ render.yaml / vercel.json           # config deploy
 
 - Người trả lời không dùng mật khẩu. Họ nhập email tự khai (chưa OTP); backend tra cứu bằng
   HMAC email và cấp UUID participant lưu `localStorage`, sau đó gửi qua `X-Participant-Id`.
-  Email rõ không được lưu, admin chỉ thấy bản đã che; profile nhân khẩu học chỉ thu ở email mới.
+  Email rõ không được lưu, admin chỉ thấy bản đã che; họ tên và profile nhân khẩu học chỉ thu ở
+  email mới hoặc khi hồ sơ cũ còn thiếu họ tên.
 - Một participant có thể làm nhiều đồ vật hoặc lặp lại cùng đồ vật. Mỗi lần nộp là một `Response`
   độc lập và mọi lượt không bị `EXCLUDED` đều tham gia mẫu hiệu chỉnh. Tần suất code bằng số ý
   `VALID` của code chia tổng số ý `VALID` đã gắn code được chấp nhận của cùng đồ vật; số participant

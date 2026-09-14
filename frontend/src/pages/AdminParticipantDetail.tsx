@@ -66,7 +66,7 @@ export default function AdminParticipantDetail() {
         <div className="mb-6 mt-6">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-serif text-2xl font-medium tracking-tight">
-              {detail.participant.email_masked || "Người tham gia"}
+              {detail.participant.full_name || "Người tham gia chưa bổ sung họ tên"}
             </h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">

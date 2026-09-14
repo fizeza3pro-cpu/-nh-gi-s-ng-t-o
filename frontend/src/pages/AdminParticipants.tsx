@@ -65,6 +65,7 @@ export default function AdminParticipants() {
           <table className="w-full text-sm">
             <thead className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
               <tr>
+                <th className="px-4 py-3 font-medium">Họ và tên</th>
                 <th className="px-4 py-3 font-medium">Email định danh</th>
                 <th className="px-4 py-3 font-medium">Tuổi</th>
                 <th className="px-4 py-3 font-medium">Giới tính</th>
@@ -79,6 +80,9 @@ export default function AdminParticipants() {
             <tbody className="divide-y divide-border">
               {participants.map((participant) => (
                 <tr key={participant.id} className="transition-colors hover:bg-muted/30">
+                  <td className="px-4 py-3.5 font-medium">
+                    {participant.full_name || "Chưa bổ sung"}
+                  </td>
                   <td className="px-4 py-3.5">
                     <p className="font-mono text-xs">{participant.email_masked || "Chưa liên kết"}</p>
                     <p className="mt-1 text-[11px] text-amber-700">
@@ -109,7 +113,7 @@ export default function AdminParticipants() {
               {participants.length === 0 && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-4 py-8 text-center text-muted-foreground"
                   >
                     Chưa có người tham gia nào.

@@ -16,7 +16,7 @@ import type { AdminDashboardStats } from "@/lib/types";
 const STATUS_LABELS: Record<string, string> = {
   COLLECTING: "Đang thu thập",
   PENDING_REVIEW: "Chờ xử lý",
-  PROVISIONAL: "Điểm tạm thời",
+  PROVISIONAL: "Trạng thái cũ",
   FINAL: "Điểm chính thức",
   EXCLUDED: "Đã loại",
   CALIBRATING: "Đang hiệu chỉnh",
@@ -159,8 +159,7 @@ export default function AdminOverview() {
             Tiến độ dữ liệu và sổ mã
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-            Trang tổng quan phản ánh dữ liệu đang được thu thập và mức sẵn sàng để chấm điểm;
-            không xếp hạng người tham gia khi chuẩn tần suất còn thay đổi.
+            Trang tổng quan phản ánh dữ liệu đang được thu thập và mức sẵn sàng để chấm điểm một lần.
           </p>
         </div>
         <Link
@@ -172,7 +171,7 @@ export default function AdminOverview() {
       </header>
 
       <section className="grid grid-cols-2 gap-x-4 gap-y-7 border-b border-stone-300 pb-8 lg:grid-cols-4 lg:gap-x-8">
-        <Metric icon={Database} label="Tổng lượt trả lời" value={stats.total_responses} note={`${stats.eligible_response_count} lượt đủ điều kiện hiệu chỉnh`} />
+        <Metric icon={Database} label="Tổng lượt trả lời" value={stats.total_responses} note={`${stats.qualifying_response_count} response đủ điều kiện`} />
         <Metric icon={Users2} label="Người tham gia" value={stats.total_participants} note="Hồ sơ email riêng biệt" />
         <Metric icon={FlaskConical} label="7 ngày gần nhất" value={stats.responses_last_7_days} note={trendNote} />
         <Metric icon={BookOpenCheck} label="Mã được chấp nhận" value={stats.accepted_code_count} note={`${stats.uncertain_code_count} cần theo dõi · ${stats.rejected_code_count} bị loại`} />
@@ -204,14 +203,14 @@ export default function AdminOverview() {
       </div>
 
       <div className="mt-5">
-        <Panel title="Tiến độ theo đồ vật" note="Mốc đầu tạo sổ mã; mốc sau cung cấp đủ mẫu nền để tính độ hiếm ổn định.">
+        <Panel title="Tiến độ theo đồ vật" note="Chỉ mở chấm điểm khi đồng thời đủ ngưỡng người tham gia và response.">
           <div className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="border-y border-stone-200 bg-stone-50 text-xs text-stone-500">
                 <tr>
                   <th className="px-3 py-3 font-medium">Đồ vật</th>
                   <th className="px-3 py-3 font-medium">Trạng thái</th>
-                  <th className="px-3 py-3 font-medium">Mẫu chuẩn</th>
+                  <th className="px-3 py-3 font-medium">Dữ liệu đủ điều kiện</th>
                   <th className="px-3 py-3 font-medium">Tiến độ</th>
                   <th className="px-3 py-3 font-medium">Mã do AI tạo</th>
                   <th className="px-3 py-3 text-right font-medium">Phiên bản</th>
@@ -219,7 +218,9 @@ export default function AdminOverview() {
               </thead>
               <tbody className="divide-y divide-stone-200">
                 {stats.by_item.map((item) => {
-                  const progress = Math.min(100, Math.round((item.eligible_participant_count / Math.max(item.originality_min_participants, 1)) * 100));
+                  const participantProgress = item.qualifying_participant_count / Math.max(item.scoring_min_participants, 1);
+                  const responseProgress = item.qualifying_response_count / Math.max(item.scoring_min_responses, 1);
+                  const progress = Math.min(100, Math.round(Math.min(participantProgress, responseProgress) * 100));
                   return (
                     <tr key={item.item_id} className="hover:bg-stone-50/70">
                       <td className="px-3 py-4">
@@ -230,9 +231,9 @@ export default function AdminOverview() {
                       </td>
                       <td className="px-3 py-4"><StatusBadge value={item.calibration_status} /></td>
                       <td className="px-3 py-4 font-mono tabular-nums text-stone-700">
-                        <span>{item.eligible_response_count} lượt</span>
+                        <span>{item.qualifying_response_count} response</span>
                         <span className="mt-1 block text-[11px] text-stone-400">
-                          {item.eligible_participant_count} / {item.originality_min_participants} người
+                          {item.qualifying_participant_count} người
                         </span>
                       </td>
                       <td className="w-48 px-3 py-4">
@@ -240,7 +241,7 @@ export default function AdminOverview() {
                           <div className="h-full bg-[#8B5E34] transition-all" style={{ width: `${progress}%` }} />
                         </div>
                         <p className="mt-1.5 text-[11px] text-stone-500">
-                          Tạo sổ mã từ {item.calibration_min_participants} · độ hiếm từ {item.originality_min_participants}
+                          {item.qualifying_participant_count}/{item.scoring_min_participants} người · {item.qualifying_response_count}/{item.scoring_min_responses} response
                         </p>
                       </td>
                       <td className="px-3 py-4 font-mono text-xs tabular-nums">
@@ -277,7 +278,7 @@ export default function AdminOverview() {
               </thead>
               <tbody className="divide-y divide-stone-200">
                 {stats.recent_responses.map((response) => {
-                  const hasScore = ["PROVISIONAL", "FINAL"].includes(response.scoring_status);
+                  const hasScore = response.scoring_status === "FINAL";
                   return (
                     <tr key={response.response_id} className="hover:bg-stone-50/70">
                       <td className="whitespace-nowrap px-3 py-4 font-mono text-xs text-stone-500">{formatDateTime(response.created_at)}</td>

@@ -90,6 +90,7 @@ class Participant(Base):
     __tablename__ = "participants"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email_hash: Mapped[str | None] = mapped_column(
         String(64), unique=True, nullable=True, index=True
     )
@@ -119,8 +120,8 @@ class Item(Base):
         default=ItemCalibrationStatus.COLLECTING,
         nullable=False,
     )
-    calibration_min_participants: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
-    originality_min_participants: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    scoring_min_participants: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    scoring_min_responses: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     last_version_participant_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     active_codebook_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
@@ -162,7 +163,6 @@ class Response(Base):
     codebook_version_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("codebook_versions.id"), nullable=True, index=True
     )
-    calibration_eligible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
@@ -242,7 +242,7 @@ class ResponseIdea(Base):
 
 
 class CodebookVersion(Base):
-    """Snapshot bất biến dùng để tái lập điểm tại một thời điểm."""
+    """Dấu mốc bất biến của cấu trúc codebook, không phải nguồn tần suất chấm điểm."""
 
     __tablename__ = "codebook_versions"
 
@@ -267,7 +267,7 @@ class CodebookVersion(Base):
 
 
 class CodebookVersionCode(Base):
-    """Tần suất cố định của một code bên trong một snapshot."""
+    """Thống kê tham chiếu tại lúc đóng dấu mốc cấu trúc codebook."""
 
     __tablename__ = "codebook_version_codes"
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Loader2, Send, Sparkles } from "lucide-react";
+import { Loader2, Send, Sparkles, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,10 +9,11 @@ import {
   api,
   cacheResponse,
   clearParticipantProfile,
+  getParticipantIdentity,
   hasParticipantProfile,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { Item } from "@/lib/types";
+import type { Item, ParticipantIdentity } from "@/lib/types";
 
 export default function Test() {
   const { itemId } = useParams<{ itemId: string }>();
@@ -24,6 +25,9 @@ export default function Test() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [profileReady, setProfileReady] = useState(hasParticipantProfile);
+  const [participant, setParticipant] = useState<ParticipantIdentity | null>(
+    getParticipantIdentity,
+  );
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -63,6 +67,7 @@ export default function Test() {
       const message = (err as Error).message;
       if (message.includes("hồ sơ người tham gia")) {
         clearParticipantProfile();
+        setParticipant(null);
         setProfileReady(false);
       }
       setSubmitError(message);
@@ -100,7 +105,12 @@ export default function Test() {
       {/* --- MAIN CONTENT: Bố cục 2 cột hài hòa --- */}
       {!profileReady ? (
         <div className="container py-10 md:py-16">
-          <ParticipantProfileForm onComplete={() => setProfileReady(true)} />
+          <ParticipantProfileForm
+            onComplete={(identity) => {
+              setParticipant(identity);
+              setProfileReady(true);
+            }}
+          />
         </div>
       ) : (
       <section className="container grid gap-10 py-10 md:grid-cols-[1fr_1.4fr] md:py-16">
@@ -127,6 +137,33 @@ export default function Test() {
             </p>
           ) : (
             <Skeleton className="mt-5 h-16 w-full max-w-sm" />
+          )}
+
+          {participant && (
+            <div className="mt-6 flex max-w-sm items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {participant.full_name || "Người tham gia"}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {participant.email_masked || "Email đã liên kết"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  clearParticipantProfile();
+                  setParticipant(null);
+                  setProfileReady(false);
+                }}
+              >
+                Đổi người
+              </button>
+            </div>
           )}
 
           {/* Hướng dẫn được đóng gói gọn gàng */}

@@ -10,7 +10,11 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import type { ParticipantGender, ParticipantProfile } from "@/lib/types";
+import type {
+  ParticipantGender,
+  ParticipantIdentity,
+  ParticipantProfile,
+} from "@/lib/types";
 
 const GENDER_OPTIONS: Array<{ value: ParticipantGender; label: string }> = [
   { value: "male", label: "Nam" },
@@ -25,10 +29,11 @@ const fieldClassName =
 export default function ParticipantProfileForm({
   onComplete,
 }: {
-  onComplete: () => void;
+  onComplete: (participant: ParticipantIdentity) => void;
 }) {
   const [step, setStep] = useState<"EMAIL" | "PROFILE">("EMAIL");
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState<ParticipantGender | "">("");
   const [occupation, setOccupation] = useState("");
@@ -37,6 +42,7 @@ export default function ParticipantProfileForm({
 
   const emailReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const profileReady =
+    fullName.trim().length >= 2 &&
     Number(age) >= 10 &&
     Number(age) <= 100 &&
     gender !== "" &&
@@ -52,8 +58,8 @@ export default function ParticipantProfileForm({
       const result = await api.identifyParticipant(email.trim());
       if (result.profile_required) {
         setStep("PROFILE");
-      } else {
-        onComplete();
+      } else if (result.participant) {
+        onComplete(result.participant);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thể kiểm tra email. Hãy thử lại.");
@@ -67,6 +73,7 @@ export default function ParticipantProfileForm({
     if (!profileReady || submitting || !gender) return;
 
     const profile: ParticipantProfile = {
+      full_name: fullName.trim(),
       age: Number(age),
       gender,
       occupation: occupation.trim(),
@@ -74,8 +81,8 @@ export default function ParticipantProfileForm({
     setSubmitting(true);
     setError(null);
     try {
-      await api.createParticipant(email.trim(), profile);
-      onComplete();
+      const participant = await api.createParticipant(email.trim(), profile);
+      onComplete(participant);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thể lưu thông tin. Hãy thử lại.");
     } finally {
@@ -175,7 +182,26 @@ export default function ParticipantProfileForm({
                 </button>
               </div>
 
-              <div className="mt-7 grid gap-6 sm:grid-cols-[140px_1fr]">
+              <div className="mt-7 space-y-2">
+                <label htmlFor="participant-full-name" className="text-sm font-medium">
+                  Họ và tên
+                </label>
+                <input
+                  id="participant-full-name"
+                  type="text"
+                  autoComplete="name"
+                  required
+                  minLength={2}
+                  maxLength={255}
+                  autoFocus
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  placeholder="Ví dụ: Nguyễn Minh Anh"
+                  className={fieldClassName}
+                />
+              </div>
+
+              <div className="mt-6 grid gap-6 sm:grid-cols-[140px_1fr]">
                 <div className="space-y-2">
                   <label htmlFor="participant-age" className="text-sm font-medium">Tuổi</label>
                   <input
@@ -185,7 +211,6 @@ export default function ParticipantProfileForm({
                     min={10}
                     max={100}
                     required
-                    autoFocus
                     value={age}
                     onChange={(event) => setAge(event.target.value)}
                     placeholder="Ví dụ: 20"

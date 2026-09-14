@@ -14,9 +14,8 @@ class Settings(BaseSettings):
     code_accept_confidence: float = 0.82
     code_uncertain_confidence: float = 0.60
     code_stable_min_participants: int = 3
-    calibration_min_participants: int = 30
-    originality_min_participants: int = 100
-    codebook_refresh_interval: int = 20
+    scoring_min_participants: int = 30
+    scoring_min_responses: int = 100
     cors_origins: str = "http://localhost:5173"
     mock_mode: bool = False
 

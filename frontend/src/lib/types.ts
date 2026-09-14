@@ -59,6 +59,7 @@ export type ParticipantGender =
   | "prefer_not_to_say";
 
 export interface ParticipantProfile {
+  full_name: string;
   age: number;
   gender: ParticipantGender;
   occupation: string;
@@ -73,6 +74,7 @@ export interface Participant extends ParticipantProfile {
 
 export interface ParticipantIdentity {
   id: string;
+  full_name: string | null;
   email_masked: string | null;
   email_verified_at: string | null;
 }
@@ -118,10 +120,10 @@ export interface AdminItemBreakdown {
   item_name: string;
   response_count: number;
   calibration_status: string;
-  eligible_response_count: number;
-  eligible_participant_count: number;
-  calibration_min_participants: number;
-  originality_min_participants: number;
+  qualifying_response_count: number;
+  qualifying_participant_count: number;
+  scoring_min_participants: number;
+  scoring_min_responses: number;
   accepted_code_count: number;
   uncertain_code_count: number;
   rejected_code_count: number;
@@ -144,7 +146,7 @@ export interface AdminScoringStatusCounts {
 export interface AdminDashboardStats {
   total_participants: number;
   total_responses: number;
-  eligible_response_count: number;
+  qualifying_response_count: number;
   responses_last_7_days: number;
   responses_previous_7_days: number;
   accepted_code_count: number;
@@ -158,6 +160,7 @@ export interface AdminDashboardStats {
 
 export interface AdminParticipantSummary {
   id: string;
+  full_name: string | null;
   email_masked: string | null;
   email_verified_at: string | null;
   age: number | null;
@@ -196,9 +199,9 @@ export interface AdminCodebookCode {
   response_count: number;
   participant_count: number;
   idea_count: number;
-  eligible_response_count: number;
-  eligible_participant_count: number;
-  eligible_idea_count: number;
+  contributing_response_count: number;
+  contributing_participant_count: number;
+  contributing_idea_count: number;
   frequency: number;
   created_at: string;
 }
@@ -260,11 +263,11 @@ export interface AdminCodebookSummary {
   item_id: string;
   item_name: string;
   calibration_status: string;
-  eligible_response_count: number;
-  eligible_participant_count: number;
-  eligible_idea_count: number;
-  calibration_min_participants: number;
-  originality_min_participants: number;
+  qualifying_response_count: number;
+  qualifying_participant_count: number;
+  contributing_idea_count: number;
+  scoring_min_participants: number;
+  scoring_min_responses: number;
   active_version: number | null;
   pending_idea_count: number;
   extraction_invalid_count: number;

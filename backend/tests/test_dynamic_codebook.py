@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.config import settings
 from app.models.models import (
     CodebookVersionCode,
     Item,
@@ -16,10 +15,10 @@ from app.models.models import (
     ResponseIdea,
 )
 from app.pipeline.codebook_service import (
-    eligible_response_count,
     list_curator_codes,
     maybe_refresh_codebook,
     persist_mapping,
+    qualifying_response_count,
 )
 from app.schemas.schemas import (
     CuratorDecision,
@@ -37,18 +36,17 @@ def _engine():
     )
 
 
-def _response(participant_id: str, item_id: str, eligible: bool = True) -> Response:
+def _response(participant_id: str, item_id: str) -> Response:
     return Response(
         participant_id=participant_id,
         item_id=item_id,
         raw_input="làm dấu trang",
         mapping={},
         scoring={},
-        calibration_eligible=eligible,
     )
 
 
-def test_repeat_responses_are_all_calibration_samples():
+def test_repeat_responses_are_all_qualifying_data():
     engine = _engine()
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -62,22 +60,21 @@ def test_repeat_responses_are_all_calibration_samples():
             _response(participant.id, item.id),
         ])
         db.commit()
-        assert eligible_response_count(db, item.id) == 2
+        assert qualifying_response_count(db, item.id) == 2
 
 
-def test_repeat_response_can_refresh_frequency_snapshot(monkeypatch):
-    """Lượt làm lại thay đổi phân bố nên cũng phải thúc đẩy chu kỳ đóng snapshot."""
+def test_repeat_response_does_not_refresh_structural_version():
+    """Dữ liệu mới đổi tần suất realtime nhưng không tạo version hay chấm lại điểm cũ."""
     engine = _engine()
     Base.metadata.create_all(engine)
-    monkeypatch.setattr(settings, "codebook_refresh_interval", 1)
     with Session(engine) as db:
         participant = Participant(id=str(uuid.uuid4()))
         item = Item(
             id="dua",
             name="Đũa",
             description="Đôi đũa",
-            calibration_min_participants=1,
-            originality_min_participants=2,
+            scoring_min_participants=1,
+            scoring_min_responses=1,
         )
         db.add_all([participant, item])
         db.flush()
@@ -92,10 +89,10 @@ def test_repeat_response_can_refresh_frequency_snapshot(monkeypatch):
         db.add(_response(participant.id, item.id))
         db.flush()
         second_version, refreshed = maybe_refresh_codebook(db, item)
-        assert refreshed is True
+        assert refreshed is False
         assert second_version is not None
-        assert second_version.version == 2
-        assert second_version.response_count == 2
+        assert second_version.version == 1
+        assert second_version.response_count == 1
         assert second_version.participant_count == 1
 
 
@@ -107,8 +104,8 @@ def test_reaching_threshold_creates_an_immutable_frequency_snapshot():
             id="chai",
             name="Chai nhựa",
             description="Một chai nhựa",
-            calibration_min_participants=2,
-            originality_min_participants=4,
+            scoring_min_participants=2,
+            scoring_min_responses=2,
         )
         p1, p2 = Participant(id=str(uuid.uuid4())), Participant(id=str(uuid.uuid4()))
         code = ItemCode(
@@ -174,8 +171,8 @@ def test_snapshot_frequency_uses_idea_share_not_submission_share():
             id="chai",
             name="Chai nhựa",
             description="Một chai nhựa",
-            calibration_min_participants=2,
-            originality_min_participants=4,
+            scoring_min_participants=2,
+            scoring_min_responses=2,
         )
         p1, p2 = Participant(id=str(uuid.uuid4())), Participant(id=str(uuid.uuid4()))
         code_a = ItemCode(

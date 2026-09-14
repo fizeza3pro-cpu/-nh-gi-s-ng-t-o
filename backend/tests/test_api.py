@@ -10,7 +10,7 @@ import app.main as main_mod
 from app.controllers import response_controller
 from app.db import Base, get_db
 from app.main import app
-from app.models.models import Item
+from app.models.models import Item, Participant, Response
 from app.core.deps import require_admin
 from app.schemas.schemas import CuratorDecision, CuratorResult, ExtractedIdea, IdeaExtractionResult
 
@@ -52,6 +52,7 @@ def create_participant(client: TestClient, email: str | None = None) -> str:
         "/api/participants",
         json={
             "email": email,
+            "full_name": "Nguyễn Minh Anh",
             "age": 20,
             "gender": "female",
             "occupation": "Sinh viên",
@@ -112,7 +113,7 @@ def test_empty_admin_dashboard_still_lists_all_items(client):
     assert response.status_code == 200
     payload = response.json()
     assert payload["total_responses"] == 0
-    assert payload["eligible_response_count"] == 0
+    assert payload["qualifying_response_count"] == 0
     assert payload["scoring_status_counts"]["collecting"] == 0
     assert payload["by_item"][0]["item_id"] == "dua"
     assert payload["by_item"][0]["response_count"] == 0
@@ -125,6 +126,7 @@ def test_participant_is_idempotent(client):
         "/api/participants",
         json={
             "email": email.upper(),
+            "full_name": "Tên gửi lại không ghi đè",
             "age": 99,
             "gender": "male",
             "occupation": "Dữ liệu retry không ghi đè",
@@ -132,6 +134,7 @@ def test_participant_is_idempotent(client):
     )
     assert response.status_code == 201
     assert response.json()["id"] == participant_id
+    assert response.json()["full_name"] == "Nguyễn Minh Anh"
     assert "age" not in response.json()
     assert "gender" not in response.json()
     assert "occupation" not in response.json()
@@ -151,11 +154,59 @@ def test_email_identifies_returning_participant(client):
     assert returning.status_code == 200
     assert returning.json()["profile_required"] is False
     assert returning.json()["participant"]["id"] == participant_id
+    assert returning.json()["participant"]["full_name"] == "Nguyễn Minh Anh"
     assert returning.json()["participant"]["email_verified_at"] is None
     assert returning.json()["participant"]["email_masked"].endswith("@example.test")
     assert "age" not in returning.json()["participant"]
     assert "gender" not in returning.json()["participant"]
     assert "occupation" not in returning.json()["participant"]
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    participants = client.get("/api/admin/participants")
+    detail = client.get(f"/api/admin/participants/{participant_id}")
+    assert participants.status_code == 200
+    assert participants.json()[0]["full_name"] == "Nguyễn Minh Anh"
+    assert detail.status_code == 200
+    assert detail.json()["participant"]["full_name"] == "Nguyễn Minh Anh"
+
+
+def test_legacy_participant_can_add_missing_full_name(client):
+    """Participant cũ chưa có tên được yêu cầu bổ sung và không bị tạo bản ghi trùng."""
+    email = "legacy-name@example.test"
+    participant_id = create_participant(client, email)
+
+    db_dependency = app.dependency_overrides[get_db]()
+    db = next(db_dependency)
+    try:
+        participant = db.get(Participant, participant_id)
+        assert participant is not None
+        participant.full_name = None
+        participant.email_hash = None
+        participant.email_masked = None
+        db.commit()
+    finally:
+        db_dependency.close()
+
+    identify = client.post(
+        "/api/participants/identify",
+        json={"email": email, "participant_id": participant_id},
+    )
+    assert identify.status_code == 200
+    assert identify.json() == {"profile_required": True, "participant": None}
+
+    completed = client.post(
+        "/api/participants",
+        json={
+            "email": email,
+            "full_name": "  Trần   Thu Hà  ",
+            "age": 21,
+            "gender": "female",
+            "occupation": "Sinh viên",
+        },
+    )
+    assert completed.status_code == 201
+    assert completed.json()["id"] == participant_id
+    assert completed.json()["full_name"] == "Trần Thu Hà"
 
 
 def test_score_requires_participant(client):
@@ -208,11 +259,11 @@ def test_admin_can_observe_ai_generated_codes(client):
     assert response.status_code == 200
     codebook = response.json()[0]
     assert codebook["calibration_status"] == "COLLECTING"
-    assert codebook["eligible_participant_count"] == 1
+    assert codebook["qualifying_participant_count"] == 1
     assert codebook["codes"][0]["validation_status"] == "ACCEPTED"
     assert codebook["codes"][0]["response_count"] == 1
-    assert codebook["codes"][0]["eligible_response_count"] == 1
-    assert codebook["codes"][0]["eligible_idea_count"] == 1
+    assert codebook["codes"][0]["contributing_response_count"] == 1
+    assert codebook["codes"][0]["contributing_idea_count"] == 1
 
 
 def test_admin_sees_all_mapping_evidence_and_curator_decisions(client):
@@ -221,21 +272,21 @@ def test_admin_sees_all_mapping_evidence_and_curator_decisions(client):
     payload = {"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"}
 
     assert client.post("/api/score", headers=headers, json=payload).status_code == 200
-    # Lượt lặp vừa là mẫu chuẩn vừa là bằng chứng Curator đã match code.
+    # Lượt lặp cũng đóng góp vào tần suất và là bằng chứng Curator đã match code.
     assert client.post("/api/score", headers=headers, json=payload).status_code == 200
 
     app.dependency_overrides[require_admin] = lambda: object()
     codebook = client.get("/api/admin/items/dua/codebook").json()
-    assert codebook["eligible_response_count"] == 2
-    assert codebook["eligible_participant_count"] == 1
-    assert codebook["eligible_idea_count"] == 2
+    assert codebook["qualifying_response_count"] == 2
+    assert codebook["qualifying_participant_count"] == 1
+    assert codebook["contributing_idea_count"] == 2
     code = codebook["codes"][0]
     assert code["response_count"] == 2
     assert code["participant_count"] == 1
     assert code["idea_count"] == 2
-    assert code["eligible_response_count"] == 2
-    assert code["eligible_participant_count"] == 1
-    assert code["eligible_idea_count"] == 2
+    assert code["contributing_response_count"] == 2
+    assert code["contributing_participant_count"] == 1
+    assert code["contributing_idea_count"] == 2
     assert code["frequency"] == 1.0
 
     audit = client.get("/api/admin/items/dua/curator-audit")
@@ -367,7 +418,7 @@ def test_admin_can_accept_an_uncertain_code(client, monkeypatch):
     before = client.get("/api/admin/items/dua/codebook").json()
     uncertain = before["codes"][0]
     assert uncertain["validation_status"] == "UNCERTAIN"
-    assert before["eligible_idea_count"] == 0
+    assert before["contributing_idea_count"] == 0
 
     accepted = client.patch(
         f"/api/admin/items/dua/codes/{uncertain['id']}",
@@ -377,20 +428,20 @@ def test_admin_can_accept_an_uncertain_code(client, monkeypatch):
     code = accepted.json()["codes"][0]
     assert code["validation_status"] == "ACCEPTED"
     assert code["admin_locked"] is True
-    assert code["eligible_idea_count"] == 1
-    assert accepted.json()["eligible_idea_count"] == 1
+    assert code["contributing_idea_count"] == 1
+    assert accepted.json()["contributing_idea_count"] == 1
 
     detail = client.get(f"/api/responses/{submitted.json()['response_id']}").json()
     assert detail["scoring_status"] == "COLLECTING"
     assert detail["mapping"]["ideas"][0]["status"] == "VALID"
 
 
-def test_accepting_uncertain_code_recalculates_an_active_item(client, monkeypatch):
+def test_accepting_uncertain_code_scores_once_when_item_is_ready(client, monkeypatch):
     database = app.dependency_overrides[get_db]()
     db = next(database)
     item = db.get(Item, "dua")
-    item.calibration_min_participants = 1
-    item.originality_min_participants = 100
+    item.scoring_min_participants = 1
+    item.scoring_min_responses = 1
     db.commit()
     next(database, None)
 
@@ -412,9 +463,60 @@ def test_accepting_uncertain_code_recalculates_an_active_item(client, monkeypatc
     assert accepted.status_code == 200
 
     detail = client.get(f"/api/responses/{submitted.json()['response_id']}").json()
-    assert detail["scoring_status"] == "PROVISIONAL"
+    assert detail["scoring_status"] == "FINAL"
     assert detail["scoring"]["fluency"] == 1
     assert detail["scoring"]["flexibility"] == 1
+
+
+def test_threshold_backfills_once_and_new_data_does_not_change_final_score(client):
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    item = db.get(Item, "dua")
+    item.scoring_min_participants = 2
+    item.scoring_min_responses = 2
+    db.commit()
+    next(database, None)
+
+    first_participant = create_participant(client, "first@example.test")
+    second_participant = create_participant(client, "second@example.test")
+    first = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": first_participant},
+        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"},
+    ).json()
+    assert first["scoring_status"] == "COLLECTING"
+
+    second = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": second_participant},
+        json={"item_id": "dua", "raw_input": "làm thanh gõ nhịp"},
+    ).json()
+    assert second["scoring_status"] == "FINAL"
+    assert client.get(f"/api/responses/{first['response_id']}").json()["scoring_status"] == "FINAL"
+
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    first_row = db.get(Response, first["response_id"])
+    frozen_score = dict(first_row.scoring)
+    frozen_scored_at = first_row.scored_at
+    frozen_basis = dict(first_row.scoring_meta["frequency_basis"])
+    assert frozen_basis["qualifying_response_count"] == 2
+    next(database, None)
+
+    third = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": second_participant},
+        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"},
+    ).json()
+    assert third["scoring_status"] == "FINAL"
+
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    first_row = db.get(Response, first["response_id"])
+    assert first_row.scoring == frozen_score
+    assert first_row.scored_at == frozen_scored_at
+    assert first_row.scoring_meta["frequency_basis"] == frozen_basis
+    next(database, None)
 
 
 def test_admin_can_reject_an_uncertain_code(client, monkeypatch):
@@ -436,7 +538,7 @@ def test_admin_can_reject_an_uncertain_code(client, monkeypatch):
     code = rejected.json()["codes"][0]
     assert code["validation_status"] == "REJECTED"
     assert code["admin_locked"] is True
-    assert code["eligible_idea_count"] == 0
+    assert code["contributing_idea_count"] == 0
 
     detail = client.get(f"/api/responses/{submitted.json()['response_id']}").json()
     assert detail["scoring_status"] == "COLLECTING"
@@ -502,7 +604,7 @@ def test_admin_can_delete_one_code_without_deleting_raw_response(client):
     assert detail.json()["scoring_status"] == "PENDING_REVIEW"
 
 
-def test_delete_all_codes_resets_item_calibration_but_keeps_responses(client):
+def test_delete_all_codes_resets_mapping_but_keeps_responses_eligible_for_remap(client):
     participant_id = create_participant(client)
     first = client.post(
         "/api/score",
@@ -514,11 +616,15 @@ def test_delete_all_codes_resets_item_calibration_but_keeps_responses(client):
     reset = client.delete("/api/admin/items/dua/codes")
     assert reset.status_code == 200
     assert reset.json()["codes"] == []
-    assert reset.json()["eligible_participant_count"] == 0
+    assert reset.json()["qualifying_participant_count"] == 1
+    assert reset.json()["qualifying_response_count"] == 1
     assert reset.json()["calibration_status"] == "COLLECTING"
     assert client.get(f"/api/responses/{first.json()['response_id']}").status_code == 200
+    detail = client.get(f"/api/responses/{first.json()['response_id']}").json()
+    assert detail["scoring_status"] == "COLLECTING"
+    assert detail["scoring"] is None
 
-    # Sau reset, cùng participant có thể đóng góp lại một mẫu chuẩn mới.
+    # Sau reset, response cũ vẫn đóng góp và response mới được cộng thêm bình thường.
     second = client.post(
         "/api/score",
         headers={"X-Participant-Id": participant_id},
@@ -526,4 +632,5 @@ def test_delete_all_codes_resets_item_calibration_but_keeps_responses(client):
     )
     assert second.status_code == 200
     refreshed = client.get("/api/admin/items/codebooks").json()[0]
-    assert refreshed["eligible_participant_count"] == 1
+    assert refreshed["qualifying_participant_count"] == 1
+    assert refreshed["qualifying_response_count"] == 2
