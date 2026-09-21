@@ -7,7 +7,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models.models import (
-    CodebookVersionCode,
     Item,
     ItemCode,
     Participant,
@@ -16,9 +15,10 @@ from app.models.models import (
 )
 from app.pipeline.codebook_service import (
     list_curator_codes,
-    maybe_refresh_codebook,
+    originality_for_response,
     persist_mapping,
     qualifying_response_count,
+    refresh_item_scoring_state,
 )
 from app.schemas.schemas import (
     CuratorDecision,
@@ -63,8 +63,8 @@ def test_repeat_responses_are_all_qualifying_data():
         assert qualifying_response_count(db, item.id) == 2
 
 
-def test_repeat_response_does_not_refresh_structural_version():
-    """Dữ liệu mới đổi tần suất realtime nhưng không tạo version hay chấm lại điểm cũ."""
+def test_item_stays_active_when_repeat_response_arrives():
+    """Response mới thay đổi tần suất realtime nhưng không tạo thêm trạng thái trung gian."""
     engine = _engine()
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -81,22 +81,16 @@ def test_repeat_response_does_not_refresh_structural_version():
 
         db.add(_response(participant.id, item.id))
         db.flush()
-        first_version, first_activation = maybe_refresh_codebook(db, item)
-        assert first_activation is True
-        assert first_version is not None
-        assert first_version.response_count == 1
+        assert refresh_item_scoring_state(db, item) is True
+        assert item.calibration_status.value == "ACTIVE"
 
         db.add(_response(participant.id, item.id))
         db.flush()
-        second_version, refreshed = maybe_refresh_codebook(db, item)
-        assert refreshed is False
-        assert second_version is not None
-        assert second_version.version == 1
-        assert second_version.response_count == 1
-        assert second_version.participant_count == 1
+        assert refresh_item_scoring_state(db, item) is False
+        assert item.calibration_status.value == "ACTIVE"
 
 
-def test_reaching_threshold_creates_an_immutable_frequency_snapshot():
+def test_item_becomes_active_only_after_both_thresholds_are_reached():
     engine = _engine()
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -131,7 +125,8 @@ def test_reaching_threshold_creates_an_immutable_frequency_snapshot():
             )
         )
         db.flush()
-        assert maybe_refresh_codebook(db, item) == (None, False)
+        assert refresh_item_scoring_state(db, item) is False
+        assert item.calibration_status.value == "COLLECTING"
 
         second = _response(p2.id, item.id)
         db.add(second)
@@ -148,21 +143,11 @@ def test_reaching_threshold_creates_an_immutable_frequency_snapshot():
         )
         db.flush()
 
-        version, first_activation = maybe_refresh_codebook(db, item)
-        db.flush()
-        assert version is not None
-        assert first_activation is True
-        assert version.version == 1
-        snapshot = db.scalar(
-            select(CodebookVersionCode).where(CodebookVersionCode.version_id == version.id)
-        )
-        assert snapshot is not None
-        assert snapshot.response_count == 2
-        assert snapshot.participant_count == 2
-        assert snapshot.frequency == 1.0
+        assert refresh_item_scoring_state(db, item) is True
+        assert item.calibration_status.value == "ACTIVE"
 
 
-def test_snapshot_frequency_uses_idea_share_not_submission_share():
+def test_realtime_frequency_uses_idea_share_not_submission_share():
     """Một lượt có nhiều ý phải đóng góp từng ý vào mẫu số theo công thức AUT."""
     engine = _engine()
     Base.metadata.create_all(engine)
@@ -233,21 +218,13 @@ def test_snapshot_frequency_uses_idea_share_not_submission_share():
         )
         db.flush()
 
-        version, _ = maybe_refresh_codebook(db, item)
-        assert version is not None
-        snapshots = {
-            row.code_id: row
-            for row in db.scalars(
-                select(CodebookVersionCode).where(
-                    CodebookVersionCode.version_id == version.id
-                )
-            ).all()
+        _, _, _, _, basis = originality_for_response(db, first)
+        frequencies = {
+            row["code_id"]: row["frequency"] for row in basis["code_frequencies"]
         }
-        assert snapshots[code_a.id].idea_count == 2
-        assert snapshots[code_a.id].frequency == pytest.approx(2 / 3)
-        assert snapshots[code_b.id].idea_count == 1
-        assert snapshots[code_b.id].frequency == pytest.approx(1 / 3)
-        assert sum(row.frequency for row in snapshots.values()) == pytest.approx(1.0)
+        assert frequencies[code_a.id] == pytest.approx(2 / 3)
+        assert frequencies[code_b.id] == pytest.approx(1 / 3)
+        assert sum(frequencies.values()) == pytest.approx(1.0)
 
 
 def test_curator_nullable_optional_text_is_normalized():

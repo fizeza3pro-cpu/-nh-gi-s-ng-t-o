@@ -313,18 +313,14 @@ export default function Home() {
       <section id="chon-do-vat" className="border-b border-border/80">
         <div className="container py-20">
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <div className="max-w-xl">
+            <div className="max-w-[1000px]">
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                Chọn một đồ vật bản địa
+                Chọn món đồ vật mà bạn thích
               </p>
               <h2 className="mt-3 font-serif text-3xl font-medium tracking-tight md:text-4xl">
-                Bạn có 3 phút. Liệt kê càng nhiều cách dùng càng tốt.
+                Liệt kê càng nhiều cách dùng càng tốt.
               </h2>
             </div>
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Timer className="h-4 w-4" />
-              Mỗi bài kéo dài 180 giây.
-            </p>
           </div>
 
           <div className="mt-12 " ref={itemsReveal.ref}>

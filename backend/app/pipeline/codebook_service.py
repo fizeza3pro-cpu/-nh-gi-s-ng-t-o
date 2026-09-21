@@ -1,17 +1,12 @@
 """Nghiệp vụ codebook động và tính Originality từ dữ liệu realtime có lưu căn cứ."""
 
 import uuid
-from collections import Counter
-from datetime import datetime, timezone
 
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.models import (
-    CodebookVersion,
-    CodebookVersionCode,
-    CodebookVersionStatus,
     CodeMaturityStatus,
     CodeValidationStatus,
     Item,
@@ -33,7 +28,7 @@ def list_curator_codes(db: Session, item_id: str) -> list[dict]:
         select(ItemCode).where(
             ItemCode.item_id == item_id,
             ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
-            ItemCode.maturity_status.in_([CodeMaturityStatus.EMERGING, CodeMaturityStatus.STABLE]),
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
         )
     ).all()
     return [
@@ -97,9 +92,11 @@ def _find_or_create_code(
     if existing:
         # Nếu AI gặp lại đúng tên của code legacy, chỉ lúc này code mới được "khám phá lại"
         # từ dữ liệu thật và tham gia codebook động; bản thân seed cũ không tự tạo tần suất.
-        if existing.created_by == "LEGACY" and existing.maturity_status == CodeMaturityStatus.ARCHIVED:
+        if (
+            existing.created_by == "LEGACY"
+            and existing.validation_status == CodeValidationStatus.REJECTED
+        ):
             existing.created_by = "LLM_REDISCOVERED"
-            existing.maturity_status = CodeMaturityStatus.EMERGING
             existing.validation_status = validation_status
             existing.description = description.strip()
             existing.source_response_id = source_response_id
@@ -125,7 +122,7 @@ def _find_or_create_code(
         normalized_name=normalized_name,
         description=description.strip(),
         validation_status=validation_status,
-        maturity_status=CodeMaturityStatus.EMERGING,
+        maturity_status=CodeMaturityStatus.ACTIVE,
         confidence=confidence,
         relevance_reason=reason,
         rejection_reason=reason if validation_status == CodeValidationStatus.REJECTED else "",
@@ -181,10 +178,7 @@ def persist_mapping(
                 reason = decision.reason
                 if decision.decision == "MATCH_EXISTING":
                     code_row = allowed_codes.get(decision.existing_code_id or "")
-                    if code_row is None or code_row.maturity_status in {
-                        CodeMaturityStatus.MERGED,
-                        CodeMaturityStatus.ARCHIVED,
-                    }:
+                    if code_row is None or code_row.maturity_status != CodeMaturityStatus.ACTIVE:
                         has_uncertain = True
                         code_row = None
                         reason = "Curator tham chiếu code không hợp lệ hoặc đã ngừng sử dụng."
@@ -317,85 +311,11 @@ def _code_live_counts(db: Session, item_id: str) -> dict[str, tuple[int, int, in
                 ItemCode.admin_locked.is_(True),
             ),
             ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
-            ItemCode.maturity_status.in_([CodeMaturityStatus.EMERGING, CodeMaturityStatus.STABLE]),
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
         )
         .group_by(ResponseIdea.code_id)
     ).all()
     return {code_id: (responses, participants, ideas) for code_id, responses, participants, ideas in rows}
-
-
-def promote_stable_codes(db: Session, item_id: str) -> None:
-    counts = _code_live_counts(db, item_id)
-    for code in db.scalars(
-        select(ItemCode).where(
-            ItemCode.item_id == item_id,
-            ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
-            ItemCode.maturity_status == CodeMaturityStatus.EMERGING,
-        )
-    ).all():
-        if counts.get(code.id, (0, 0, 0))[1] >= settings.code_stable_min_participants:
-            code.maturity_status = CodeMaturityStatus.STABLE
-
-
-def create_codebook_version(db: Session, item: Item, participant_count: int) -> CodebookVersion:
-    """Đóng snapshot mới; không sửa snapshot cũ để điểm có thể tái lập."""
-    previous = db.scalars(
-        select(CodebookVersion).where(
-            CodebookVersion.item_id == item.id,
-            CodebookVersion.status == CodebookVersionStatus.ACTIVE,
-        )
-    ).all()
-    for row in previous:
-        row.status = CodebookVersionStatus.RETIRED
-
-    max_version = db.scalar(
-        select(func.max(CodebookVersion.version)).where(CodebookVersion.item_id == item.id)
-    ) or 0
-    response_count = db.scalar(
-        select(func.count()).select_from(Response).where(
-            Response.item_id == item.id,
-            Response.scoring_status.notin_(
-                [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
-            ),
-        )
-    ) or 0
-    version = CodebookVersion(
-        item_id=item.id,
-        version=max_version + 1,
-        participant_count=participant_count,
-        response_count=response_count,
-    )
-    db.add(version)
-    db.flush()
-
-    counts = _code_live_counts(db, item.id)
-    accepted_codes = db.scalars(
-        select(ItemCode).where(
-            ItemCode.item_id == item.id,
-            ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
-            ItemCode.maturity_status.in_([CodeMaturityStatus.EMERGING, CodeMaturityStatus.STABLE]),
-        )
-    ).all()
-    # Theo Alhashim et al. (2020), "response" trong công thức là từng ý tưởng/công dụng,
-    # không phải một lần submit. Vì vậy mẫu số là tổng số ý VALID đã có code được chấp nhận.
-    denominator = max(sum(idea_total for _, _, idea_total in counts.values()), 1)
-    for code in accepted_codes:
-        response_total, participant_total, idea_total = counts.get(code.id, (0, 0, 0))
-        db.add(
-            CodebookVersionCode(
-                version_id=version.id,
-                code_id=code.id,
-                response_count=response_total,
-                participant_count=participant_total,
-                idea_count=idea_total,
-                frequency=idea_total / denominator,
-            )
-        )
-
-    item.active_codebook_version_id = version.id
-    item.last_version_participant_count = participant_count
-    item.calibration_status = ItemCalibrationStatus.ACTIVE
-    return version
 
 
 def item_is_ready_for_scoring(db: Session, item: Item) -> bool:
@@ -409,23 +329,15 @@ def item_is_ready_for_scoring(db: Session, item: Item) -> bool:
     )
 
 
-def maybe_refresh_codebook(db: Session, item: Item) -> tuple[CodebookVersion | None, bool]:
-    """Chỉ tạo version khi lần đầu đủ ngưỡng; response mới không làm refresh version."""
-    promote_stable_codes(db, item.id)
-    participant_count = qualifying_participant_count(db, item.id)
-    if not item_is_ready_for_scoring(db, item):
-        return None, False
-
-    active_version = (
-        db.get(CodebookVersion, item.active_codebook_version_id)
-        if item.active_codebook_version_id
-        else None
-    )
-    if active_version is None:
-        item.calibration_status = ItemCalibrationStatus.CALIBRATING
-        version = create_codebook_version(db, item, participant_count)
-        return version, True
-    return active_version, False
+def refresh_item_scoring_state(db: Session, item: Item) -> bool:
+    """Cập nhật trạng thái theo hai ngưỡng và báo item có vừa chuyển sang sẵn sàng hay không."""
+    was_active = item.calibration_status == ItemCalibrationStatus.ACTIVE
+    ready = item_is_ready_for_scoring(db, item)
+    if item.calibration_status != ItemCalibrationStatus.PAUSED:
+        item.calibration_status = (
+            ItemCalibrationStatus.ACTIVE if ready else ItemCalibrationStatus.COLLECTING
+        )
+    return ready and not was_active
 
 
 def originality_for_response(
@@ -443,7 +355,7 @@ def originality_for_response(
                 ItemCode.admin_locked.is_(True),
             ),
             ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
-            ItemCode.maturity_status.in_([CodeMaturityStatus.EMERGING, CodeMaturityStatus.STABLE]),
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
         )
         .order_by(ResponseIdea.created_at, ResponseIdea.id)
     ).all()

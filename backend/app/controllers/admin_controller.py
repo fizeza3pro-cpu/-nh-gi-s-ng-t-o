@@ -9,8 +9,6 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.models import Item as ItemModel
 from app.models.models import (
-    CodebookVersion,
-    CodebookVersionCode,
     CodeMaturityStatus,
     CodeValidationStatus,
     ItemCode,
@@ -19,16 +17,14 @@ from app.models.models import (
     ResponseScoringStatus,
 )
 from app.pipeline.codebook_service import (
-    create_codebook_version,
     item_is_ready_for_scoring,
-    maybe_refresh_codebook,
+    refresh_item_scoring_state,
     qualifying_participant_count,
     qualifying_response_count,
 )
 from app.pipeline.dynamic_mapping import normalize_code_name
 from app.controllers.response_controller import (
     reprocess_item_mappings,
-    reprocess_item_scores,
     reprocess_item_scores_in_session,
 )
 from app.models.models import Participant as ParticipantModel
@@ -39,7 +35,9 @@ from app.schemas.schemas import (
     AdminItemBreakdown,
     AdminCodePatch,
     AdminCodebookCode,
+    AdminCodebookOverview,
     AdminCodebookSummary,
+    AdminCodeOption,
     AdminCuratorAudit,
     AdminCuratorDecisionIdea,
     AdminExtractionAudit,
@@ -152,11 +150,6 @@ def get_dashboard_stats(db: Session) -> AdminDashboardStats:
             .group_by(ItemCode.validation_status)
         ).all()
         item_code_counts = {status: count for status, count in item_code_rows}
-        active_version = (
-            db.get(CodebookVersion, item.active_codebook_version_id)
-            if item.active_codebook_version_id
-            else None
-        )
         by_item.append(
             AdminItemBreakdown(
                 item_id=item.id,
@@ -170,7 +163,6 @@ def get_dashboard_stats(db: Session) -> AdminDashboardStats:
                 accepted_code_count=item_code_counts.get(CodeValidationStatus.ACCEPTED, 0),
                 uncertain_code_count=item_code_counts.get(CodeValidationStatus.UNCERTAIN, 0),
                 rejected_code_count=item_code_counts.get(CodeValidationStatus.REJECTED, 0),
-                active_version=active_version.version if active_version else None,
             )
         )
 
@@ -246,6 +238,7 @@ def _code_counts(
     db: Session,
     item_id: str,
     *,
+    code_ids: list[str] | None = None,
     qualifying_only: bool = False,
     scoring_only: bool = False,
 ) -> dict[str, tuple[int, int, int]]:
@@ -272,6 +265,10 @@ def _code_counts(
                 [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
             )
         )
+    if code_ids is not None:
+        if not code_ids:
+            return {}
+        query = query.where(ResponseIdea.code_id.in_(code_ids))
     if scoring_only:
         query = query.where(
             or_(
@@ -279,9 +276,7 @@ def _code_counts(
                 ItemCode.admin_locked.is_(True),
             ),
             ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
-            ItemCode.maturity_status.in_(
-                [CodeMaturityStatus.EMERGING, CodeMaturityStatus.STABLE]
-            ),
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
         )
     rows = db.execute(query).all()
     return {code_id: (responses, participants, ideas) for code_id, responses, participants, ideas in rows}
@@ -422,23 +417,12 @@ def get_curator_audit(
     )
 
 
-def get_codebook(db: Session, item_id: str) -> AdminCodebookSummary:
+def _codebook_overview(db: Session, item_id: str) -> AdminCodebookOverview:
     item = db.get(ItemModel, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
     participant_count = qualifying_participant_count(db, item_id)
     response_count = qualifying_response_count(db, item_id)
-    # Admin thấy cả bằng chứng thô và phần thực sự đóng góp vào tần suất.
-    counts = _code_counts(db, item_id)
-    contributing_counts = _code_counts(
-        db, item_id, qualifying_only=True, scoring_only=True
-    )
-    rows = db.scalars(
-        select(ItemCode)
-        .where(ItemCode.item_id == item_id)
-        .order_by(ItemCode.created_at.desc())
-    ).all()
-    active_version = db.get(CodebookVersion, item.active_codebook_version_id) if item.active_codebook_version_id else None
     pending_count = db.scalar(
         select(func.count()).select_from(ResponseIdea).where(
             ResponseIdea.mapping_status == "VALID",
@@ -454,10 +438,126 @@ def get_codebook(db: Session, item_id: str) -> AdminCodebookSummary:
         )
     ) or 0
     extraction_counts = _extraction_exclusion_counts(db, item_id)
-    contributing_idea_count = sum(
-        idea_count for _, _, idea_count in contributing_counts.values()
+    contributing_idea_count = db.scalar(
+        select(func.count(ResponseIdea.id))
+        .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+        .join(ItemCode, ItemCode.id == ResponseIdea.code_id)
+        .where(
+            ResponseModel.item_id == item_id,
+            ResponseModel.scoring_status.notin_(
+                [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
+            ),
+            ResponseIdea.mapping_status == "VALID",
+            or_(
+                ResponseIdea.confidence >= settings.code_uncertain_confidence,
+                ItemCode.admin_locked.is_(True),
+            ),
+            ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+        )
+    ) or 0
+    accepted_code_count = db.scalar(
+        select(func.count()).select_from(ItemCode).where(
+            ItemCode.item_id == item_id,
+            ItemCode.created_by != "LEGACY",
+            ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+        )
+    ) or 0
+    rejected_code_count = db.scalar(
+        select(func.count()).select_from(ItemCode).where(
+            ItemCode.item_id == item_id,
+            ItemCode.created_by != "LEGACY",
+            ItemCode.validation_status == CodeValidationStatus.REJECTED,
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+        )
+    ) or 0
+    return AdminCodebookOverview(
+        item_id=item.id,
+        item_name=item.name,
+        calibration_status=item.calibration_status.value,
+        qualifying_response_count=response_count,
+        qualifying_participant_count=participant_count,
+        contributing_idea_count=contributing_idea_count,
+        scoring_min_participants=item.scoring_min_participants,
+        scoring_min_responses=item.scoring_min_responses,
+        pending_idea_count=pending_count,
+        extraction_invalid_count=extraction_counts.get("INVALID", 0),
+        extraction_duplicate_count=extraction_counts.get("DUPLICATE", 0),
+        accepted_code_count=accepted_code_count,
+        rejected_code_count=rejected_code_count,
     )
-    denominator = max(contributing_idea_count, 1)
+
+
+def get_codebook(
+    db: Session,
+    item_id: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    code_filter: str = "ALL",
+) -> AdminCodebookSummary:
+    """Trả một trang mã; thống kê tổng quan luôn được tính trên toàn bộ sổ mã."""
+    overview = _codebook_overview(db, item_id)
+    page_size = min(max(page_size, 1), 100)
+    conditions = [ItemCode.item_id == item_id, ItemCode.created_by != "LEGACY"]
+    if code_filter == "ACCEPTED":
+        conditions.extend(
+            [
+                ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
+                ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+            ]
+        )
+    elif code_filter == "UNCERTAIN":
+        conditions.extend(
+            [
+                ItemCode.validation_status == CodeValidationStatus.UNCERTAIN,
+                ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+            ]
+        )
+    elif code_filter == "REJECTED":
+        conditions.extend(
+            [
+                ItemCode.validation_status == CodeValidationStatus.REJECTED,
+                ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+            ]
+        )
+    elif code_filter != "ALL":
+        raise HTTPException(status_code=422, detail="Bộ lọc mã không hợp lệ.")
+
+    code_total = int(
+        db.scalar(select(func.count()).select_from(ItemCode).where(*conditions)) or 0
+    )
+    code_page_count = (code_total + page_size - 1) // page_size
+    page = min(max(page, 1), max(code_page_count, 1))
+    rows = db.scalars(
+        select(ItemCode)
+        .where(*conditions)
+        .order_by(ItemCode.created_at.desc(), ItemCode.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    merged_target_ids = {row.merged_into_id for row in rows if row.merged_into_id}
+    merged_target_names = (
+        dict(
+            db.execute(
+                select(ItemCode.id, ItemCode.name).where(ItemCode.id.in_(merged_target_ids))
+            ).all()
+        )
+        if merged_target_ids
+        else {}
+    )
+    code_ids = [row.id for row in rows]
+    # Chỉ tổng hợp bằng chứng cho các mã của trang đang xem.
+    counts = _code_counts(db, item_id, code_ids=code_ids)
+    contributing_counts = _code_counts(
+        db,
+        item_id,
+        code_ids=code_ids,
+        qualifying_only=True,
+        scoring_only=True,
+    )
+    denominator = max(overview.contributing_idea_count, 1)
     codes = []
     for row in rows:
         code_response_count, code_participants, idea_count = counts.get(row.id, (0, 0, 0))
@@ -477,6 +577,7 @@ def get_codebook(db: Session, item_id: str) -> AdminCodebookSummary:
                 created_by=row.created_by,
                 admin_locked=row.admin_locked,
                 merged_into_id=row.merged_into_id,
+                merged_into_name=merged_target_names.get(row.merged_into_id),
                 response_count=code_response_count,
                 participant_count=code_participants,
                 idea_count=idea_count,
@@ -488,27 +589,35 @@ def get_codebook(db: Session, item_id: str) -> AdminCodebookSummary:
             )
         )
     return AdminCodebookSummary(
-        item_id=item.id,
-        item_name=item.name,
-        calibration_status=item.calibration_status.value,
-        qualifying_response_count=response_count,
-        qualifying_participant_count=participant_count,
-        contributing_idea_count=contributing_idea_count,
-        scoring_min_participants=item.scoring_min_participants,
-        scoring_min_responses=item.scoring_min_responses,
-        active_version=active_version.version if active_version else None,
-        pending_idea_count=pending_count,
-        extraction_invalid_count=extraction_counts.get("INVALID", 0),
-        extraction_duplicate_count=extraction_counts.get("DUPLICATE", 0),
-        accepted_code_count=sum(code.validation_status == "ACCEPTED" and code.maturity_status not in {"ARCHIVED", "MERGED"} for code in codes),
-        rejected_code_count=sum(code.validation_status == "REJECTED" for code in codes),
+        **overview.model_dump(),
+        code_page=page,
+        code_page_size=page_size,
+        code_total=code_total,
+        code_page_count=code_page_count,
         codes=codes,
     )
 
 
-def list_codebooks(db: Session) -> list[AdminCodebookSummary]:
+def list_codebooks(db: Session) -> list[AdminCodebookOverview]:
     item_ids = db.scalars(select(ItemModel.id).order_by(ItemModel.name)).all()
-    return [get_codebook(db, item_id) for item_id in item_ids]
+    return [_codebook_overview(db, item_id) for item_id in item_ids]
+
+
+def list_code_options(db: Session, item_id: str) -> list[AdminCodeOption]:
+    """Danh sách nhẹ dùng cho thao tác gộp, không tải thống kê của từng mã."""
+    if db.get(ItemModel, item_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
+    rows = db.scalars(
+        select(ItemCode)
+        .where(
+            ItemCode.item_id == item_id,
+            ItemCode.created_by != "LEGACY",
+            ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+        )
+        .order_by(ItemCode.name, ItemCode.id)
+    ).all()
+    return [AdminCodeOption(id=row.id, name=row.name) for row in rows]
 
 
 def remap_item(item_id: str) -> int:
@@ -517,12 +626,9 @@ def remap_item(item_id: str) -> int:
 
 
 def _refresh_after_admin_change(db: Session, item: ItemModel) -> None:
-    """Ghi dấu mốc cấu trúc mới nhưng không tự ghi đè bất kỳ điểm FINAL nào."""
+    """Cập nhật trạng thái ngưỡng mà không tự ghi đè bất kỳ điểm FINAL nào."""
     db.flush()
-    if item.active_codebook_version_id and item_is_ready_for_scoring(db, item):
-        create_codebook_version(db, item, qualifying_participant_count(db, item.id))
-    else:
-        maybe_refresh_codebook(db, item)
+    refresh_item_scoring_state(db, item)
 
 
 def _update_mapping_after_code_decision(
@@ -572,6 +678,28 @@ def _response_still_has_uncertain_idea(response: ResponseModel) -> bool:
     return False
 
 
+def _record_final_codebook_change(
+    response: ResponseModel,
+    change_type: str,
+    details: dict | None = None,
+) -> None:
+    """Ghi dấu vết thay đổi codebook nhưng không làm thay đổi snapshot điểm FINAL."""
+    changed_at = datetime.now(timezone.utc).isoformat()
+    meta = dict(response.scoring_meta or {})
+    changes = list(meta.get("codebook_changes", []))
+    changes.append(
+        {
+            "type": change_type,
+            "changed_at": changed_at,
+            **(details or {}),
+        }
+    )
+    meta["codebook_changes"] = changes
+    meta["codebook_changed_after_scoring_at"] = changed_at
+    meta.pop("requires_manual_rescore", None)
+    response.scoring_meta = meta
+
+
 def _reset_responses_after_code_decision(
     db: Session,
     response_ids: list[str],
@@ -579,8 +707,11 @@ def _reset_responses_after_code_decision(
     *,
     replacement_name: str | None = None,
     reject: bool = False,
+    preserve_final_mapping: bool = False,
+    final_change_type: str = "ADMIN_CODE_DECISION",
+    final_change_details: dict | None = None,
 ) -> None:
-    """Giải phóng lượt chờ; điểm FINAL cũ chỉ đổi khi admin bấm chấm lại."""
+    """Cập nhật lượt chưa chấm và giữ nguyên snapshot của lượt FINAL khi cần."""
     if not response_ids:
         return
     rows = db.scalars(
@@ -588,6 +719,13 @@ def _reset_responses_after_code_decision(
     ).all()
     db.flush()
     for row in rows:
+        if row.scoring_status == ResponseScoringStatus.FINAL and preserve_final_mapping:
+            _record_final_codebook_change(
+                row,
+                final_change_type,
+                final_change_details,
+            )
+            continue
         row.mapping = _update_mapping_after_code_decision(
             row.mapping,
             source_name,
@@ -595,11 +733,11 @@ def _reset_responses_after_code_decision(
             reject=reject,
         )
         if row.scoring_status == ResponseScoringStatus.FINAL:
-            row.scoring_meta = {
-                **(row.scoring_meta or {}),
-                "codebook_changed_after_scoring_at": datetime.now(timezone.utc).isoformat(),
-                "requires_manual_rescore": True,
-            }
+            _record_final_codebook_change(
+                row,
+                final_change_type,
+                final_change_details,
+            )
             continue
         row.scoring = {}
         row.scoring_meta = {"invalidated_by": "ADMIN_CODE_DECISION"}
@@ -607,7 +745,6 @@ def _reset_responses_after_code_decision(
         row.flexibility = 0
         row.originality = 0
         row.elaboration = 0
-        row.codebook_version_id = None
         row.scored_at = None
         row.scoring_status = (
             ResponseScoringStatus.PENDING_REVIEW
@@ -621,6 +758,8 @@ def patch_code(db: Session, item_id: str, code_id: str, patch: AdminCodePatch) -
     code = db.get(ItemCode, code_id)
     if item is None or code is None or code.item_id != item_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy code của đồ vật.")
+    if code.maturity_status == CodeMaturityStatus.MERGED:
+        raise HTTPException(status_code=409, detail="Mã đã gộp chỉ được giữ để truy vết.")
     changes = patch.model_dump(exclude_unset=True)
     original_name = code.name
     previous_status = code.validation_status
@@ -678,33 +817,41 @@ def patch_code(db: Session, item_id: str, code_id: str, patch: AdminCodePatch) -
             reject=code.validation_status == CodeValidationStatus.REJECTED,
         )
     _refresh_after_admin_change(db, item)
-    if item.active_codebook_version_id:
+    if item_is_ready_for_scoring(db, item):
         reprocess_item_scores_in_session(db, item_id)
-    db.commit()
-    return get_codebook(db, item_id)
-
-
-def archive_code(db: Session, item_id: str, code_id: str, restore: bool = False) -> AdminCodebookSummary:
-    item = db.get(ItemModel, item_id)
-    code = db.get(ItemCode, code_id)
-    if item is None or code is None or code.item_id != item_id:
-        raise HTTPException(status_code=404, detail="Không tìm thấy code của đồ vật.")
-    code.maturity_status = CodeMaturityStatus.EMERGING if restore else CodeMaturityStatus.ARCHIVED
-    code.admin_locked = True
-    code.reviewed_at = datetime.now(timezone.utc)
-    _refresh_after_admin_change(db, item)
     db.commit()
     return get_codebook(db, item_id)
 
 
 def merge_code(db: Session, item_id: str, source_id: str, target_id: str) -> AdminCodebookSummary:
     item = db.get(ItemModel, item_id)
-    source = db.get(ItemCode, source_id)
-    target = db.get(ItemCode, target_id)
+    if source_id == target_id:
+        raise HTTPException(status_code=400, detail="Không thể gộp một code vào chính nó.")
+    locked_codes = db.scalars(
+        select(ItemCode)
+        .where(ItemCode.id.in_([source_id, target_id]))
+        .with_for_update()
+    ).all()
+    codes_by_id = {code.id: code for code in locked_codes}
+    source = codes_by_id.get(source_id)
+    target = codes_by_id.get(target_id)
     if item is None or source is None or target is None or source.item_id != item_id or target.item_id != item_id:
         raise HTTPException(status_code=404, detail="Code nguồn hoặc code đích không hợp lệ.")
-    if source.id == target.id:
-        raise HTTPException(status_code=400, detail="Không thể gộp một code vào chính nó.")
+    if source.maturity_status != CodeMaturityStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail="Mã nguồn đã được gộp trước đó.")
+    if source.validation_status not in {
+        CodeValidationStatus.ACCEPTED,
+        CodeValidationStatus.UNCERTAIN,
+    }:
+        raise HTTPException(status_code=409, detail="Mã nguồn đã bị loại nên không thể gộp.")
+    if (
+        target.maturity_status != CodeMaturityStatus.ACTIVE
+        or target.validation_status != CodeValidationStatus.ACCEPTED
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Mã đích phải là mã đang hoạt động và đã được chấp nhận.",
+        )
     affected_response_ids = list(
         db.scalars(
             select(ResponseIdea.response_id)
@@ -713,19 +860,35 @@ def merge_code(db: Session, item_id: str, source_id: str, target_id: str) -> Adm
         ).all()
     )
     db.execute(update(ResponseIdea).where(ResponseIdea.code_id == source.id).values(code_id=target.id))
+    # Làm phẳng chuỗi gộp: mọi mã từng gộp vào nguồn sẽ trỏ thẳng tới đích mới.
+    db.execute(
+        update(ItemCode)
+        .where(ItemCode.merged_into_id == source.id)
+        .values(merged_into_id=target.id)
+    )
+    reviewed_at = datetime.now(timezone.utc)
     source.maturity_status = CodeMaturityStatus.MERGED
     source.merged_into_id = target.id
     source.admin_locked = True
+    source.reviewed_at = reviewed_at
     target.admin_locked = True
-    target.reviewed_at = datetime.now(timezone.utc)
+    target.reviewed_at = reviewed_at
     _reset_responses_after_code_decision(
         db,
         affected_response_ids,
         source.name,
         replacement_name=target.name,
+        preserve_final_mapping=True,
+        final_change_type="CODE_MERGE",
+        final_change_details={
+            "source_code_id": source.id,
+            "source_code_name": source.name,
+            "target_code_id": target.id,
+            "target_code_name": target.name,
+        },
     )
     _refresh_after_admin_change(db, item)
-    if item.active_codebook_version_id:
+    if item_is_ready_for_scoring(db, item):
         reprocess_item_scores_in_session(db, item_id)
     db.commit()
     return get_codebook(db, item_id)
@@ -750,11 +913,11 @@ def _reset_affected_response(row: ResponseModel, code_name: str) -> None:
     """Giữ điểm FINAL bất biến; lượt chưa chấm quay về chờ phân loại lại."""
     row.mapping = _mapping_without_code(row.mapping, code_name)
     if row.scoring_status == ResponseScoringStatus.FINAL:
-        row.scoring_meta = {
-            **(row.scoring_meta or {}),
-            "codebook_changed_after_scoring_at": datetime.now(timezone.utc).isoformat(),
-            "requires_manual_rescore": True,
-        }
+        _record_final_codebook_change(
+            row,
+            "CODE_DELETE",
+            {"deleted_code_name": code_name},
+        )
         return
     row.scoring = {}
     row.scoring_meta = {"invalidated_by": "ADMIN_CODE_DELETE"}
@@ -763,7 +926,6 @@ def _reset_affected_response(row: ResponseModel, code_name: str) -> None:
     row.originality = 0
     row.elaboration = 0
     row.scoring_status = ResponseScoringStatus.PENDING_REVIEW
-    row.codebook_version_id = None
     row.scored_at = None
 
 
@@ -773,6 +935,16 @@ def delete_code(db: Session, item_id: str, code_id: str) -> AdminCodebookSummary
     code = db.get(ItemCode, code_id)
     if item is None or code is None or code.item_id != item_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy code của đồ vật.")
+    if code.maturity_status == CodeMaturityStatus.MERGED:
+        raise HTTPException(status_code=409, detail="Mã đã gộp chỉ được giữ để truy vết.")
+    merged_source_exists = db.scalar(
+        select(ItemCode.id).where(ItemCode.merged_into_id == code_id).limit(1)
+    )
+    if merged_source_exists:
+        raise HTTPException(
+            status_code=409,
+            detail="Không thể xoá mã đích khi vẫn còn mã khác đã gộp vào mã này.",
+        )
 
     response_ids = list(
         db.scalars(
@@ -796,12 +968,6 @@ def delete_code(db: Session, item_id: str, code_id: str) -> AdminCodebookSummary
             confidence=0,
             reason="Code đã bị admin xoá; chờ phân loại lại.",
         )
-    )
-    db.execute(delete(CodebookVersionCode).where(CodebookVersionCode.code_id == code_id))
-    db.execute(
-        update(ItemCode)
-        .where(ItemCode.merged_into_id == code_id)
-        .values(merged_into_id=None, maturity_status=CodeMaturityStatus.ARCHIVED)
     )
     for response in affected_responses:
         _reset_affected_response(response, code.name)
@@ -831,15 +997,7 @@ def delete_all_codes(db: Session, item_id: str) -> AdminCodebookSummary:
         response.originality = 0
         response.elaboration = 0
         response.scoring_status = ResponseScoringStatus.COLLECTING
-        response.codebook_version_id = None
         response.scored_at = None
-
-    version_ids = select(CodebookVersion.id).where(CodebookVersion.item_id == item_id)
-    db.execute(
-        update(ResponseModel)
-        .where(ResponseModel.item_id == item_id)
-        .values(codebook_version_id=None)
-    )
     db.execute(
         delete(ResponseIdea).where(
             ResponseIdea.response_id.in_(
@@ -847,13 +1005,9 @@ def delete_all_codes(db: Session, item_id: str) -> AdminCodebookSummary:
             )
         )
     )
-    db.execute(delete(CodebookVersionCode).where(CodebookVersionCode.version_id.in_(version_ids)))
-    db.execute(delete(CodebookVersion).where(CodebookVersion.item_id == item_id))
     db.execute(update(ItemCode).where(ItemCode.item_id == item_id).values(merged_into_id=None))
     db.execute(delete(ItemCode).where(ItemCode.item_id == item_id))
 
-    item.active_codebook_version_id = None
-    item.last_version_participant_count = 0
     item.calibration_status = ItemCalibrationStatus.COLLECTING
     db.commit()
     return get_codebook(db, item_id)

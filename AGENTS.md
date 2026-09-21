@@ -157,7 +157,8 @@ render.yaml / vercel.json           # config deploy
 - Chỉ admin đăng nhập JWT tại `/admin/login`. Toàn bộ `/admin/*` dùng `AdminRoute`;
   `/dashboard` cũ chỉ chuyển hướng sang `/admin`.
 - Đồ vật bắt đầu với 0 code. AI tự động tách ý, đối chiếu công dụng, tạo hoặc loại code. Admin xem,
-  sửa, gộp, archive, xoá một code hoặc xoá toàn bộ code của từng đồ vật.
+  sửa, gộp, loại, xoá một code hoặc xoá toàn bộ code của từng đồ vật. Danh sách mã được lọc và
+  phân trang ở backend; endpoint danh sách đồ vật chỉ trả thống kê tổng quan, không tải toàn bộ mã.
 - Khi chưa đủ mẫu, response ở `COLLECTING` và không hiển thị điểm. Sau ngưỡng codebook, điểm là
   `PROVISIONAL`; khi đủ mẫu Originality, điểm chuyển thành `FINAL` dựa trên snapshot phiên bản.
 - Migration `a4f7c2e91b36` đã xoá dữ liệu khảo sát/code cũ và cấu trúc tĩnh; migration

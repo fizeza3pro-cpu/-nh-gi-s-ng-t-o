@@ -3,16 +3,27 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.controllers import participant_controller
+from app.controllers import participant_controller, response_controller
+from app.core.deps import get_participant
 from app.db import get_db
+from app.models.models import Participant
 from app.schemas.schemas import (
     ParticipantCreate,
     ParticipantIdentify,
     ParticipantIdentifyResult,
     ParticipantIdentityOut,
+    ResponseSummary,
 )
 
 router = APIRouter(prefix="/api/participants", tags=["participants"])
+
+
+@router.get("/me/responses", response_model=list[ResponseSummary])
+def participant_responses(
+    participant: Participant = Depends(get_participant),
+    db: Session = Depends(get_db),
+) -> list[ResponseSummary]:
+    return response_controller.list_participant_responses(db, participant.id)
 
 
 @router.post("/identify", response_model=ParticipantIdentifyResult)

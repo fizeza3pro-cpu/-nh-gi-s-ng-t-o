@@ -50,10 +50,8 @@ class CodeValidationStatus(str, enum.Enum):
 
 
 class CodeMaturityStatus(str, enum.Enum):
-    EMERGING = "EMERGING"
-    STABLE = "STABLE"
+    ACTIVE = "ACTIVE"
     MERGED = "MERGED"
-    ARCHIVED = "ARCHIVED"
 
 
 class ResponseScoringStatus(str, enum.Enum):
@@ -63,10 +61,6 @@ class ResponseScoringStatus(str, enum.Enum):
     FINAL = "FINAL"
     EXCLUDED = "EXCLUDED"
 
-
-class CodebookVersionStatus(str, enum.Enum):
-    ACTIVE = "ACTIVE"
-    RETIRED = "RETIRED"
 
 class User(Base):
     """Tài khoản quản trị. Người tham gia khảo sát không dùng bảng này."""
@@ -122,9 +116,6 @@ class Item(Base):
     )
     scoring_min_participants: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     scoring_min_responses: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
-    last_version_participant_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    active_codebook_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-
     responses: Mapped[list["Response"]] = relationship(back_populates="item")
     dynamic_codes: Mapped[list["ItemCode"]] = relationship(
         back_populates="item", foreign_keys="ItemCode.item_id"
@@ -160,9 +151,6 @@ class Response(Base):
         nullable=False,
         index=True,
     )
-    codebook_version_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("codebook_versions.id"), nullable=True, index=True
-    )
     scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
@@ -192,7 +180,7 @@ class ItemCode(Base):
     )
     maturity_status: Mapped[CodeMaturityStatus] = mapped_column(
         SAEnum(CodeMaturityStatus, name="code_maturity_status"),
-        default=CodeMaturityStatus.EMERGING,
+        default=CodeMaturityStatus.ACTIVE,
         nullable=False,
         index=True,
     )
@@ -240,50 +228,5 @@ class ResponseIdea(Base):
     response: Mapped["Response"] = relationship(back_populates="ideas")
     code: Mapped["ItemCode | None"] = relationship(foreign_keys=[code_id])
 
-
-class CodebookVersion(Base):
-    """Dấu mốc bất biến của cấu trúc codebook, không phải nguồn tần suất chấm điểm."""
-
-    __tablename__ = "codebook_versions"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    item_id: Mapped[str] = mapped_column(String(64), ForeignKey("items.id"), nullable=False, index=True)
-    version: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[CodebookVersionStatus] = mapped_column(
-        SAEnum(CodebookVersionStatus, name="codebook_version_status"),
-        default=CodebookVersionStatus.ACTIVE,
-        nullable=False,
-    )
-    participant_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    response_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-
-    codes: Mapped[list["CodebookVersionCode"]] = relationship(
-        back_populates="version_row", cascade="all, delete-orphan"
-    )
-
-    __table_args__ = (UniqueConstraint("item_id", "version", name="uq_codebook_item_version"),)
-
-
-class CodebookVersionCode(Base):
-    """Thống kê tham chiếu tại lúc đóng dấu mốc cấu trúc codebook."""
-
-    __tablename__ = "codebook_version_codes"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    version_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("codebook_versions.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    code_id: Mapped[str] = mapped_column(String(36), ForeignKey("item_codes.id"), nullable=False)
-    response_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    participant_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    idea_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    frequency: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-
-    version_row: Mapped["CodebookVersion"] = relationship(back_populates="codes")
-    code: Mapped["ItemCode"] = relationship()
-
-    __table_args__ = (UniqueConstraint("version_id", "code_id", name="uq_version_code"),)
 
 # Hết phần khai báo ORM.

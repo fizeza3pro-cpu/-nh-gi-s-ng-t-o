@@ -9,7 +9,7 @@ services:
       - key: GOOGLE_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: poolside/laguna-s-2.1:free
+        value: cohere/north-mini-code:free
       - key: MOCK_MODE
         value: false
       - key: DATABASE_URL

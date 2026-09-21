@@ -48,7 +48,6 @@ export interface ScoreResponse {
     | "PROVISIONAL"
     | "FINAL"
     | "EXCLUDED";
-  codebook_version_id: string | null;
   status_message: string;
 }
 
@@ -127,7 +126,6 @@ export interface AdminItemBreakdown {
   accepted_code_count: number;
   uncertain_code_count: number;
   rejected_code_count: number;
-  active_version: number | null;
 }
 
 export interface AdminDailyStat {
@@ -189,13 +187,14 @@ export interface AdminCodebookCode {
   name: string;
   description: string;
   validation_status: "ACCEPTED" | "UNCERTAIN" | "REJECTED";
-  maturity_status: "EMERGING" | "STABLE" | "MERGED" | "ARCHIVED";
+  maturity_status: "ACTIVE" | "MERGED";
   confidence: number;
   relevance_reason: string;
   rejection_reason: string;
   created_by: string;
   admin_locked: boolean;
   merged_into_id: string | null;
+  merged_into_name: string | null;
   response_count: number;
   participant_count: number;
   idea_count: number;
@@ -204,6 +203,11 @@ export interface AdminCodebookCode {
   contributing_idea_count: number;
   frequency: number;
   created_at: string;
+}
+
+export interface AdminCodeOption {
+  id: string;
+  name: string;
 }
 
 export interface AdminExtractionExcludedIdea {
@@ -259,7 +263,7 @@ export interface AdminCuratorAudit {
   decisions: AdminCuratorDecisionIdea[];
 }
 
-export interface AdminCodebookSummary {
+export interface AdminCodebookOverview {
   item_id: string;
   item_name: string;
   calibration_status: string;
@@ -268,12 +272,18 @@ export interface AdminCodebookSummary {
   contributing_idea_count: number;
   scoring_min_participants: number;
   scoring_min_responses: number;
-  active_version: number | null;
   pending_idea_count: number;
   extraction_invalid_count: number;
   extraction_duplicate_count: number;
   accepted_code_count: number;
   rejected_code_count: number;
+}
+
+export interface AdminCodebookSummary extends AdminCodebookOverview {
+  code_page: number;
+  code_page_size: number;
+  code_total: number;
+  code_page_count: number;
   codes: AdminCodebookCode[];
 }
 

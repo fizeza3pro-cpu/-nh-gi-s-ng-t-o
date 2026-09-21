@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
-  Archive,
   BookOpen,
   Check,
   CircleX,
@@ -11,8 +10,6 @@ import {
   GitMerge,
   LockKeyhole,
   ScanSearch,
-  RefreshCw,
-  RotateCcw,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -21,14 +18,16 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type {
   AdminCodebookCode,
+  AdminCodebookOverview,
   AdminCodebookSummary,
+  AdminCodeOption,
   AdminCodePatch,
   AdminCuratorAudit,
   AdminCuratorDecisionIdea,
   AdminExtractionAudit,
 } from "@/lib/types";
 
-type Filter = "ALL" | "ACCEPTED" | "UNCERTAIN" | "REJECTED" | "ARCHIVED";
+type Filter = "ALL" | "ACCEPTED" | "UNCERTAIN" | "REJECTED";
 type LedgerView = "CODEBOOK" | "EXTRACTION" | "CURATOR";
 type CuratorFilter = "ALL" | "MATCH_EXISTING" | "CREATE_NEW" | "INVALID" | "GUARDED";
 
@@ -37,21 +36,15 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "ACCEPTED", label: "Được dùng" },
   { value: "UNCERTAIN", label: "AI cần đối chiếu" },
   { value: "REJECTED", label: "Đã loại" },
-  { value: "ARCHIVED", label: "Lưu trữ" },
 ];
+
+const CODE_PAGE_SIZE = 20;
 
 const VALIDATION_LABEL = {
   ACCEPTED: "Hợp lệ",
   UNCERTAIN: "Chưa chắc",
   REJECTED: "Đã loại",
 } as const;
-
-const MATURITY_LABEL: Record<AdminCodebookCode["maturity_status"], string> = {
-  EMERGING: "Đang hình thành",
-  STABLE: "Ổn định",
-  MERGED: "Đã gộp",
-  ARCHIVED: "Đã lưu trữ",
-};
 
 const CALIBRATION_LABEL: Record<string, string> = {
   COLLECTING: "Đang thu thập",
@@ -125,18 +118,14 @@ function CodeRow({
   targets,
   busy,
   onSave,
-  onArchive,
-  onRestore,
   onMerge,
   onDelete,
 }: {
   code: AdminCodebookCode;
   totalContributingIdeas: number;
-  targets: AdminCodebookCode[];
+  targets: AdminCodeOption[];
   busy: boolean;
   onSave: (patch: AdminCodePatch) => void;
-  onArchive: () => void;
-  onRestore: () => void;
   onMerge: (target: string) => void;
   onDelete: () => void;
 }) {
@@ -145,13 +134,16 @@ function CodeRow({
   const [description, setDescription] = useState(code.description);
   const [mergeTarget, setMergeTarget] = useState("");
 
-  const inactive = code.maturity_status === "ARCHIVED" || code.maturity_status === "MERGED";
+  const inactive = code.maturity_status === "MERGED";
+  const canMerge =
+    !inactive &&
+    ["ACCEPTED", "UNCERTAIN"].includes(code.validation_status);
 
   return (
     <tr className={inactive ? "bg-muted/20 text-muted-foreground" : "bg-card"}>
-      <td className="px-4 py-4 align-top">
+      <td className="min-w-0 px-4 py-4 align-top">
         {editing ? (
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -160,8 +152,8 @@ function CodeRow({
             <textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              rows={2}
-              className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-foreground/15"
+              rows={4}
+              className="max-h-48 min-h-24 w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed outline-none focus:ring-2 focus:ring-foreground/15"
             />
             <div className="flex gap-2">
               <Button size="sm" disabled={busy} onClick={() => onSave({ name, description })}>
@@ -171,10 +163,18 @@ function CodeRow({
             </div>
           </div>
         ) : (
-          <button type="button" className="text-left" onClick={() => setEditing(true)}>
-            <span className="font-serif text-base text-foreground">{code.name}</span>
-            <span className="mt-1 block max-w-md text-xs leading-relaxed text-muted-foreground">
-              {code.description || "Chưa có mô tả phạm vi của mã."}
+          <button
+            type="button"
+            disabled={inactive}
+            title={[code.name, code.description].filter(Boolean).join(" — ")}
+            className="block w-full min-w-0 text-left disabled:cursor-default"
+            onClick={() => setEditing(true)}
+          >
+            <span className="line-clamp-2 break-words font-serif text-base leading-snug text-foreground [overflow-wrap:anywhere]">
+              {code.name}
+            </span>
+            <span className="mt-1 line-clamp-4 break-words text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+              {code.description || "Chưa có mô tả cho mã."}
             </span>
             <span className="mt-2 block text-[11px] text-muted-foreground/80">
               {CREATED_BY_LABEL[code.created_by] ?? "Hệ thống tạo"}
@@ -184,15 +184,20 @@ function CodeRow({
       </td>
       <td className="px-4 py-4 align-top">
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant={code.validation_status === "ACCEPTED" ? "success" : code.validation_status === "UNCERTAIN" ? "warning" : "secondary"}>
-            {VALIDATION_LABEL[code.validation_status]}
+          <Badge variant={inactive ? "secondary" : code.validation_status === "ACCEPTED" ? "success" : code.validation_status === "UNCERTAIN" ? "warning" : "secondary"}>
+            {inactive ? "Đã gộp" : VALIDATION_LABEL[code.validation_status]}
           </Badge>
-          <Badge variant="outline">{MATURITY_LABEL[code.maturity_status]}</Badge>
           {code.admin_locked && <LockKeyhole className="h-3.5 w-3.5 text-muted-foreground" />}
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Độ tin cậy <span className="font-mono text-foreground">{(code.confidence * 100).toFixed(0)}%</span>
-        </p>
+        {inactive ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Gộp vào <span className="font-medium text-foreground">{code.merged_into_name || "mã đích"}</span>
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Độ tin cậy <span className="font-mono text-foreground">{(code.confidence * 100).toFixed(0)}%</span>
+          </p>
+        )}
       </td>
       <td className="px-4 py-4 align-top text-right tabular-nums">
         {code.validation_status === "ACCEPTED" && !inactive ? (
@@ -219,8 +224,13 @@ function CodeRow({
           </div>
         )}
       </td>
-      <td className="max-w-xs px-4 py-4 align-top text-xs leading-relaxed text-muted-foreground">
-        {code.rejection_reason || code.relevance_reason || "—"}
+      <td
+        title={code.rejection_reason || code.relevance_reason || undefined}
+        className="min-w-0 px-4 py-4 align-top text-xs leading-relaxed text-muted-foreground"
+      >
+        <p className="line-clamp-5 break-words [overflow-wrap:anywhere]">
+          {code.rejection_reason || code.relevance_reason || "—"}
+        </p>
       </td>
       <td className="px-4 py-4 align-top">
         <div className="flex min-w-44 flex-col gap-2">
@@ -232,16 +242,8 @@ function CodeRow({
             >
               <Check className="h-3.5 w-3.5" /> Chấp nhận mã
             </Button>
-          ) : code.maturity_status === "ARCHIVED" ? (
-            <Button size="sm" variant="outline" disabled={busy} onClick={onRestore}>
-              <RotateCcw className="h-3.5 w-3.5" /> Khôi phục
-            </Button>
-          ) : code.maturity_status !== "MERGED" ? (
-            <Button size="sm" variant="outline" disabled={busy} onClick={onArchive}>
-              <Archive className="h-3.5 w-3.5" /> Lưu trữ
-            </Button>
           ) : null}
-          {!inactive && targets.length > 0 && (
+          {canMerge && targets.length > 0 && (
             <div className="flex gap-1">
               <select
                 value={mergeTarget}
@@ -251,7 +253,19 @@ function CodeRow({
                 <option value="">Gộp vào…</option>
                 {targets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
               </select>
-              <Button size="sm" variant="ghost" disabled={!mergeTarget || busy} onClick={() => onMerge(mergeTarget)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!mergeTarget || busy}
+                onClick={() => {
+                  const target = targets.find((entry) => entry.id === mergeTarget);
+                  if (!target) return;
+                  const confirmed = window.confirm(
+                    `Gộp “${code.name}” vào “${target.name}”?\n\n${code.idea_count} ý thuộc ${code.response_count} response sẽ chuyển sang mã đích. Điểm FINAL đã chốt không thay đổi.`,
+                  );
+                  if (confirmed) onMerge(mergeTarget);
+                }}
+              >
                 <GitMerge className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -274,15 +288,17 @@ function CodeRow({
               <CircleX className="h-3.5 w-3.5" /> Loại mã
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-            disabled={busy}
-            onClick={onDelete}
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Xoá mã
-          </Button>
+          {!inactive && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={busy}
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Xoá mã
+            </Button>
+          )}
         </div>
       </td>
     </tr>
@@ -565,7 +581,7 @@ function CodebookPicker({
   items,
   onSelect,
 }: {
-  items: AdminCodebookSummary[];
+  items: AdminCodebookOverview[];
   onSelect: (itemId: string) => void;
 }) {
   return (
@@ -647,12 +663,14 @@ function CodebookPicker({
 export default function AdminCodebooks() {
   const { itemId } = useParams<{ itemId?: string }>();
   const navigate = useNavigate();
-  const [items, setItems] = useState<AdminCodebookSummary[]>([]);
+  const [items, setItems] = useState<AdminCodebookOverview[]>([]);
   const [summary, setSummary] = useState<AdminCodebookSummary | null>(null);
+  const [mergeTargets, setMergeTargets] = useState<AdminCodeOption[]>([]);
   const [extractionAudit, setExtractionAudit] = useState<AdminExtractionAudit | null>(null);
   const [curatorAudit, setCuratorAudit] = useState<AdminCuratorAudit | null>(null);
   const [ledgerView, setLedgerView] = useState<LedgerView>("CODEBOOK");
   const [filter, setFilter] = useState<Filter>("ALL");
+  const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -661,6 +679,7 @@ export default function AdminCodebooks() {
   useEffect(() => {
     setLoading(true);
     setSummary(null);
+    setMergeTargets([]);
     setExtractionAudit(null);
     setCuratorAudit(null);
     setLedgerView("CODEBOOK");
@@ -669,24 +688,31 @@ export default function AdminCodebooks() {
       api.adminListCodebooks(),
       itemId ? api.adminExtractionAudit(itemId) : Promise.resolve(null),
       itemId ? api.adminCuratorAudit(itemId) : Promise.resolve(null),
-    ]).then(([data, extraction, curator]) => {
+      itemId ? api.adminCodeOptions(itemId) : Promise.resolve([]),
+    ]).then(([data, extraction, curator, options]) => {
       setItems(data);
       setExtractionAudit(extraction);
       setCuratorAudit(curator);
-      if (itemId) {
-        const selected = data.find((entry) => entry.item_id === itemId) ?? null;
-        setSummary(selected);
-        if (!selected) setError("Không tìm thấy sổ mã của đồ vật này.");
-      }
-    }).catch((err: Error) => setError(err.message)).finally(() => setLoading(false));
+      setMergeTargets(options);
+    }).catch((err: Error) => setError(err.message)).finally(() => {
+      if (!itemId) setLoading(false);
+    });
   }, [itemId]);
 
-  const visibleCodes = useMemo(() => {
-    if (!summary) return [];
-    if (filter === "ALL") return summary.codes.filter((code) => code.created_by !== "LEGACY");
-    if (filter === "ARCHIVED") return summary.codes.filter((code) => code.maturity_status === "ARCHIVED");
-    return summary.codes.filter((code) => code.validation_status === filter);
-  }, [filter, summary]);
+  useEffect(() => {
+    if (!itemId) return;
+    setLoading(true);
+    setError(null);
+    api.adminCodebook(itemId, page, CODE_PAGE_SIZE, filter)
+      .then((next) => {
+        setSummary(next);
+        if (next.code_page !== page) setPage(next.code_page);
+      })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [filter, itemId, page]);
+
+  const visibleCodes = summary?.codes ?? [];
 
   const apply = async (
     operation: () => Promise<AdminCodebookSummary>,
@@ -696,13 +722,17 @@ export default function AdminCodebooks() {
     setError(null);
     setNotice(null);
     try {
-      const next = await operation();
-      setSummary(next);
-      setItems((current) => current.map((item) => item.item_id === next.item_id ? next : item));
-      const [extraction, curator] = await Promise.all([
-        api.adminExtractionAudit(next.item_id),
-        api.adminCuratorAudit(next.item_id),
+      const updated = await operation();
+      const [next, options, extraction, curator] = await Promise.all([
+        api.adminCodebook(updated.item_id, page, CODE_PAGE_SIZE, filter),
+        api.adminCodeOptions(updated.item_id),
+        api.adminExtractionAudit(updated.item_id),
+        api.adminCuratorAudit(updated.item_id),
       ]);
+      setSummary(next);
+      setPage(next.code_page);
+      setMergeTargets(options);
+      setItems((current) => current.map((item) => item.item_id === next.item_id ? next : item));
       setExtractionAudit(extraction);
       setCuratorAudit(curator);
       setNotice(successMessage);
@@ -720,12 +750,15 @@ export default function AdminCodebooks() {
     setNotice(null);
     try {
       const result = await api.adminRemapItem(summary.item_id);
-      const [nextSummary, nextExtraction, nextCurator] = await Promise.all([
-        api.adminCodebook(summary.item_id),
+      const [nextSummary, options, nextExtraction, nextCurator] = await Promise.all([
+        api.adminCodebook(summary.item_id, page, CODE_PAGE_SIZE, filter),
+        api.adminCodeOptions(summary.item_id),
         api.adminExtractionAudit(summary.item_id),
         api.adminCuratorAudit(summary.item_id),
       ]);
       setSummary(nextSummary);
+      setPage(nextSummary.code_page);
+      setMergeTargets(options);
       setExtractionAudit(nextExtraction);
       setCuratorAudit(nextCurator);
       setItems((current) =>
@@ -749,7 +782,11 @@ export default function AdminCodebooks() {
     return (
       <CodebookPicker
         items={items}
-        onSelect={(id) => navigate(`/admin/codebooks/${id}`)}
+        onSelect={(id) => {
+          setFilter("ALL");
+          setPage(1);
+          navigate(`/admin/codebooks/${id}`);
+        }}
       />
     );
   }
@@ -767,38 +804,32 @@ export default function AdminCodebooks() {
           </p>
           <h1 className="mt-2 font-serif text-3xl">Sổ mã của {summary.item_name}</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Mã hợp lệ được dùng tự động. Quản trị viên chỉ xử lý ngoại lệ; mỗi lần gộp hoặc lưu trữ đều tạo phiên bản mới.
+            Mã hợp lệ được dùng tự động. Quản trị viên chỉ cần xử lý các trường hợp ngoại lệ.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => navigate("/admin/codebooks")}>
             <ArrowLeft className="h-4 w-4" /> Chọn đồ vật khác
           </Button>
-          <Button variant="outline" disabled={busy} onClick={() => apply(async () => {
-            await api.adminReprocessItem(summary.item_id);
-            return api.adminCodebook(summary.item_id);
-          })}>
-            <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} /> Chấm lại
-          </Button>
           <Button
             variant="outline"
             disabled={busy}
             onClick={() => {
               const confirmed = window.confirm(
-                `Phân loại lại toàn bộ câu trả lời của “${summary.item_name}”? Hệ thống sẽ chạy lại bước tách ý và đối chiếu mã, thay thế kết quả cũ và có thể làm thay đổi sổ mã.`,
+                `Xây dựng lại toàn bộ dữ liệu của “${summary.item_name}” từ response gốc? Hệ thống sẽ chạy lại bước tách ý, đối chiếu mã và chấm các lượt đủ điều kiện.`,
               );
               if (confirmed) void remapAllResponses();
             }}
           >
-            <ScanSearch className={`h-4 w-4 ${busy ? "animate-pulse" : ""}`} /> Phân loại lại
+            <ScanSearch className={`h-4 w-4 ${busy ? "animate-pulse" : ""}`} /> Xây dựng lại từ response gốc
           </Button>
           <Button
             variant="outline"
             className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            disabled={busy || summary.codes.length === 0}
+            disabled={busy}
             onClick={() => {
               const confirmed = window.confirm(
-                `Xoá toàn bộ mã của “${summary.item_name}”? Nội dung trả lời gốc vẫn được giữ; mapping, điểm và các phiên bản sẽ được đặt lại để có thể phân loại lại.`,
+                `Xoá toàn bộ mã của “${summary.item_name}”? Response gốc vẫn được giữ; mapping và điểm sẽ được đặt lại để có thể xây dựng lại.`,
               );
               if (confirmed) void apply(() => api.adminDeleteAllCodes(summary.item_id));
             }}
@@ -817,7 +848,6 @@ export default function AdminCodebooks() {
           <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3 md:w-[34rem]">
             {[
               ["Trạng thái", CALIBRATION_LABEL[summary.calibration_status] ?? summary.calibration_status],
-              ["Phiên bản", summary.active_version ? `v${summary.active_version}` : "Chưa có"],
               ["Mã đang dùng", summary.accepted_code_count],
               ["Ý cần đối chiếu", summary.pending_idea_count],
               ["Ý bị loại", summary.extraction_invalid_count],
@@ -846,7 +876,10 @@ export default function AdminCodebooks() {
           <button
             key={entry.value}
             type="button"
-            onClick={() => setFilter(entry.value)}
+            onClick={() => {
+              setPage(1);
+              setFilter(entry.value);
+            }}
             className={`border-b-2 px-3 py-2 text-xs font-medium transition-colors ${filter === entry.value ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
             {entry.label}
@@ -855,10 +888,17 @@ export default function AdminCodebooks() {
       </div>
 
       <div className="mt-4 overflow-x-auto rounded-xl border border-border">
-        <table className="w-full min-w-[1100px] text-sm">
+        <table className="w-full min-w-[1180px] table-fixed text-sm">
+          <colgroup>
+            <col className="w-[31%]" />
+            <col className="w-[13%]" />
+            <col className="w-[15%]" />
+            <col className="w-[19%]" />
+            <col className="w-[22%]" />
+          </colgroup>
           <thead className="border-b border-border bg-muted/40 text-left text-[10px] uppercase tracking-[0.13em] text-muted-foreground">
             <tr>
-              <th className="px-4 py-3 font-medium">Mã và phạm vi</th>
+              <th className="px-4 py-3 font-medium">Mã và mô tả</th>
               <th className="px-4 py-3 font-medium">Phân loại</th>
               <th className="px-4 py-3 text-right font-medium">Tần suất</th>
               <th className="px-4 py-3 font-medium">Lý do của AI</th>
@@ -871,7 +911,7 @@ export default function AdminCodebooks() {
                 key={code.id}
                 code={code}
                 totalContributingIdeas={summary.contributing_idea_count}
-                targets={summary.codes.filter((target) => target.id !== code.id && target.validation_status === "ACCEPTED" && !["ARCHIVED", "MERGED"].includes(target.maturity_status))}
+                targets={mergeTargets.filter((target) => target.id !== code.id)}
                 busy={busy}
                 onSave={(patch) => apply(
                   () => api.adminUpdateCode(summary.item_id, code.id, patch),
@@ -880,14 +920,6 @@ export default function AdminCodebooks() {
                     : patch.validation_status === "REJECTED"
                       ? `Đã loại mã “${code.name}”.`
                       : `Đã lưu thay đổi cho mã “${code.name}”.`,
-                )}
-                onArchive={() => apply(
-                  () => api.adminArchiveCode(summary.item_id, code.id),
-                  `Đã lưu trữ mã “${code.name}”.`,
-                )}
-                onRestore={() => apply(
-                  () => api.adminRestoreCode(summary.item_id, code.id),
-                  `Đã khôi phục mã “${code.name}”.`,
                 )}
                 onMerge={(target) => apply(
                   () => api.adminMergeCode(summary.item_id, code.id, target),
@@ -911,6 +943,37 @@ export default function AdminCodebooks() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+        <p className="text-xs text-muted-foreground">
+          {summary.code_total === 0
+            ? "Không có mã phù hợp."
+            : `Hiển thị ${(summary.code_page - 1) * summary.code_page_size + 1}–${Math.min(summary.code_page * summary.code_page_size, summary.code_total)} trong ${summary.code_total} mã`}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || summary.code_page <= 1}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Trang trước
+          </Button>
+          <span className="min-w-20 text-center font-mono text-xs text-muted-foreground">
+            {summary.code_page_count === 0
+              ? "0 / 0"
+              : `${summary.code_page} / ${summary.code_page_count}`}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || summary.code_page >= summary.code_page_count}
+            onClick={() => setPage((current) => current + 1)}
+          >
+            Trang sau <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       </>}

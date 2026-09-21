@@ -3,6 +3,8 @@ import type {
   AdminCuratorAudit,
   AdminExtractionAudit,
   AdminCodePatch,
+  AdminCodeOption,
+  AdminCodebookOverview,
   AdminCodebookSummary,
   AdminParticipantDetail,
   AdminParticipantSummary,
@@ -20,6 +22,7 @@ const BASE = "/api";
 const TOKEN_KEY = "aut:token";
 const PARTICIPANT_ID_KEY = "aut:participant-id";
 const PARTICIPANT_PROFILE_KEY = "aut:participant-email-profile:v2";
+export const PARTICIPANT_PROFILE_CHANGED = "aut:participant-profile-changed";
 
 // --- Quản lý token (localStorage) ---
 export function getToken(): string | null {
@@ -57,11 +60,13 @@ export function getParticipantIdentity(): ParticipantIdentity | null {
 export function clearParticipantProfile(): void {
   localStorage.removeItem(PARTICIPANT_PROFILE_KEY);
   localStorage.removeItem(PARTICIPANT_ID_KEY);
+  window.dispatchEvent(new Event(PARTICIPANT_PROFILE_CHANGED));
 }
 
 function rememberParticipant<T extends { id: string }>(participant: T): T {
   localStorage.setItem(PARTICIPANT_ID_KEY, participant.id);
   localStorage.setItem(PARTICIPANT_PROFILE_KEY, JSON.stringify(participant));
+  window.dispatchEvent(new Event(PARTICIPANT_PROFILE_CHANGED));
   return participant;
 }
 
@@ -155,6 +160,11 @@ export const api = {
   getResponse: (id: string) =>
     fetch(`${BASE}/responses/${id}`).then(handle<ScoreResponse>),
 
+  participantResponses: () =>
+    fetch(`${BASE}/participants/me/responses`, { headers: participantHeaders() }).then(
+      handle<ResponseSummary[]>,
+    ),
+
   // --- Admin (cần role admin, backend tự chặn 403 nếu không đủ quyền) ---
   adminDashboard: () =>
     fetch(`${BASE}/admin/dashboard`, { headers: authHeaders() }).then(
@@ -173,13 +183,29 @@ export const api = {
 
   adminListCodebooks: () =>
     fetch(`${BASE}/admin/items/codebooks`, { headers: authHeaders() }).then(
-      handle<AdminCodebookSummary[]>,
+      handle<AdminCodebookOverview[]>,
     ),
 
-  adminCodebook: (itemId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/codebook`, { headers: authHeaders() }).then(
-      handle<AdminCodebookSummary>,
-    ),
+  adminCodebook: (
+    itemId: string,
+    page = 1,
+    pageSize = 20,
+    codeFilter: "ALL" | "ACCEPTED" | "UNCERTAIN" | "REJECTED" = "ALL",
+  ) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+      code_filter: codeFilter,
+    });
+    return fetch(`${BASE}/admin/items/${itemId}/codebook?${params}`, {
+      headers: authHeaders(),
+    }).then(handle<AdminCodebookSummary>);
+  },
+
+  adminCodeOptions: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/code-options`, {
+      headers: authHeaders(),
+    }).then(handle<AdminCodeOption[]>),
 
   adminExtractionAudit: (itemId: string) =>
     fetch(`${BASE}/admin/items/${itemId}/extraction-audit`, {
@@ -196,18 +222,6 @@ export const api = {
       method: "PATCH",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(patch),
-    }).then(handle<AdminCodebookSummary>),
-
-  adminArchiveCode: (itemId: string, codeId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}/archive`, {
-      method: "POST",
-      headers: authHeaders(),
-    }).then(handle<AdminCodebookSummary>),
-
-  adminRestoreCode: (itemId: string, codeId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}/restore`, {
-      method: "POST",
-      headers: authHeaders(),
     }).then(handle<AdminCodebookSummary>),
 
   adminMergeCode: (itemId: string, codeId: string, targetCodeId: string) =>
@@ -228,12 +242,6 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then(handle<AdminCodebookSummary>),
-
-  adminReprocessItem: (itemId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/reprocess`, {
-      method: "POST",
-      headers: authHeaders(),
-    }).then(handle<{ processed: number }>),
 
   adminRemapItem: (itemId: string) =>
     fetch(`${BASE}/admin/items/${itemId}/remap`, {

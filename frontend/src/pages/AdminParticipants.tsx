@@ -25,7 +25,9 @@ function fmtDate(iso: string | null): string {
 }
 
 export default function AdminParticipants() {
-  const [participants, setParticipants] = useState<AdminParticipantSummary[] | null>(null);
+  const [participants, setParticipants] = useState<
+    AdminParticipantSummary[] | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,7 +44,7 @@ export default function AdminParticipants() {
           Người tham gia
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Mỗi hồ sơ được nhận diện bằng email tự khai; phiên bản hiện tại chưa xác thực email.
+          Mỗi hồ sơ được nhận diện bằng email tự khai.
         </p>
       </div>
 
@@ -66,10 +68,10 @@ export default function AdminParticipants() {
             <thead className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">Họ và tên</th>
-                <th className="px-4 py-3 font-medium">Email định danh</th>
+                <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Tuổi</th>
                 <th className="px-4 py-3 font-medium">Giới tính</th>
-                <th className="px-4 py-3 font-medium">Ngành / nghề</th>
+                <th className="px-4 py-3 font-medium">Chuyên ngành</th>
                 <th className="px-4 py-3 text-right font-medium">
                   Số lượt nộp
                 </th>
@@ -79,21 +81,33 @@ export default function AdminParticipants() {
             </thead>
             <tbody className="divide-y divide-border">
               {participants.map((participant) => (
-                <tr key={participant.id} className="transition-colors hover:bg-muted/30">
+                <tr
+                  key={participant.id}
+                  className="transition-colors hover:bg-muted/30"
+                >
                   <td className="px-4 py-3.5 font-medium">
                     {participant.full_name || "Chưa bổ sung"}
                   </td>
                   <td className="px-4 py-3.5">
-                    <p className="font-mono text-xs">{participant.email_masked || "Chưa liên kết"}</p>
+                    <p className="font-mono text-xs">
+                      {participant.email_masked || "Chưa liên kết"}
+                    </p>
                     <p className="mt-1 text-[11px] text-amber-700">
-                      {participant.email_verified_at ? "Đã xác thực" : "Chưa xác thực"}
+                      {participant.email_verified_at
+                        ? "Đã xác thực"
+                        : "Chưa xác thực"}
                     </p>
                   </td>
                   <td className="px-4 py-3.5">{participant.age ?? "—"}</td>
                   <td className="px-4 py-3.5">
-                    {participant.gender ? GENDER_LABELS[participant.gender] ?? participant.gender : "—"}
+                    {participant.gender
+                      ? (GENDER_LABELS[participant.gender] ??
+                        participant.gender)
+                      : "—"}
                   </td>
-                  <td className="px-4 py-3.5 font-medium">{participant.occupation || "Dữ liệu cũ"}</td>
+                  <td className="px-4 py-3.5 font-medium">
+                    {participant.occupation || "Dữ liệu cũ"}
+                  </td>
                   <td className="px-4 py-3.5 text-right font-mono tabular-nums">
                     {participant.response_count}
                   </td>

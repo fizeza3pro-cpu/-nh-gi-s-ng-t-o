@@ -62,7 +62,11 @@ export default function ParticipantProfileForm({
         onComplete(result.participant);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Không thể kiểm tra email. Hãy thử lại.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Không thể kiểm tra email. Hãy thử lại.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -84,7 +88,11 @@ export default function ParticipantProfileForm({
       const participant = await api.createParticipant(email.trim(), profile);
       onComplete(participant);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Không thể lưu thông tin. Hãy thử lại.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Không thể lưu thông tin. Hãy thử lại.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -94,22 +102,22 @@ export default function ParticipantProfileForm({
     <section className="overflow-hidden rounded-2xl border border-border bg-card">
       <div className="grid lg:grid-cols-[0.82fr_1.18fr]">
         <div className="border-b border-border bg-foreground p-7 text-background lg:border-b-0 lg:border-r lg:p-9">
-          <Fingerprint className="h-8 w-8 text-background/80" strokeWidth={1.5} />
+          <Fingerprint
+            className="h-8 w-8 text-background/80"
+            strokeWidth={1.5}
+          />
           <h2 className="mt-8 max-w-xs font-serif text-3xl leading-tight">
-            Một email cho mọi lượt khảo sát
+            Xác định người tham gia khảo sát
           </h2>
           <p className="mt-4 max-w-sm text-sm leading-6 text-background/70">
-            Email giúp hệ thống nhận ra cùng một người khi đổi trình duyệt hoặc thiết bị, đồng thời
-            vẫn lưu riêng từng lần trả lời.
+            Vui lòng điền đầy đủ thông tin theo yêu cầu để bắt đầu tiến hành trả
+            lời
           </p>
 
           <div className="mt-8 border-t border-background/20 pt-5">
             <div className="flex gap-3 text-sm leading-6 text-background/75">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
-              <p>
-                Phiên bản hiện tại chưa gửi OTP. Database chỉ lưu mã băm để đối chiếu và một email
-                đã che bớt cho quản trị viên.
-              </p>
+              <p></p>
             </div>
           </div>
         </div>
@@ -117,15 +125,22 @@ export default function ParticipantProfileForm({
         {step === "EMAIL" ? (
           <form onSubmit={handleEmailSubmit} className="p-7 lg:p-9">
             <div className="max-w-xl">
-              <p className="text-xs text-muted-foreground">Bước 1 trong 2</p>
-              <h3 className="mt-2 font-serif text-2xl">Nhận diện người tham gia</h3>
+              <p className="text-xs text-muted-foreground">Bước 1</p>
+              <h3 className="mt-2 font-serif text-2xl">
+                Nhận diện người tham gia
+              </h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Nếu email đã từng tham gia, bạn sẽ vào bài ngay. Email mới sẽ cần bổ sung hồ sơ
-                nghiên cứu một lần.
+                Nếu email đã từng tham gia, bạn sẽ vào bài ngay. Email mới sẽ
+                cần bổ sung hồ sơ nghiên cứu một lần.
               </p>
 
               <div className="mt-8 space-y-2">
-                <label htmlFor="participant-email" className="text-sm font-medium">Email</label>
+                <label
+                  htmlFor="participant-email"
+                  className="text-sm font-medium"
+                >
+                  Email
+                </label>
                 <div className="relative">
                   <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <input
@@ -143,22 +158,35 @@ export default function ParticipantProfileForm({
                   />
                 </div>
                 <p className="text-xs leading-5 text-muted-foreground">
-                  Chưa có OTP nên email này là thông tin tự khai, chưa phải danh tính đã xác thực.
+                  Chưa có OTP nên email này là thông tin tự khai, chưa phải danh
+                  tính đã xác thực.
                 </p>
               </div>
 
               {error && (
-                <p className="mt-5 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+                <p
+                  className="mt-5 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+                  role="alert"
+                >
                   {error}
                 </p>
               )}
 
               <div className="mt-8 flex justify-end border-t border-border pt-6">
-                <Button type="submit" size="lg" disabled={!emailReady || submitting} className="sm:min-w-48">
+                <Button
+                  type="submit"
+                  size="lg"
+                  disabled={!emailReady || submitting}
+                  className="sm:min-w-48"
+                >
                   {submitting ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Đang kiểm tra</>
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Đang kiểm tra
+                    </>
                   ) : (
-                    <>Tiếp tục <ArrowRight className="h-4 w-4" /></>
+                    <>
+                      Tiếp tục <ArrowRight className="h-4 w-4" />
+                    </>
                   )}
                 </Button>
               </div>
@@ -170,12 +198,19 @@ export default function ParticipantProfileForm({
               <p className="text-xs text-muted-foreground">Bước 2 trong 2</p>
               <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-serif text-2xl">Bổ sung hồ sơ nghiên cứu</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">{email.trim().toLowerCase()}</p>
+                  <h3 className="font-serif text-2xl">
+                    Bổ sung hồ sơ nghiên cứu
+                  </h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {email.trim().toLowerCase()}
+                  </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => { setStep("EMAIL"); setError(null); }}
+                  onClick={() => {
+                    setStep("EMAIL");
+                    setError(null);
+                  }}
                   className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" /> Đổi email
@@ -183,7 +218,10 @@ export default function ParticipantProfileForm({
               </div>
 
               <div className="mt-7 space-y-2">
-                <label htmlFor="participant-full-name" className="text-sm font-medium">
+                <label
+                  htmlFor="participant-full-name"
+                  className="text-sm font-medium"
+                >
                   Họ và tên
                 </label>
                 <input
@@ -203,7 +241,12 @@ export default function ParticipantProfileForm({
 
               <div className="mt-6 grid gap-6 sm:grid-cols-[140px_1fr]">
                 <div className="space-y-2">
-                  <label htmlFor="participant-age" className="text-sm font-medium">Tuổi</label>
+                  <label
+                    htmlFor="participant-age"
+                    className="text-sm font-medium"
+                  >
+                    Tuổi
+                  </label>
                   <input
                     id="participant-age"
                     type="number"
@@ -219,7 +262,10 @@ export default function ParticipantProfileForm({
                 </div>
 
                 <div className="space-y-2">
-                  <label htmlFor="participant-occupation" className="text-sm font-medium">
+                  <label
+                    htmlFor="participant-occupation"
+                    className="text-sm font-medium"
+                  >
                     Ngành học hoặc nghề nghiệp
                   </label>
                   <input
@@ -256,7 +302,9 @@ export default function ParticipantProfileForm({
                         onChange={() => setGender(option.value)}
                         className="sr-only"
                       />
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${gender === option.value ? "bg-background" : "border border-foreground/40"}`} />
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${gender === option.value ? "bg-background" : "border border-foreground/40"}`}
+                      />
                       {option.label}
                     </label>
                   ))}
@@ -264,20 +312,34 @@ export default function ParticipantProfileForm({
               </fieldset>
 
               {error && (
-                <p className="mt-5 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+                <p
+                  className="mt-5 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+                  role="alert"
+                >
                   {error}
                 </p>
               )}
 
               <div className="mt-7 flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
                 <p className="max-w-xs text-xs leading-5 text-muted-foreground">
-                  Tiếp tục đồng nghĩa với việc bạn đồng ý dùng câu trả lời cho mục đích thống kê nghiên cứu.
+                  Tiếp tục đồng nghĩa với việc bạn đồng ý dùng câu trả lời cho
+                  mục đích thống kê nghiên cứu.
                 </p>
-                <Button type="submit" size="lg" disabled={!profileReady || submitting} className="shrink-0 sm:min-w-52">
+                <Button
+                  type="submit"
+                  size="lg"
+                  disabled={!profileReady || submitting}
+                  className="shrink-0 sm:min-w-52"
+                >
                   {submitting ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Đang lưu thông tin</>
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Đang lưu
+                      thông tin
+                    </>
                   ) : (
-                    <>Lưu và bắt đầu <ArrowRight className="h-4 w-4" /></>
+                    <>
+                      Lưu và bắt đầu <ArrowRight className="h-4 w-4" />
+                    </>
                   )}
                 </Button>
               </div>

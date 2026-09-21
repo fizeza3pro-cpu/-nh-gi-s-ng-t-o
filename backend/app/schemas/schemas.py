@@ -153,7 +153,6 @@ class ScoreResponse(BaseModel):
     scoring_status: Literal[
         "COLLECTING", "PENDING_REVIEW", "PROVISIONAL", "FINAL", "EXCLUDED"
     ]
-    codebook_version_id: str | None = None
     status_message: str = ""
 
 
@@ -226,7 +225,6 @@ class AdminItemBreakdown(BaseModel):
     accepted_code_count: int = 0
     uncertain_code_count: int = 0
     rejected_code_count: int = 0
-    active_version: int | None = None
 
 
 class AdminDailyStat(BaseModel):
@@ -302,6 +300,7 @@ class AdminCodebookCode(BaseModel):
     created_by: str
     admin_locked: bool
     merged_into_id: str | None
+    merged_into_name: str | None
     response_count: int
     participant_count: int
     idea_count: int
@@ -310,6 +309,11 @@ class AdminCodebookCode(BaseModel):
     contributing_idea_count: int
     frequency: float
     created_at: datetime
+
+
+class AdminCodeOption(BaseModel):
+    id: str
+    name: str
 
 
 class AdminExtractionExcludedIdea(BaseModel):
@@ -360,7 +364,7 @@ class AdminCuratorAudit(BaseModel):
     decisions: list[AdminCuratorDecisionIdea]
 
 
-class AdminCodebookSummary(BaseModel):
+class AdminCodebookOverview(BaseModel):
     item_id: str
     item_name: str
     calibration_status: str
@@ -369,12 +373,18 @@ class AdminCodebookSummary(BaseModel):
     contributing_idea_count: int
     scoring_min_participants: int
     scoring_min_responses: int
-    active_version: int | None
     pending_idea_count: int
     extraction_invalid_count: int
     extraction_duplicate_count: int
     accepted_code_count: int
     rejected_code_count: int
+
+
+class AdminCodebookSummary(AdminCodebookOverview):
+    code_page: int
+    code_page_size: int
+    code_total: int
+    code_page_count: int
     codes: list[AdminCodebookCode]
 
 

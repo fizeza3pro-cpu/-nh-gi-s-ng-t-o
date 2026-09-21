@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -10,7 +10,15 @@ import app.main as main_mod
 from app.controllers import response_controller
 from app.db import Base, get_db
 from app.main import app
-from app.models.models import Item, Participant, Response
+from app.models.models import (
+    CodeMaturityStatus,
+    CodeValidationStatus,
+    Item,
+    ItemCode,
+    Participant,
+    Response,
+    ResponseIdea,
+)
 from app.core.deps import require_admin
 from app.schemas.schemas import CuratorDecision, CuratorResult, ExtractedIdea, IdeaExtractionResult
 
@@ -140,6 +148,31 @@ def test_participant_is_idempotent(client):
     assert "occupation" not in response.json()
 
 
+def test_participant_history_only_returns_current_participant_responses(client):
+    first_participant = create_participant(client, "history-one@example.test")
+    second_participant = create_participant(client, "history-two@example.test")
+    first = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": first_participant},
+        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu"},
+    )
+    client.post(
+        "/api/score",
+        headers={"X-Participant-Id": second_participant},
+        json={"item_id": "dua", "raw_input": "làm thanh gõ nhịp"},
+    )
+
+    assert client.get("/api/participants/me/responses").status_code == 401
+    history = client.get(
+        "/api/participants/me/responses",
+        headers={"X-Participant-Id": first_participant},
+    )
+    assert history.status_code == 200
+    assert [row["response_id"] for row in history.json()] == [
+        first.json()["response_id"]
+    ]
+
+
 def test_email_identifies_returning_participant(client):
     first_lookup = client.post(
         "/api/participants/identify", json={"email": "returning@example.test"}
@@ -260,10 +293,59 @@ def test_admin_can_observe_ai_generated_codes(client):
     codebook = response.json()[0]
     assert codebook["calibration_status"] == "COLLECTING"
     assert codebook["qualifying_participant_count"] == 1
-    assert codebook["codes"][0]["validation_status"] == "ACCEPTED"
-    assert codebook["codes"][0]["response_count"] == 1
-    assert codebook["codes"][0]["contributing_response_count"] == 1
-    assert codebook["codes"][0]["contributing_idea_count"] == 1
+    assert "codes" not in codebook
+
+    detail = client.get("/api/admin/items/dua/codebook").json()
+    assert detail["codes"][0]["validation_status"] == "ACCEPTED"
+    assert detail["codes"][0]["response_count"] == 1
+    assert detail["codes"][0]["contributing_response_count"] == 1
+    assert detail["codes"][0]["contributing_idea_count"] == 1
+
+
+def test_admin_codebook_is_paginated_and_filtered_in_backend(client):
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    db.add_all(
+        [
+            ItemCode(
+                id=str(uuid.uuid4()),
+                item_id="dua",
+                name=f"Mã {index:02d}",
+                normalized_name=f"ma-{index:02d}",
+                validation_status=(
+                    CodeValidationStatus.REJECTED
+                    if index >= 22
+                    else CodeValidationStatus.ACCEPTED
+                ),
+                maturity_status=CodeMaturityStatus.ACTIVE,
+                confidence=0.99,
+                created_by="TEST",
+            )
+            for index in range(25)
+        ]
+    )
+    db.commit()
+    next(database, None)
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    second_page = client.get(
+        "/api/admin/items/dua/codebook?page=2&page_size=10&code_filter=ALL"
+    )
+    assert second_page.status_code == 200
+    payload = second_page.json()
+    assert payload["code_page"] == 2
+    assert payload["code_page_size"] == 10
+    assert payload["code_total"] == 25
+    assert payload["code_page_count"] == 3
+    assert len(payload["codes"]) == 10
+
+    rejected = client.get(
+        "/api/admin/items/dua/codebook?page=1&page_size=10&code_filter=REJECTED"
+    ).json()
+    assert rejected["code_total"] == 3
+    assert len(rejected["codes"]) == 3
+    assert all(code["validation_status"] == "REJECTED" for code in rejected["codes"])
+    assert client.get("/api/admin/items/dua/codebook?page_size=101").status_code == 422
 
 
 def test_admin_sees_all_mapping_evidence_and_curator_decisions(client):
@@ -574,11 +656,111 @@ def test_admin_can_merge_an_uncertain_code_and_resolve_pending(client, monkeypat
     assert merged.status_code == 200
     merged_source = next(code for code in merged.json()["codes"] if code["id"] == source["id"])
     assert merged_source["maturity_status"] == "MERGED"
+    assert merged_source["merged_into_id"] == target["id"]
+    assert merged_source["merged_into_name"] == target["name"]
 
     detail = client.get(f"/api/responses/{pending_response.json()['response_id']}").json()
     assert detail["scoring_status"] == "COLLECTING"
     assert detail["mapping"]["ideas"][0]["code"] == target["name"]
     assert detail["mapping"]["ideas"][0]["status"] == "VALID"
+    assert client.patch(
+        f"/api/admin/items/dua/codes/{source['id']}",
+        json={"name": "Không được sửa"},
+    ).status_code == 409
+    assert client.delete(f"/api/admin/items/dua/codes/{source['id']}").status_code == 409
+    assert client.delete(f"/api/admin/items/dua/codes/{target['id']}").status_code == 409
+
+
+def test_merge_keeps_final_score_and_mapping_snapshot(client):
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    item = db.get(Item, "dua")
+    item.scoring_min_participants = 1
+    item.scoring_min_responses = 1
+    db.commit()
+    next(database, None)
+
+    participant_id = create_participant(client)
+    headers = {"X-Participant-Id": participant_id}
+    source_response = client.post(
+        "/api/score",
+        headers=headers,
+        json={"item_id": "dua", "raw_input": "Mã nguồn"},
+    ).json()
+    target_response = client.post(
+        "/api/score",
+        headers=headers,
+        json={"item_id": "dua", "raw_input": "Mã đích"},
+    ).json()
+    assert source_response["scoring_status"] == "FINAL"
+    assert target_response["scoring_status"] == "FINAL"
+    frozen_scoring = source_response["scoring"]
+    frozen_mapping = source_response["mapping"]
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    codes = client.get("/api/admin/items/dua/codebook").json()["codes"]
+    source = next(code for code in codes if code["name"] == "Mã nguồn")
+    target = next(code for code in codes if code["name"] == "Mã đích")
+    merged = client.post(
+        f"/api/admin/items/dua/codes/{source['id']}/merge",
+        json={"target_code_id": target["id"]},
+    )
+    assert merged.status_code == 200
+
+    detail = client.get(f"/api/responses/{source_response['response_id']}").json()
+    assert detail["scoring_status"] == "FINAL"
+    assert detail["scoring"] == frozen_scoring
+    assert detail["mapping"] == frozen_mapping
+
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    response_row = db.get(Response, source_response["response_id"])
+    idea = db.scalar(
+        select(ResponseIdea).where(ResponseIdea.response_id == source_response["response_id"])
+    )
+    assert idea.code_id == target["id"]
+    assert "requires_manual_rescore" not in response_row.scoring_meta
+    assert response_row.scoring_meta["codebook_changes"][-1]["type"] == "CODE_MERGE"
+    next(database, None)
+
+
+def test_merge_requires_an_active_accepted_target(client):
+    source_id = str(uuid.uuid4())
+    target_id = str(uuid.uuid4())
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    db.add_all(
+        [
+            ItemCode(
+                id=source_id,
+                item_id="dua",
+                name="Mã nguồn hợp lệ",
+                normalized_name="ma-nguon-hop-le",
+                validation_status=CodeValidationStatus.ACCEPTED,
+                maturity_status=CodeMaturityStatus.ACTIVE,
+                confidence=0.99,
+            ),
+            ItemCode(
+                id=target_id,
+                item_id="dua",
+                name="Mã đích đã loại",
+                normalized_name="ma-dich-da-loai",
+                validation_status=CodeValidationStatus.REJECTED,
+                maturity_status=CodeMaturityStatus.ACTIVE,
+                confidence=0.99,
+            ),
+        ]
+    )
+    db.commit()
+    next(database, None)
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    response = client.post(
+        f"/api/admin/items/dua/codes/{source_id}/merge",
+        json={"target_code_id": target_id},
+    )
+    assert response.status_code == 409
+    assert "đang hoạt động và đã được chấp nhận" in response.json()["detail"]
 
 
 def test_admin_can_delete_one_code_without_deleting_raw_response(client):
@@ -590,7 +772,7 @@ def test_admin_can_delete_one_code_without_deleting_raw_response(client):
     )
     response_id = submitted.json()["response_id"]
     app.dependency_overrides[require_admin] = lambda: object()
-    codebook = client.get("/api/admin/items/codebooks").json()[0]
+    codebook = client.get("/api/admin/items/dua/codebook").json()
     code_id = codebook["codes"][0]["id"]
 
     deleted = client.delete(f"/api/admin/items/dua/codes/{code_id}")

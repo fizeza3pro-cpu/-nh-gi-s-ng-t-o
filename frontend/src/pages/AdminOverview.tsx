@@ -213,7 +213,6 @@ export default function AdminOverview() {
                   <th className="px-3 py-3 font-medium">Dữ liệu đủ điều kiện</th>
                   <th className="px-3 py-3 font-medium">Tiến độ</th>
                   <th className="px-3 py-3 font-medium">Mã do AI tạo</th>
-                  <th className="px-3 py-3 text-right font-medium">Phiên bản</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-200">
@@ -250,9 +249,6 @@ export default function AdminOverview() {
                         <span className="text-amber-700">{item.uncertain_code_count} theo dõi</span>
                         <span className="mx-2 text-stone-300">/</span>
                         <span className="text-rose-700">{item.rejected_code_count} loại</span>
-                      </td>
-                      <td className="px-3 py-4 text-right font-mono text-xs text-stone-500">
-                        {item.active_version ? `v${item.active_version}` : "—"}
                       </td>
                     </tr>
                   );

@@ -11,10 +11,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import SessionLocal
 from app.models.models import (
-    CodebookVersion,
-    CodebookVersionStatus,
     CodeValidationStatus,
-    ItemCalibrationStatus,
     Item as ItemModel,
     ItemCode,
     Participant as ParticipantModel,
@@ -23,13 +20,11 @@ from app.models.models import (
     ResponseScoringStatus,
 )
 from app.pipeline.codebook_service import (
-    create_codebook_version,
     item_is_ready_for_scoring,
     list_curator_codes,
-    maybe_refresh_codebook,
     originality_for_response,
     persist_mapping,
-    qualifying_participant_count,
+    refresh_item_scoring_state,
 )
 from app.pipeline.dynamic_mapping import run_code_curator, run_idea_extraction
 from app.pipeline.scoring import run_scoring
@@ -156,22 +151,15 @@ def _score_row(
     db: Session,
     row: ResponseModel,
     client: OpenAI | None = None,
-    *,
-    force: bool = False,
 ) -> bool:
-    """Chấm đúng một lần; chỉ thao tác chấm lại chủ động mới được ghi đè điểm FINAL."""
+    """Chấm đúng một lần cho response đã phân loại xong khi item đủ ngưỡng."""
     item_row = row.item
     if (
         row.scoring_status in {ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED}
         or not item_is_ready_for_scoring(db, item_row)
-        or (row.scoring_status == ResponseScoringStatus.FINAL and not force)
+        or row.scoring_status == ResponseScoringStatus.FINAL
     ):
         return False
-    version = (
-        db.get(CodebookVersion, item_row.active_codebook_version_id)
-        if item_row.active_codebook_version_id
-        else None
-    )
 
     fluency, flexibility, flex_codes, per_idea, frequency_basis = originality_for_response(db, row)
     item = Item(id=item_row.id, name=item_row.name, description=item_row.description)
@@ -184,14 +172,6 @@ def _score_row(
 
     scored_at = datetime.now(timezone.utc)
     history = list((row.scoring_meta or {}).get("history", []))
-    if force and row.scoring:
-        history.append(
-            {
-                "scoring": row.scoring,
-                "scoring_meta": {k: v for k, v in (row.scoring_meta or {}).items() if k != "history"},
-                "replaced_at": scored_at.isoformat(),
-            }
-        )
     row.scoring = scoring.model_dump()
     row.scoring_meta = {
         **scoring_meta,
@@ -203,7 +183,6 @@ def _score_row(
     row.flexibility = scoring.flexibility
     row.originality = scoring.originality
     row.elaboration = scoring.elaboration
-    row.codebook_version_id = version.id if version else None
     row.scoring_status = ResponseScoringStatus.FINAL
     row.scored_at = scored_at
     return True
@@ -226,34 +205,21 @@ def backfill_item_scores(item_id: str) -> None:
         db.commit()
 
 
-def reprocess_item_scores_in_session(db: Session, item_id: str, *, force: bool = False) -> int:
-    """Chấm các lượt chưa có điểm; `force` chỉ dành cho nút chấm lại của admin."""
+def reprocess_item_scores_in_session(db: Session, item_id: str) -> int:
+    """Chấm bù các response COLLECTING khi item vừa đủ ngưỡng."""
     item = db.get(ItemModel, item_id)
     if item is None or not item_is_ready_for_scoring(db, item):
         return 0
-    query = select(ResponseModel).where(ResponseModel.item_id == item_id)
-    if force:
-        query = query.where(
-            ResponseModel.scoring_status.notin_(
-                [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
-            )
-        )
-    else:
-        query = query.where(ResponseModel.scoring_status == ResponseScoringStatus.COLLECTING)
+    query = select(ResponseModel).where(
+        ResponseModel.item_id == item_id,
+        ResponseModel.scoring_status == ResponseScoringStatus.COLLECTING,
+    )
     rows = db.scalars(query.order_by(ResponseModel.created_at)).all()
     client = None if settings.mock_mode else _client()
     processed = 0
     for row in rows:
-        processed += int(_score_row(db, row, client, force=force))
+        processed += int(_score_row(db, row, client))
     return processed
-
-
-def reprocess_item_scores(item_id: str) -> int:
-    """Chấm lại có chủ đích và lưu điểm cũ vào lịch sử kiểm toán."""
-    with SessionLocal() as db:
-        processed = reprocess_item_scores_in_session(db, item_id, force=True)
-        db.commit()
-        return processed
 
 
 def _reject_unreferenced_codes(db: Session, item_id: str) -> None:
@@ -355,7 +321,6 @@ def reprocess_item_mappings(item_id: str) -> int:
             row.flexibility = 0
             row.originality = 0
             row.elaboration = 0
-            row.codebook_version_id = None
             row.scored_at = None
             row.scoring_status = (
                 ResponseScoringStatus.PENDING_REVIEW
@@ -364,25 +329,8 @@ def reprocess_item_mappings(item_id: str) -> int:
             )
 
         _reject_unreferenced_codes(db, item_id)
-        participant_count = qualifying_participant_count(db, item_id)
+        refresh_item_scoring_state(db, item_row)
         if item_is_ready_for_scoring(db, item_row):
-            if item_row.active_codebook_version_id:
-                version = create_codebook_version(db, item_row, participant_count)
-            else:
-                version, _ = maybe_refresh_codebook(db, item_row)
-        else:
-            for old_version in db.scalars(
-                select(CodebookVersion).where(
-                    CodebookVersion.item_id == item_id,
-                    CodebookVersion.status == CodebookVersionStatus.ACTIVE,
-                )
-            ).all():
-                old_version.status = CodebookVersionStatus.RETIRED
-            item_row.active_codebook_version_id = None
-            item_row.calibration_status = ItemCalibrationStatus.COLLECTING
-            version = None
-
-        if version:
             for row in rows:
                 if row.scoring_status != ResponseScoringStatus.PENDING_REVIEW:
                     _score_row(db, row, client)
@@ -394,7 +342,7 @@ def retry_pending_item_mappings(item_id: str, limit: int = 1) -> int:
     """Tự chạy lại một số mapping chưa chắc; giới hạn để kiểm soát chi phí LLM."""
     if settings.mock_mode:
         return 0
-    version_changed = False
+    became_ready = False
     resolved = 0
     with SessionLocal() as db:
         rows = db.scalars(
@@ -429,12 +377,12 @@ def retry_pending_item_mappings(item_id: str, limit: int = 1) -> int:
             }
             if not has_uncertain:
                 row.scoring_status = ResponseScoringStatus.COLLECTING
-                version, changed = maybe_refresh_codebook(db, item_row)
-                version_changed = version_changed or changed
-                if version:
+                changed = refresh_item_scoring_state(db, item_row)
+                became_ready = became_ready or changed
+                if item_is_ready_for_scoring(db, item_row):
                     _score_row(db, row, client)
                 resolved += 1
-        if version_changed:
+        if became_ready:
             reprocess_item_scores_in_session(db, item_id)
         db.commit()
     return resolved
@@ -443,8 +391,8 @@ def retry_pending_item_mappings(item_id: str, limit: int = 1) -> int:
 def _status_message(status: ResponseScoringStatus) -> str:
     return {
         ResponseScoringStatus.COLLECTING: (
-            "Câu trả lời đã được lưu và đang đóng góp vào dữ liệu chung. "
-            "Hệ thống sẽ chấm một lần khi đồ vật đủ 30 người và 100 response hợp lệ."
+            
+            "Hệ thống hiện đang trong quá trình thu thập dữ liệu. Câu trả lời của bạn là mảnh ghép quan trọng giúp hoàn thiện bộ dữ liệu của chúng tôi."
         ),
         ResponseScoringStatus.PENDING_REVIEW: (
             "Một số ý cần AI đối chiếu lại. Dữ liệu đã được giữ nguyên và chưa bị tính là 0."
@@ -465,7 +413,6 @@ def _to_response(row: ResponseModel) -> ScoreResponse:
         mapping=MappingResult.model_validate(row.mapping),
         scoring=ScoringResult.model_validate(row.scoring) if row.scoring else None,
         scoring_status=row.scoring_status.value,
-        codebook_version_id=row.codebook_version_id,
         status_message=_status_message(row.scoring_status),
     )
 
@@ -521,10 +468,10 @@ def create_response(
     if has_uncertain:
         row.scoring_status = ResponseScoringStatus.PENDING_REVIEW
 
-    version, version_changed = maybe_refresh_codebook(db, item_row)
-    if version and not has_uncertain:
+    became_ready = refresh_item_scoring_state(db, item_row)
+    if item_is_ready_for_scoring(db, item_row) and not has_uncertain:
         _score_row(db, row, client)
-    if version_changed:
+    if became_ready:
         # Chấm bù trong cùng transaction để submit vượt ngưỡng hoàn tất nhất quán.
         reprocess_item_scores_in_session(db, item_row.id)
 
@@ -545,6 +492,29 @@ def get_response_detail(db: Session, response_id: str) -> ScoreResponse:
 def list_responses(db: Session) -> list[ResponseSummary]:
     """Trả toàn bộ lượt làm; route gọi hàm này bắt buộc đã qua guard admin."""
     rows = db.scalars(select(ResponseModel).order_by(ResponseModel.created_at.desc())).all()
+    return [
+        ResponseSummary(
+            response_id=row.id,
+            created_at=row.created_at.isoformat() if row.created_at else "",
+            item_id=row.item_id,
+            item_name=row.item.name if row.item else "",
+            fluency=row.fluency,
+            flexibility=row.flexibility,
+            originality=row.originality,
+            elaboration=row.elaboration,
+            scoring_status=row.scoring_status.value,
+        )
+        for row in rows
+    ]
+
+
+def list_participant_responses(db: Session, participant_id: str) -> list[ResponseSummary]:
+    """Trả lịch sử của đúng participant đã được xác thực bằng header trình duyệt."""
+    rows = db.scalars(
+        select(ResponseModel)
+        .where(ResponseModel.participant_id == participant_id)
+        .order_by(ResponseModel.created_at.desc())
+    ).all()
     return [
         ResponseSummary(
             response_id=row.id,

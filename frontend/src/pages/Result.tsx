@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowRight, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { api, readCachedResponse } from "@/lib/api";
+import { api, cacheResponse, readCachedResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { IdeaStatus, ScoreResponse } from "@/lib/types";
 
@@ -26,9 +26,8 @@ export default function Result() {
   const navigatedResponse = (
     location.state as { response?: ScoreResponse } | null
   )?.response;
-  const initialResponse = navigatedResponse ?? (
-    responseId ? readCachedResponse(responseId) : null
-  );
+  const initialResponse =
+    navigatedResponse ?? (responseId ? readCachedResponse(responseId) : null);
   const [resp, setResp] = useState<ScoreResponse | null>(initialResponse);
   const [loading, setLoading] = useState(!initialResponse);
 
@@ -57,6 +56,41 @@ export default function Result() {
         setLoading(false);
       });
   }, [navigatedResponse, responseId]);
+
+  useEffect(() => {
+    if (
+      !responseId ||
+      !resp ||
+      !["PENDING_REVIEW", "COLLECTING"].includes(resp.scoring_status)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let requesting = false;
+    const refresh = async () => {
+      if (requesting) return;
+      requesting = true;
+      try {
+        const next = await api.getResponse(responseId);
+        if (!cancelled) {
+          setResp(next);
+          cacheResponse(next);
+        }
+      } catch {
+        // Giữ kết quả hiện có khi mạng tạm gián đoạn; lần polling sau sẽ thử lại.
+      } finally {
+        requesting = false;
+      }
+    };
+
+    void refresh();
+    const interval = window.setInterval(refresh, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [responseId, resp?.scoring_status]);
 
   if (loading) {
     return (
@@ -95,28 +129,43 @@ export default function Result() {
               Dữ liệu đã được ghi nhận · {item.name}
             </p>
             <h1 className="mt-4 max-w-3xl font-serif text-4xl font-medium tracking-tight md:text-6xl">
-              Câu trả lời của bạn đang đóng góp vào dữ liệu chấm điểm.
+              Câu trả lời của bạn đã được đóng góp vào bộ dữ liệu.
             </h1>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground">
+            <p
+              aria-live="polite"
+              className="mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground"
+            >
               {resp.status_message}
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Badge variant={resp.scoring_status === "PENDING_REVIEW" ? "warning" : "secondary"}>
-                {resp.scoring_status === "PENDING_REVIEW" ? "AI đang đối chiếu lại" : "Giai đoạn thu thập"}
+              <Badge
+                variant={
+                  resp.scoring_status === "PENDING_REVIEW"
+                    ? "warning"
+                    : "secondary"
+                }
+              >
+                {resp.scoring_status === "PENDING_REVIEW"
+                  ? "AI đang đối chiếu lại"
+                  : "Giai đoạn thu thập"}
               </Badge>
               <span className="text-xs text-muted-foreground">
                 {validCount}/{totalIdeas} ý đã được nhận diện
               </span>
+              {resp.scoring_status === "PENDING_REVIEW" && (
+                <span className="text-xs text-muted-foreground">
+                  Trang này tự cập nhật sau khi quản trị viên xử lý.
+                </span>
+              )}
             </div>
           </div>
         </section>
         <section>
           <div className="container max-w-4xl py-12">
             <div className="border-l-2 border-foreground/20 pl-6">
-              <p className="font-serif text-2xl">Không có ý nào bị tính điểm 0 vì thiếu dữ liệu.</p>
+              <p className="font-serif text-2xl">Câu trả lời đã được lưu</p>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                Khi đồ vật đồng thời đạt 30 người tham gia và 100 response đủ điều kiện,
-                hệ thống sẽ chấm một lần cho mọi lượt đang chờ. Điểm đã chốt không tự đổi khi có dữ liệu mới.
+                Bạn có muốn làm lại hay thử 1 đồ vật khác?
               </p>
             </div>
             <div className="mt-10 flex flex-wrap gap-3">

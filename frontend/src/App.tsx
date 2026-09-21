@@ -4,6 +4,7 @@ import SiteFooter from "@/components/SiteFooter";
 import Home from "@/pages/Home";
 import Test from "@/pages/Test";
 import Result from "@/pages/Result";
+import History from "@/pages/History";
 import AdminOverview from "@/pages/AdminOverview";
 import AdminParticipants from "@/pages/AdminParticipants";
 import AdminParticipantDetail from "@/pages/AdminParticipantDetail";
@@ -50,6 +51,14 @@ export default function App() {
             element={
               <PublicLayout>
                 <Result />
+              </PublicLayout>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <PublicLayout>
+                <History />
               </PublicLayout>
             }
           />

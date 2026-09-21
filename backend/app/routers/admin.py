@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.controllers import admin_controller
@@ -6,7 +8,9 @@ from app.core.deps import require_admin
 from app.db import get_db
 from app.schemas.schemas import (
     AdminCodeMerge,
+    AdminCodeOption,
     AdminCodePatch,
+    AdminCodebookOverview,
     AdminCodebookSummary,
     AdminCuratorAudit,
     AdminDashboardStats,
@@ -37,14 +41,31 @@ def participant_detail(
     return admin_controller.get_participant_detail(db, participant_id)
 
 
-@router.get("/items/codebooks", response_model=list[AdminCodebookSummary])
-def codebooks(db: Session = Depends(get_db)) -> list[AdminCodebookSummary]:
+@router.get("/items/codebooks", response_model=list[AdminCodebookOverview])
+def codebooks(db: Session = Depends(get_db)) -> list[AdminCodebookOverview]:
     return admin_controller.list_codebooks(db)
 
 
 @router.get("/items/{item_id}/codebook", response_model=AdminCodebookSummary)
-def codebook(item_id: str, db: Session = Depends(get_db)) -> AdminCodebookSummary:
-    return admin_controller.get_codebook(db, item_id)
+def codebook(
+    item_id: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    code_filter: Literal["ALL", "ACCEPTED", "UNCERTAIN", "REJECTED"] = "ALL",
+    db: Session = Depends(get_db),
+) -> AdminCodebookSummary:
+    return admin_controller.get_codebook(
+        db,
+        item_id,
+        page=page,
+        page_size=page_size,
+        code_filter=code_filter,
+    )
+
+
+@router.get("/items/{item_id}/code-options", response_model=list[AdminCodeOption])
+def code_options(item_id: str, db: Session = Depends(get_db)) -> list[AdminCodeOption]:
+    return admin_controller.list_code_options(db, item_id)
 
 
 @router.get("/items/{item_id}/extraction-audit", response_model=AdminExtractionAudit)
@@ -71,16 +92,6 @@ def update_code(
     return admin_controller.patch_code(db, item_id, code_id, patch)
 
 
-@router.post("/items/{item_id}/codes/{code_id}/archive", response_model=AdminCodebookSummary)
-def archive_code(item_id: str, code_id: str, db: Session = Depends(get_db)) -> AdminCodebookSummary:
-    return admin_controller.archive_code(db, item_id, code_id)
-
-
-@router.post("/items/{item_id}/codes/{code_id}/restore", response_model=AdminCodebookSummary)
-def restore_code(item_id: str, code_id: str, db: Session = Depends(get_db)) -> AdminCodebookSummary:
-    return admin_controller.archive_code(db, item_id, code_id, restore=True)
-
-
 @router.post("/items/{item_id}/codes/{code_id}/merge", response_model=AdminCodebookSummary)
 def merge_code(
     item_id: str,
@@ -99,11 +110,6 @@ def delete_code(item_id: str, code_id: str, db: Session = Depends(get_db)) -> Ad
 @router.delete("/items/{item_id}/codes", response_model=AdminCodebookSummary)
 def delete_all_codes(item_id: str, db: Session = Depends(get_db)) -> AdminCodebookSummary:
     return admin_controller.delete_all_codes(db, item_id)
-
-
-@router.post("/items/{item_id}/reprocess")
-def reprocess(item_id: str, db: Session = Depends(get_db)) -> dict:
-    return {"processed": admin_controller.reprocess_item_scores(item_id)}
 
 
 @router.post("/items/{item_id}/remap")
