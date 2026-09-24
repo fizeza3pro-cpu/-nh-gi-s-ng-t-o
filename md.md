@@ -98,7 +98,7 @@ Alternative Uses Task (AUT/AUCT) — Guilford 1967 — yêu cầu liệt kê cà
 | **Fluency** | Số ý hợp lệ | Đếm idea VALID | Phải loại bỏ trùng lặp, không có nghĩa, lạc đề trước khi đếm |
 | **Flexibility** | Số danh mục khái niệm khác nhau | Đếm Code **unique** | Hai ý cùng Code chỉ tính một lần |
 | **Originality** | Mức độ hiếm/độc đáo | Rubric per-ý (0–2 hoặc 1–5) | 3 khía cạnh: **uncommonness, remoteness, cleverness** |
-| **Elaboration** | Mức độ chi tiết | Rubric per-ý (1–5) hoặc đếm "meaningful words" | Bỏ qua từ chung chung ("thứ gì đó", "con người") và tên đồ vật gốc |
+| **Elaboration** | Mức độ chi tiết | `1 + target + mechanism + context + goal`; đếm "meaningful words" làm đối chứng | Chấm trên câu gốc; LLM chỉ trích bằng chứng nguyên văn, backend tính điểm |
 
 **Bóc tách khái niệm Originality** (một số paper):
 - **Novelty** = tính nguyên bản, có thể không liên quan đồ vật gốc.
@@ -323,7 +323,7 @@ TẦNG 2 — SCORING
     ├── Fluency   = count VALID
     ├── Flexibility = count unique Code
     ├── Originality = chấm từng ý (rubric 0–2)
-    └── Elaboration = chấm từng ý (rubric 1–5)
+    └── Elaboration = backend tính 1 + 4 nhóm chi tiết có bằng chứng
     ↓
 Điểm 4 chiều + giải thích tiếng Việt + bảng mapping minh bạch
 ```
@@ -404,23 +404,29 @@ CHẤM:
    Đánh giá dựa trên 3 khía cạnh: uncommonness, remoteness, cleverness.
 
 4. ELABORATION (cho từng ý, thang 1–5):
-   1 = rất mơ hồ, chỉ nêu tên công dụng
-   2 = có thêm 1 chi tiết nhỏ
-   3 = mô tả rõ ràng, có ngữ cảnh
-   4 = mô tả chi tiết, cụ thể
-   5 = mô tả rất phong phú, sinh động
+   - Chấm trên câu ORIGINAL, không chấm trên bản chuẩn hoá.
+   - AI chỉ trích đoạn bằng chứng nguyên văn cho 4 nhóm: target, mechanism,
+     context, goal.
+   - Backend loại bằng chứng không xuất hiện trong câu gốc và tính:
+     `1 + target + mechanism + context + goal`.
+   - Số từ nội dung sau stoplist được lưu làm chỉ số đối chứng, không quyết
+     định trực tiếp điểm 1–5.
 
 OUTPUT (JSON):
 {
   "fluency": int, "flexibility": int, "flexibility_codes": [...],
   "originality": int, "elaboration": int,
-  "per_idea_scores": [{"normalized": "...", "originality": 0|1|2,
-                       "elaboration": 1..5, "note": "..."}],
+  "per_idea_scores": [{"original": "...", "normalized": "...",
+                       "originality": 0|1|2, "elaboration": 1..5,
+                       "meaningful_word_count": 0..n,
+                       "elaboration_details": {"target": "<evidence>", "...": "..."},
+                       "note": "..."}],
   "summary_vi": "Nhận xét tổng thể bằng tiếng Việt"
 }
 ```
 
-**Multi-run:** chạy 3 lần, lấy trung bình per-ý. Bật khi đo reliability; có thể tắt khi demo để tiết kiệm cost.
+**Multi-run:** chạy 3 lần, lấy đa số cho từng nhóm chi tiết sau khi xác thực
+bằng chứng nguyên văn. Có thể tắt khi demo để tiết kiệm cost.
 
 ### C.5. Code List tiếng Việt
 

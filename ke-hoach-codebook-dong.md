@@ -498,3 +498,82 @@ Idea Extraction không hiển thị gì: dữ liệu đã bị AI phân loại s
 - Kiểm tra qua service: tổng tần suất của các mã đang dùng bằng `1.0` cho mọi đồ vật đã có ý hợp lệ;
   đồ vật chưa có ý có tổng bằng `0`.
 - Không commit và không push lên GitHub.
+
+### 22/09/2026 — Chuyển đổi BytePlus/Groq và bổ sung dataset án lệ provisional
+
+**Mục tiêu**
+
+- Giữ hỗ trợ BytePlus ModelArk và có thể đổi toàn bộ pipeline sang Groq chỉ bằng cấu hình môi
+  trường để A/B test model; provider phải được khai báo rõ, không có mặc định ngầm.
+- Đưa một số tình huống đã gán nhãn vào prompt để AI tham khảo cách áp dụng Code Constitution;
+  không coi các ví dụ này là codebook hoặc gold standard.
+- Tạm giữ vector băm cục bộ hiện tại để chỉ thay một biến trong mỗi lần thử nghiệm.
+
+**Những gì đã triển khai**
+
+1. `config.py`, `response_controller.py`, `dynamic_mapping.py`, `scoring.py`, `main.py`
+   - Thêm `LLM_PROVIDER=byteplus|groq` cùng cấu hình API key, base URL, model và model Curator riêng
+     cho Groq.
+   - BytePlus giữ nguyên giao thức gọi OpenAI-compatible hiện tại; không tự được chọn khi thiếu
+     `LLM_PROVIDER`.
+   - Health endpoint và metadata mỗi lần gọi ghi đúng provider/model đang dùng.
+
+2. `pipeline/reference_cases/`, `pipeline/reference_dataset.py`
+   - Thêm 17 case provisional thuộc ba tầng `extraction`, `curator`, `challenger`, bao phủ
+     `VALID`, `INVALID`, `DUPLICATE`, `MATCH_EXISTING`, `OUT_OF_CODEBOOK`, `CREATE_NEW` và
+     `UNCERTAIN`.
+   - Dùng chính `local_embedding()` hiện tại để lấy tối đa 3–5 case gần nhất; mặc định là 4.
+   - ID `EXAMPLE-*` chỉ là dữ liệu trong án lệ. Prompt cấm sao chép ID này sang mapping thật.
+   - Có thể tắt bằng `REFERENCE_CASES_ENABLED=false` để chạy đối chứng không few-shot.
+
+3. Prompt và tài liệu vận hành
+   - Extraction, Curator và Challenger đều nhận phần án lệ riêng theo đúng nhiệm vụ.
+   - Thêm `.env.example`, cấu hình Render và hướng dẫn đổi provider trong `README.md`.
+
+**Ý tưởng semantic embedding để triển khai sau**
+
+- Chưa thay vector băm 384 chiều trong lần này nhằm tránh đồng thời thay provider, prompt và thuật
+  toán retrieval, vì khi đó không thể xác định nguyên nhân làm kết quả tốt/xấu hơn.
+- Khi có tập response đã gán nhãn, so sánh `Recall@5`, tỷ lệ tách thừa code và độ ổn định giữa:
+  1. vector băm hiện tại;
+  2. gửi toàn bộ code khi codebook còn nhỏ;
+  3. semantic embedding đa ngôn ngữ khi codebook vượt ngân sách token.
+- Phương án dự kiến: codebook nhỏ thì gửi toàn bộ; codebook lớn mới dùng semantic embedding lấy
+  top 15–20, rerank theo `goal + object_role + mechanism`, rồi đưa top 5–10 cho Curator. Nếu thay
+  embedding model phải tính lại toàn bộ vector code và ghi model/version, không trộn vector từ hai
+  model.
+
+**Kiểm tra và ảnh hưởng dữ liệu**
+
+- Backend compile thành công; test: `49 passed, 10 skipped`.
+- Không đổi schema, không tạo/chạy migration và không sửa dữ liệu PostgreSQL thật.
+- Không gọi API BytePlus/Groq thật trong test tự động; `FakeClient` xác nhận prompt và contract.
+- Không commit và không push lên GitHub.
+
+### 22/09/2026 — Sửa lỗi cấu hình vẫn gọi BytePlus
+
+- Nguyên nhân local: `config.py` từng đọc `.env` theo thư mục làm việc hiện tại. Khi IDE hoặc
+  uvicorn khởi chạy từ thư mục gốc dự án, `backend/.env` có thể bị bỏ qua và provider rơi về mặc
+  định `byteplus`.
+- Đã cố định đường dẫn nạp cấu hình về đúng `backend/.env`, không phụ thuộc thư mục khởi chạy.
+- Nguyên nhân deploy: `render.yaml` từng đặt cứng `LLM_PROVIDER=byteplus`. Bản deploy hiện tại đã
+  đặt rõ `LLM_PROVIDER=groq`; vẫn có thể đổi sang BytePlus bằng biến môi trường khi cần đối chứng.
+- Đã thống nhất `BYTEPLUS_MODEL=deepseek-v4-flash-260731` giữa `config.py`, `.env.example`, README
+  và Render; loại bỏ tên `deepseek-v4-flash-ga-260731` chỉ xuất hiện riêng trong Render.
+- Sau khi đổi provider phải khởi động lại backend/redeploy và kiểm tra `GET /api/health`. Việc chỉ
+  thêm `GROQ_API_KEY` không tự đổi provider; cần đặt `LLM_PROVIDER=groq`.
+- Kiểm thử sau sửa lỗi: `51 passed, 10 skipped`.
+- Không đổi schema hoặc dữ liệu PostgreSQL.
+
+### 22/09/2026 — Giảm token và xử lý rate limit Groq
+
+- Đặt `GROQ_REASONING_EFFORT=low`; BytePlus không nhận tham số dành riêng cho Groq này.
+- Giảm mặc định `REFERENCE_CASES_LIMIT` từ 4 xuống 2, loại trường `stage` dư thừa khỏi payload án
+  lệ và dùng JSON nén cho response, code ứng viên, án lệ và dữ liệu chấm Elaboration.
+- Không lưu thống kê token vào response/database; theo dõi input/output token trực tiếp trên
+  dashboard của nhà cung cấp API.
+- Tắt retry mặc định của OpenAI client để không bị retry lồng nhau. `chat_json` là nơi duy nhất
+  retry và ưu tiên `retry-after`/`x-ratelimit-reset-tokens`, giới hạn mỗi lần chờ tối đa 30 giây.
+- Giữ nguyên ba tầng Extraction, Curator/Challenger và Scoring; không thay đổi cách tính điểm,
+  schema database hoặc dữ liệu khảo sát.
+- Kiểm thử sau tối ưu: `54 passed, 10 skipped`.

@@ -1,46 +1,52 @@
 SYSTEM:
-Bạn là chuyên gia phân tích ngôn ngữ tiếng Việt cho Alternative Uses Test. Chỉ tách và chuẩn hoá ý định; không chấm điểm, không đặt tên danh mục.
+Bạn phân tích response tiếng Việt cho Alternative Uses Test. Mỗi dòng đầu vào đã là một ý tưởng riêng. Không gộp dòng, không tách một dòng thành nhiều ý và không chấm điểm sáng tạo.
 
 USER:
 Đồ vật: {item_name}
-Mô tả và công dụng thông thường: {item_description}
+Mô tả/công dụng thông thường: {item_description}
 
-Câu trả lời thô:
-"""
-{raw_input}
-"""
+CÁC DÒNG RESPONSE:
+{responses_json}
 
-Tách input theo ngữ nghĩa thành từng công dụng. Với mỗi ý:
-- VALID: là một cách sử dụng khả thi của đồ vật, kể cả rất mới lạ.
-- INVALID: vô nghĩa, không liên quan hoặc không mô tả cách dùng.
-- DUPLICATE: trùng công dụng sâu với một ý trước trong cùng câu trả lời.
-- `normalized` phải là một cụm tiếng Việt ngắn, cụ thể, không tự thêm chi tiết.
-- `uses_target_object` chỉ là true khi chính {item_name} tham gia vào công dụng. Không được coi
-  một công dụng của đồ vật khác là hợp lệ và không được tự thay đồ vật khác thành {item_name}.
-- `object_used` ghi đúng đồ vật thực sự được câu trả lời sử dụng. Nếu ý không nhắc lại tên đồ vật
-  nhưng rõ ràng đang tiếp tục nói về {item_name}, ghi "{item_name}".
-- `target_object_role` mô tả ngắn vai trò vật lý của {item_name} trong công dụng. Để rỗng nếu
-  `uses_target_object` là false.
+VÍ DỤ THAM KHẢO ĐÃ ĐƯỢC GÁN NHÃN:
+{reference_cases_json}
 
-Kiểm tra bắt buộc trước khi chọn VALID:
-1. Đồ vật thực sự được sử dụng có phải {item_name} không?
-2. Đặc tính hoặc vai trò nào của {item_name} làm công dụng đó khả thi?
-Nếu không trả lời được cả hai câu, chọn INVALID.
+Các ví dụ chỉ minh hoạ cách áp dụng quy tắc. Không sao chép nội dung, đồ vật hoặc kết luận nếu
+response thật không có cùng căn cứ chức năng.
 
-Ví dụ: nếu đồ vật là "Dây thừng", câu "gấp giấy báo để bọc quà" phải là INVALID,
-`uses_target_object=false`, `object_used="Giấy báo"`. Không được đổi nó thành công dụng dây thừng.
+Trả đúng một phần tử cho mỗi dòng, giữ nguyên `line_index`.
+
+Quy tắc adequacy:
+- VALID: mô tả được một công dụng và chính {item_name} có vai trò chức năng hoặc vật lý có thể giải thích.
+- INVALID: rỗng nghĩa, lạc đề, dùng đồ vật khác, hoặc không cho biết {item_name} tham gia thế nào.
+- DUPLICATE: cùng mục đích, vai trò và cơ chế với một dòng trước trong cùng lượt. Chỉ cùng category nhưng khác công dụng không phải duplicate.
+- Công dụng thông thường vẫn VALID; độ phổ biến không phải lý do loại.
+- Lỗi chính tả, câu ngắn, ý hiếm hoặc nguy hiểm không phải lý do loại nếu vẫn hiểu được công dụng.
+
+Với mỗi ý, tạo `functional_signature`:
+- goal: mục đích cuối cùng.
+- object_role: vai trò của {item_name}.
+- mechanism: thuộc tính/cơ chế làm công dụng hoạt động.
+- transformation: cách biến đổi vật, để rỗng nếu không có.
+- target: đối tượng chịu tác động.
+- context: bối cảnh, để rỗng nếu không cần.
+
+Ba trường goal + object_role + mechanism phải mô tả ở mức chức năng, không chép nguyên câu.
 
 Chỉ trả JSON:
 {{
   "ideas": [
     {{
-      "original": "<đoạn gốc>",
-      "normalized": "<công dụng chuẩn hoá>",
+      "line_index": 0,
+      "original": "<nguyên văn dòng>",
+      "normalized": "<công dụng chuẩn hoá ngắn>",
       "status": "VALID" | "INVALID" | "DUPLICATE",
-      "uses_target_object": true | false,
-      "object_used": "<đồ vật thực sự được sử dụng>",
-      "target_object_role": "<vai trò của {item_name}; rỗng nếu không sử dụng>",
-      "reason": "<lý do ngắn; để rỗng nếu VALID>"
+      "duplicate_of_index": null,
+      "uses_target_object": true,
+      "object_used": "{item_name}",
+      "target_object_role": "<vai trò cụ thể>",
+      "functional_signature": {{"goal":"","object_role":"","mechanism":"","transformation":"","target":"","context":""}},
+      "reason": "<chỉ ghi khi INVALID hoặc DUPLICATE>"
     }}
   ]
 }}

@@ -1,3 +1,5 @@
+import csv
+import io
 import uuid
 
 import pytest
@@ -64,6 +66,7 @@ def create_participant(client: TestClient, email: str | None = None) -> str:
             "age": 20,
             "gender": "female",
             "occupation": "Sinh viên",
+            "ai_usage_group": "LOW",
         },
     )
     assert response.status_code == 201
@@ -127,7 +130,7 @@ def test_empty_admin_dashboard_still_lists_all_items(client):
     assert payload["by_item"][0]["response_count"] == 0
 
 
-def test_participant_is_idempotent(client):
+def test_participant_form_updates_existing_profile(client):
     email = "same-person@example.test"
     participant_id = create_participant(client, email)
     response = client.post(
@@ -138,11 +141,13 @@ def test_participant_is_idempotent(client):
             "age": 99,
             "gender": "male",
             "occupation": "Dữ liệu retry không ghi đè",
+            "ai_usage_group": "HIGH",
         },
     )
     assert response.status_code == 201
     assert response.json()["id"] == participant_id
-    assert response.json()["full_name"] == "Nguyễn Minh Anh"
+    assert response.json()["full_name"] == "Tên gửi lại không ghi đè"
+    assert response.json()["ai_usage_group"] == "HIGH"
     assert "age" not in response.json()
     assert "gender" not in response.json()
     assert "occupation" not in response.json()
@@ -190,6 +195,7 @@ def test_email_identifies_returning_participant(client):
     assert returning.json()["participant"]["full_name"] == "Nguyễn Minh Anh"
     assert returning.json()["participant"]["email_verified_at"] is None
     assert returning.json()["participant"]["email_masked"].endswith("@example.test")
+    assert returning.json()["participant"]["ai_usage_group"] == "LOW"
     assert "age" not in returning.json()["participant"]
     assert "gender" not in returning.json()["participant"]
     assert "occupation" not in returning.json()["participant"]
@@ -235,6 +241,7 @@ def test_legacy_participant_can_add_missing_full_name(client):
             "age": 21,
             "gender": "female",
             "occupation": "Sinh viên",
+            "ai_usage_group": "HIGH",
         },
     )
     assert completed.status_code == 201
@@ -269,6 +276,28 @@ def test_score_and_public_result_roundtrip(client):
     assert client.get("/api/responses").status_code == 401
 
 
+def test_score_accepts_ten_rows_and_rejects_an_eleventh(client):
+    participant_id = create_participant(client)
+    headers = {"X-Participant-Id": participant_id}
+    ideas = [f"Ý tưởng sáng tạo số {index}" for index in range(1, 11)]
+
+    accepted = client.post(
+        "/api/score",
+        headers=headers,
+        json={"item_id": "dua", "responses": ideas},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["scoring_status"] == "COLLECTING"
+    assert accepted.json()["raw_input"] == "\n".join(ideas)
+
+    rejected = client.post(
+        "/api/score",
+        headers=headers,
+        json={"item_id": "dua", "responses": ideas + ["Ý tưởng thứ 11"]},
+    )
+    assert rejected.status_code == 422
+
+
 def test_invalid_participant_id_rejected(client):
     response = client.post(
         "/api/score",
@@ -300,6 +329,51 @@ def test_admin_can_observe_ai_generated_codes(client):
     assert detail["codes"][0]["response_count"] == 1
     assert detail["codes"][0]["contributing_response_count"] == 1
     assert detail["codes"][0]["contributing_idea_count"] == 1
+
+
+def test_admin_can_export_grouped_scores_csv(client):
+    participant_id = create_participant(client)
+    submitted = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"},
+    )
+    assert submitted.status_code == 200
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    response = client.get("/api/admin/exports/responses.csv")
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="aut-response-scores.csv"'
+    )
+    rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
+    assert len(rows) == 1
+    assert rows[0]["participant_id"] == participant_id
+    assert rows[0]["ai_usage_group"] == "LOW"
+    assert rows[0]["item_id"] == "dua"
+    assert rows[0]["scoring_status"] == "COLLECTING"
+    assert rows[0]["fluency"] == ""
+    assert rows[0]["originality"] == ""
+
+
+def test_admin_cannot_mutate_append_only_codebook(client):
+    participant_id = create_participant(client)
+    submitted = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "responses": ["Dùng làm cọc đánh dấu cây"]},
+    )
+    assert submitted.status_code == 200
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    code_id = client.get("/api/admin/items/dua/codebook").json()["codes"][0]["id"]
+
+    assert client.patch(
+        f"/api/admin/items/dua/codes/{code_id}", json={"name": "Tên mới"}
+    ).status_code == 409
+    assert client.delete(f"/api/admin/items/dua/codes/{code_id}").status_code == 409
+    assert client.delete("/api/admin/items/dua/codes").status_code == 409
+    assert client.post("/api/admin/items/dua/remap").status_code == 409
 
 
 def test_admin_codebook_is_paginated_and_filtered_in_backend(client):
@@ -382,6 +456,9 @@ def test_admin_sees_all_mapping_evidence_and_curator_decisions(client):
         "MATCH_EXISTING",
     }
     assert all(row["code_name"] == "làm cọc đánh dấu cây" for row in decisions["decisions"])
+    assert all(row["functional_signature"]["goal"] for row in decisions["decisions"])
+    created = next(row for row in decisions["decisions"] if row["decision"] == "CREATE_NEW")
+    assert all(created["mapping_evidence"]["policy_gates"].values())
 
 
 def test_admin_can_audit_ideas_rejected_by_extraction(client, monkeypatch):
@@ -472,9 +549,10 @@ def test_admin_can_audit_an_idea_rejected_by_curator(client, monkeypatch):
     payload = audit.json()
     assert payload["invalid_count"] == 1
     assert payload["decisions"][0]["decision"] == "INVALID"
-    assert payload["decisions"][0]["code_name"] == "Ném đũa lên mặt trăng"
+    assert payload["decisions"][0]["code_name"] is None
 
 
+@pytest.mark.skip(reason="Thao tác remap đã bị loại trong sổ mã append-only.")
 def test_admin_can_request_full_remap(client, monkeypatch):
     app.dependency_overrides[require_admin] = lambda: object()
     monkeypatch.setattr(
@@ -485,6 +563,7 @@ def test_admin_can_request_full_remap(client, monkeypatch):
     assert response.json() == {"processed": 2}
 
 
+@pytest.mark.skip(reason="Code không còn chờ admin chấp nhận.")
 def test_admin_can_accept_an_uncertain_code(client, monkeypatch):
     monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
     participant_id = create_participant(client)
@@ -518,12 +597,13 @@ def test_admin_can_accept_an_uncertain_code(client, monkeypatch):
     assert detail["mapping"]["ideas"][0]["status"] == "VALID"
 
 
+@pytest.mark.skip(reason="Hệ thống mới chấm trực tiếp và không có code uncertain.")
 def test_accepting_uncertain_code_scores_once_when_item_is_ready(client, monkeypatch):
     database = app.dependency_overrides[get_db]()
     db = next(database)
     item = db.get(Item, "dua")
     item.scoring_min_participants = 1
-    item.scoring_min_responses = 1
+    item.scoring_min_ideas = 1
     db.commit()
     next(database, None)
 
@@ -550,12 +630,13 @@ def test_accepting_uncertain_code_scores_once_when_item_is_ready(client, monkeyp
     assert detail["scoring"]["flexibility"] == 1
 
 
+@pytest.mark.skip(reason="Ngưỡng chờ và backfill đã được thay bằng chấm trực tiếp.")
 def test_threshold_backfills_once_and_new_data_does_not_change_final_score(client):
     database = app.dependency_overrides[get_db]()
     db = next(database)
     item = db.get(Item, "dua")
     item.scoring_min_participants = 2
-    item.scoring_min_responses = 2
+    item.scoring_min_ideas = 2
     db.commit()
     next(database, None)
 
@@ -601,6 +682,7 @@ def test_threshold_backfills_once_and_new_data_does_not_change_final_score(clien
     next(database, None)
 
 
+@pytest.mark.skip(reason="Admin mới chỉ kiểm toán, không thay quyết định code.")
 def test_admin_can_reject_an_uncertain_code(client, monkeypatch):
     monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
     participant_id = create_participant(client)
@@ -628,6 +710,7 @@ def test_admin_can_reject_an_uncertain_code(client, monkeypatch):
     assert detail["mapping"]["ideas"][0]["is_valid"] is False
 
 
+@pytest.mark.skip(reason="Sổ mã append-only không hỗ trợ gộp mã.")
 def test_admin_can_merge_an_uncertain_code_and_resolve_pending(client, monkeypatch):
     participant_id = create_participant(client)
     accepted_response = client.post(
@@ -671,12 +754,13 @@ def test_admin_can_merge_an_uncertain_code_and_resolve_pending(client, monkeypat
     assert client.delete(f"/api/admin/items/dua/codes/{target['id']}").status_code == 409
 
 
+@pytest.mark.skip(reason="Sổ mã append-only không hỗ trợ gộp mã.")
 def test_merge_keeps_final_score_and_mapping_snapshot(client):
     database = app.dependency_overrides[get_db]()
     db = next(database)
     item = db.get(Item, "dua")
     item.scoring_min_participants = 1
-    item.scoring_min_responses = 1
+    item.scoring_min_ideas = 1
     db.commit()
     next(database, None)
 
@@ -724,6 +808,7 @@ def test_merge_keeps_final_score_and_mapping_snapshot(client):
     next(database, None)
 
 
+@pytest.mark.skip(reason="Sổ mã append-only không hỗ trợ gộp mã.")
 def test_merge_requires_an_active_accepted_target(client):
     source_id = str(uuid.uuid4())
     target_id = str(uuid.uuid4())
@@ -763,6 +848,7 @@ def test_merge_requires_an_active_accepted_target(client):
     assert "đang hoạt động và đã được chấp nhận" in response.json()["detail"]
 
 
+@pytest.mark.skip(reason="Mã đã dùng để tính điểm là bất biến.")
 def test_admin_can_delete_one_code_without_deleting_raw_response(client):
     participant_id = create_participant(client)
     submitted = client.post(
@@ -786,6 +872,7 @@ def test_admin_can_delete_one_code_without_deleting_raw_response(client):
     assert detail.json()["scoring_status"] == "PENDING_REVIEW"
 
 
+@pytest.mark.skip(reason="Sổ mã append-only không hỗ trợ xoá toàn bộ mã.")
 def test_delete_all_codes_resets_mapping_but_keeps_responses_eligible_for_remap(client):
     participant_id = create_participant(client)
     first = client.post(

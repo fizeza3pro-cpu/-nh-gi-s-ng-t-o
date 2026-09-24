@@ -6,10 +6,36 @@ services:
     buildCommand: pip install uv && uv sync --no-dev
     startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: GOOGLE_API_KEY
+      - key: LLM_PROVIDER
+        value: groq
+      - key: BYTEPLUS_API_KEY
         sync: false
-      - key: LLM_MODEL
-        value: cohere/north-mini-code:free
+      - key: BYTEPLUS_BASE_URL
+        value: https://ark.ap-southeast.bytepluses.com/api/v3
+      - key: BYTEPLUS_MODEL
+        value: deepseek-v4-flash-260731
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: GROQ_MODEL
+        value: meta-llama/llama-prompt-guard-2-86m
+      - key: GROQ_REASONING_EFFORT
+        value: none
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_MODEL
+        value: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      - key: CLOUDFLARE_MAX_TOKENS
+        value: "8192"
+      - key: CODE_MATCH_REVIEW_THRESHOLD
+        value: "0.10"
+      - key: REFERENCE_CASES_ENABLED
+        value: "true"
+      - key: REFERENCE_CASES_LIMIT
+        value: "2"
       - key: MOCK_MODE
         value: false
       - key: DATABASE_URL

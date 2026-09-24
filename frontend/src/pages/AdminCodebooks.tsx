@@ -1,18 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, BookOpen, FileWarning, Fingerprint, Search, Sparkles } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
-import {
-  ArrowLeft,
-  ArrowRight,
-  BookOpen,
-  Check,
-  CircleX,
-  GitBranch,
-  GitMerge,
-  LockKeyhole,
-  ScanSearch,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -20,641 +8,151 @@ import type {
   AdminCodebookCode,
   AdminCodebookOverview,
   AdminCodebookSummary,
-  AdminCodeOption,
-  AdminCodePatch,
   AdminCuratorAudit,
-  AdminCuratorDecisionIdea,
   AdminExtractionAudit,
+  FunctionalSignature,
 } from "@/lib/types";
 
-type Filter = "ALL" | "ACCEPTED" | "UNCERTAIN" | "REJECTED";
-type LedgerView = "CODEBOOK" | "EXTRACTION" | "CURATOR";
-type CuratorFilter = "ALL" | "MATCH_EXISTING" | "CREATE_NEW" | "INVALID" | "GUARDED";
+const PAGE_SIZE = 30;
+type View = "CODES" | "DECISIONS" | "EXCLUDED";
 
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: "ALL", label: "Tất cả" },
-  { value: "ACCEPTED", label: "Được dùng" },
-  { value: "UNCERTAIN", label: "AI cần đối chiếu" },
-  { value: "REJECTED", label: "Đã loại" },
-];
-
-const CODE_PAGE_SIZE = 20;
-
-const VALIDATION_LABEL = {
-  ACCEPTED: "Hợp lệ",
-  UNCERTAIN: "Chưa chắc",
-  REJECTED: "Đã loại",
-} as const;
-
-const CALIBRATION_LABEL: Record<string, string> = {
-  COLLECTING: "Đang thu thập",
-  CALIBRATING: "Đang mở chấm điểm",
-  ACTIVE: "Đang sử dụng",
-  RECALIBRATING: "Đang cập nhật sổ mã",
-  PAUSED: "Tạm dừng",
-};
-
-const CREATED_BY_LABEL: Record<string, string> = {
-  LLM: "AI tạo",
-  LLM_REDISCOVERED: "AI tìm lại",
-  ADMIN: "Quản trị viên tạo",
-  LEGACY: "Dữ liệu cũ",
-};
-
-const CURATOR_LABEL: Record<AdminCuratorDecisionIdea["decision"], string> = {
-  MATCH_EXISTING: "Khớp mã có sẵn",
-  CREATE_NEW: "Tạo mã mới",
-  INVALID: "AI loại",
-  CURATOR_OBJECT_GUARD: "Hệ thống chặn",
+const decisionLabel: Record<string, string> = {
+  MATCH_EXISTING: "Khớp mã đang có",
+  CREATE_NEW: "Tạo mã trực tiếp",
+  INVALID: "Không hợp lệ",
+  UNCERTAIN: "Chưa đủ căn cứ",
+  OUT_OF_CODEBOOK: "Ngoài sổ mã",
+  POLICY_REJECTED: "Không qua cổng tạo mã",
+  CURATOR_OBJECT_GUARD: "Sai đồ vật",
   MISSING_DECISION: "Thiếu quyết định",
 };
 
-function ScoringReadiness({ summary }: { summary: AdminCodebookSummary }) {
-  const participantProgress = Math.min(
-    100,
-    (summary.qualifying_participant_count / Math.max(summary.scoring_min_participants, 1)) * 100,
-  );
-  const responseProgress = Math.min(
-    100,
-    (summary.qualifying_response_count / Math.max(summary.scoring_min_responses, 1)) * 100,
-  );
+const gateLabel: Record<string, string> = {
+  response_is_valid: "Response hợp lệ",
+  no_existing_code_covers: "Không mã nào bao phủ",
+  functionally_distinct: "Khác biệt chức năng",
+  granularity_consistent: "Cùng mức khái quát",
+  paraphrase_stable: "Ổn định khi diễn đạt lại",
+  counterexample_passed: "Qua phản ví dụ",
+};
 
+function Signature({ value }: { value: FunctionalSignature }) {
+  const entries = [
+    ["Mục đích", value.goal],
+    ["Vai trò", value.object_role],
+    ["Cơ chế", value.mechanism],
+    ["Biến đổi", value.transformation],
+    ["Đối tượng", value.target],
+    ["Bối cảnh", value.context],
+  ].filter(([, text]) => Boolean(text));
+  if (entries.length === 0) return <span className="text-sm text-stone-400">Chưa có chữ ký chức năng</span>;
   return (
-    <div className="border-y border-border bg-muted/20 px-5 py-6">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            Mức sẵn sàng chấm điểm
-          </p>
-          <p className="mt-2 font-serif text-2xl">Cần đồng thời đủ cả hai ngưỡng</p>
+    <dl className="grid gap-x-5 gap-y-2 sm:grid-cols-2">
+      {entries.map(([label, text]) => (
+        <div key={label} className="grid grid-cols-[5rem_1fr] gap-2 text-xs leading-5">
+          <dt className="text-stone-400">{label}</dt><dd className="text-stone-700">{text}</dd>
         </div>
-        <p className="max-w-56 text-right text-xs leading-5 text-muted-foreground">
-          Mỗi response đủ điều kiện sẽ được chấm một lần bằng tần suất tại thời điểm đó.
-        </p>
-      </div>
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        {[
-          ["Người tham gia", summary.qualifying_participant_count, summary.scoring_min_participants, participantProgress],
-          ["Response đủ điều kiện", summary.qualifying_response_count, summary.scoring_min_responses, responseProgress],
-        ].map(([label, current, target, progress]) => (
-          <div key={label}>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-xs text-muted-foreground">{label}</span>
-              <span className="font-mono text-sm">{current} / {target}</span>
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border">
-              <div className="h-full rounded-full bg-foreground" style={{ width: `${progress}%` }} />
-            </div>
+      ))}
+    </dl>
+  );
+}
+
+function CodeCard({ code }: { code: AdminCodebookCode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <article className="border-b border-stone-200 last:border-b-0">
+      <button type="button" onClick={() => setOpen((value) => !value)} className="grid w-full gap-4 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8B5E34]/25 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_7rem_7rem] md:items-center md:px-7">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-serif text-xl text-stone-900">{code.name}</h3>
+            <Badge variant="success">Đang hoạt động</Badge>
           </div>
-        ))}
-      </div>
+          <p className="mt-2 line-clamp-2 text-sm leading-6 text-stone-500">{code.description}</p>
+        </div>
+        <div className="text-xs leading-5 text-stone-500">
+          <p className="text-stone-400">Khóa chức năng</p>
+          <p className="mt-1 break-words font-mono text-[11px] text-stone-700">{code.functional_key || "Chưa chuẩn hóa"}</p>
+        </div>
+        <div className="md:text-right">
+          <p className="text-xs text-stone-400">Ý tưởng</p>
+          <p className="mt-1 font-mono text-lg text-stone-900">{code.idea_count}</p>
+        </div>
+        <div className="md:text-right">
+          <p className="text-xs text-stone-400">Tần suất</p>
+          <p className="mt-1 font-mono text-lg text-stone-900">{(code.frequency * 100).toFixed(1)}%</p>
+        </div>
+      </button>
+      {open && (
+        <div className="mx-4 mb-4 grid gap-6 rounded-lg border border-[#8B5E34]/30 bg-white px-5 py-6 shadow-[0_12px_28px_-24px_rgba(56,39,30,0.65)] md:mx-6 md:grid-cols-2 md:px-6">
+          <div>
+            <p className="mb-3 flex items-center gap-2 text-sm font-medium text-stone-900"><Fingerprint className="h-4 w-4 text-[#8B5E34]" /> Chữ ký chức năng</p>
+            <Signature value={code.functional_signature} />
+            <p className="mt-5 text-xs leading-5 text-stone-500">Căn cứ tạo mã: {code.relevance_reason || "Không có mô tả bổ sung."}</p>
+          </div>
+          <div className="grid gap-4 text-xs leading-5">
+            <RuleList title="Được bao gồm" rows={code.inclusion_rules} tone="text-emerald-700" />
+            <RuleList title="Không bao gồm" rows={code.exclusion_rules} tone="text-rose-700" />
+            <RuleList title="Ví dụ đã dùng" rows={code.positive_examples} tone="text-stone-700" />
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function RuleList({ title, rows, tone }: { title: string; rows: string[]; tone: string }) {
+  return (
+    <div>
+      <p className={`font-medium ${tone}`}>{title}</p>
+      {rows.length ? <ul className="mt-1 space-y-1 text-stone-600">{rows.map((row, index) => <li key={`${row}-${index}`}>• {row}</li>)}</ul> : <p className="mt-1 text-stone-400">Chưa có dữ liệu.</p>}
     </div>
   );
 }
 
-function CodeRow({
-  code,
-  totalContributingIdeas,
-  targets,
-  busy,
-  onSave,
-  onMerge,
-  onDelete,
-}: {
-  code: AdminCodebookCode;
-  totalContributingIdeas: number;
-  targets: AdminCodeOption[];
-  busy: boolean;
-  onSave: (patch: AdminCodePatch) => void;
-  onMerge: (target: string) => void;
-  onDelete: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(code.name);
-  const [description, setDescription] = useState(code.description);
-  const [mergeTarget, setMergeTarget] = useState("");
-
-  const inactive = code.maturity_status === "MERGED";
-  const canMerge =
-    !inactive &&
-    ["ACCEPTED", "UNCERTAIN"].includes(code.validation_status);
+function DecisionEvidence({ reason, value }: { reason: string; value: Record<string, unknown> }) {
+  const rawGates = value.policy_gates;
+  const gates = rawGates && typeof rawGates === "object" && !Array.isArray(rawGates)
+    ? Object.entries(rawGates as Record<string, unknown>)
+    : [];
+  const challengeReason = typeof value.challenge_reason === "string" ? value.challenge_reason : "";
 
   return (
-    <tr className={inactive ? "bg-muted/20 text-muted-foreground" : "bg-card"}>
-      <td className="min-w-0 px-4 py-4 align-top">
-        {editing ? (
-          <div className="min-w-0 space-y-2">
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 font-serif text-base outline-none focus:ring-2 focus:ring-foreground/15"
-            />
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={4}
-              className="max-h-48 min-h-24 w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed outline-none focus:ring-2 focus:ring-foreground/15"
-            />
-            <div className="flex gap-2">
-              <Button size="sm" disabled={busy} onClick={() => onSave({ name, description })}>
-                <Check className="h-3.5 w-3.5" /> Lưu
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Huỷ</Button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            disabled={inactive}
-            title={[code.name, code.description].filter(Boolean).join(" — ")}
-            className="block w-full min-w-0 text-left disabled:cursor-default"
-            onClick={() => setEditing(true)}
-          >
-            <span className="line-clamp-2 break-words font-serif text-base leading-snug text-foreground [overflow-wrap:anywhere]">
-              {code.name}
-            </span>
-            <span className="mt-1 line-clamp-4 break-words text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-              {code.description || "Chưa có mô tả cho mã."}
-            </span>
-            <span className="mt-2 block text-[11px] text-muted-foreground/80">
-              {CREATED_BY_LABEL[code.created_by] ?? "Hệ thống tạo"}
-            </span>
-          </button>
-        )}
-      </td>
-      <td className="px-4 py-4 align-top">
-        <div className="flex flex-wrap gap-1.5">
-          <Badge variant={inactive ? "secondary" : code.validation_status === "ACCEPTED" ? "success" : code.validation_status === "UNCERTAIN" ? "warning" : "secondary"}>
-            {inactive ? "Đã gộp" : VALIDATION_LABEL[code.validation_status]}
-          </Badge>
-          {code.admin_locked && <LockKeyhole className="h-3.5 w-3.5 text-muted-foreground" />}
-        </div>
-        {inactive ? (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Gộp vào <span className="font-medium text-foreground">{code.merged_into_name || "mã đích"}</span>
-          </p>
-        ) : (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Độ tin cậy <span className="font-mono text-foreground">{(code.confidence * 100).toFixed(0)}%</span>
-          </p>
-        )}
-      </td>
-      <td className="px-4 py-4 align-top text-right tabular-nums">
-        {code.validation_status === "ACCEPTED" && !inactive ? (
-          <div className="ml-auto w-40">
-            <div className="flex items-baseline justify-end gap-1.5">
-              <span className="font-serif text-2xl text-foreground">{code.contributing_idea_count}</span>
-              <span className="text-xs text-muted-foreground">/ {totalContributingIdeas} ý</span>
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-[#8B5E34]"
-                style={{ width: `${Math.min(code.frequency * 100, 100)}%` }}
-              />
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              <span className="font-mono text-foreground">{(code.frequency * 100).toFixed(1)}%</span>
-              {" · "}{code.contributing_participant_count} người
-            </p>
-          </div>
-        ) : (
-          <div>
-            <p className="font-serif text-xl text-foreground">{code.idea_count} ý liên quan</p>
-            <p className="mt-1 text-xs text-muted-foreground">Không dùng để tính điểm</p>
-          </div>
-        )}
-      </td>
-      <td
-        title={code.rejection_reason || code.relevance_reason || undefined}
-        className="min-w-0 px-4 py-4 align-top text-xs leading-relaxed text-muted-foreground"
-      >
-        <p className="line-clamp-5 break-words [overflow-wrap:anywhere]">
-          {code.rejection_reason || code.relevance_reason || "—"}
-        </p>
-      </td>
-      <td className="px-4 py-4 align-top">
-        <div className="flex min-w-44 flex-col gap-2">
-          {code.validation_status === "UNCERTAIN" && !inactive ? (
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() => onSave({ validation_status: "ACCEPTED", admin_locked: true })}
+    <div>
+      <p className="text-xs leading-5 text-stone-600">{reason}</p>
+      {gates.length > 0 && (
+        <div className="mt-3 flex max-w-sm flex-wrap gap-1.5">
+          {gates.map(([gate, passed]) => (
+            <span
+              key={gate}
+              className={`rounded-md border px-2 py-1 text-[10px] leading-4 ${passed ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}
             >
-              <Check className="h-3.5 w-3.5" /> Chấp nhận mã
-            </Button>
-          ) : null}
-          {canMerge && targets.length > 0 && (
-            <div className="flex gap-1">
-              <select
-                value={mergeTarget}
-                onChange={(event) => setMergeTarget(event.target.value)}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
-              >
-                <option value="">Gộp vào…</option>
-                {targets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
-              </select>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={!mergeTarget || busy}
-                onClick={() => {
-                  const target = targets.find((entry) => entry.id === mergeTarget);
-                  if (!target) return;
-                  const confirmed = window.confirm(
-                    `Gộp “${code.name}” vào “${target.name}”?\n\n${code.idea_count} ý thuộc ${code.response_count} response sẽ chuyển sang mã đích. Điểm FINAL đã chốt không thay đổi.`,
-                  );
-                  if (confirmed) onMerge(mergeTarget);
-                }}
-              >
-                <GitMerge className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          )}
-          {code.validation_status === "UNCERTAIN" && !inactive && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              disabled={busy}
-              onClick={() => {
-                const confirmed = window.confirm(
-                  `Loại mã “${code.name}”? Các ý đang gắn mã này sẽ được đánh dấu không hợp lệ.`,
-                );
-                if (confirmed) {
-                  onSave({ validation_status: "REJECTED", admin_locked: true });
-                }
-              }}
-            >
-              <CircleX className="h-3.5 w-3.5" /> Loại mã
-            </Button>
-          )}
-          {!inactive && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-              disabled={busy}
-              onClick={onDelete}
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Xoá mã
-            </Button>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function PipelineLedgerNav({
-  value,
-  onChange,
-  summary,
-  extractionAudit,
-  curatorAudit,
-}: {
-  value: LedgerView;
-  onChange: (value: LedgerView) => void;
-  summary: AdminCodebookSummary;
-  extractionAudit: AdminExtractionAudit | null;
-  curatorAudit: AdminCuratorAudit | null;
-}) {
-  const entries = [
-    {
-      value: "CODEBOOK" as const,
-      label: "Sổ mã đã tạo",
-      detail: `${summary.codes.length} mã`,
-      icon: BookOpen,
-    },
-    {
-      value: "EXTRACTION" as const,
-      label: "Bước tách ý",
-      detail: `${extractionAudit?.total_count ?? 0} ý bị loại`,
-      icon: CircleX,
-    },
-    {
-      value: "CURATOR" as const,
-      label: "Bước đối chiếu mã",
-      detail: `${curatorAudit?.total_count ?? 0} quyết định`,
-      icon: GitBranch,
-    },
-  ];
-
-  return (
-    <nav aria-label="Các bước kiểm tra sổ mã" className="mt-7 grid overflow-hidden rounded-xl border border-border bg-card md:grid-cols-3">
-      {entries.map((entry, index) => {
-        const Icon = entry.icon;
-        const active = value === entry.value;
-        return (
-          <button
-            key={entry.value}
-            type="button"
-            onClick={() => onChange(entry.value)}
-            aria-current={active ? "page" : undefined}
-            className={`group flex items-center gap-3 px-5 py-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground/20 ${index > 0 ? "border-t border-border md:border-l md:border-t-0" : ""} ${active ? "bg-[#513827] text-white" : "hover:bg-muted/30"}`}
-          >
-            <Icon className={`h-4 w-4 shrink-0 ${active ? "text-white" : "text-muted-foreground"}`} />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium">{entry.label}</span>
-              <span className={`mt-0.5 block text-xs ${active ? "text-white/70" : "text-muted-foreground"}`}>
-                {entry.detail}
-              </span>
+              {passed ? "✓" : "×"} {gateLabel[gate] ?? gate}
             </span>
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
-
-function ExtractionLedger({
-  audit,
-  onOpenResponse,
-}: {
-  audit: AdminExtractionAudit | null;
-  onOpenResponse: (responseId: string) => void;
-}) {
-  return (
-    <section className="mt-7">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
-        <div>
-          <h2 className="font-serif text-2xl">Ý bị loại trước khi tạo mã</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-            Bước tách ý sàng lọc nội dung không hợp lệ hoặc trùng lặp trước khi đối chiếu mã.
-          </p>
+          ))}
         </div>
-        <div className="flex overflow-hidden rounded-lg border border-border bg-card text-sm">
-          <div className="border-r border-border px-4 py-2.5">
-            <span className="font-mono text-rose-800">{audit?.invalid_count ?? 0}</span>
-            <span className="ml-2 text-muted-foreground">không hợp lệ</span>
-          </div>
-          <div className="px-4 py-2.5">
-            <span className="font-mono">{audit?.duplicate_count ?? 0}</span>
-            <span className="ml-2 text-muted-foreground">trùng lặp</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 overflow-x-auto rounded-xl border border-border">
-        <table className="w-full min-w-[1050px] text-sm">
-          <thead className="border-b border-border bg-muted/40 text-left text-[10px] uppercase tracking-[0.13em] text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3 font-medium">Ý người tham gia</th>
-              <th className="px-4 py-3 font-medium">Kết quả tách ý</th>
-              <th className="px-4 py-3 font-medium">Lý do</th>
-              <th className="px-4 py-3 font-medium">Nguồn</th>
-              <th className="px-4 py-3 font-medium">Thời gian</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {audit?.ideas.map((idea) => (
-              <tr key={idea.idea_id} className="bg-card align-top">
-                <td className="max-w-md px-4 py-4">
-                  <p className="font-serif text-base text-foreground">{idea.original}</p>
-                  {idea.normalized && idea.normalized !== idea.original && (
-                    <p className="mt-1.5 text-xs text-muted-foreground">Chuẩn hoá: {idea.normalized}</p>
-                  )}
-                </td>
-                <td className="px-4 py-4">
-                  <Badge variant={idea.status === "INVALID" ? "destructive" : "secondary"}>
-                    {idea.status === "INVALID" ? "Không hợp lệ" : "Trùng lặp"}
-                  </Badge>
-                </td>
-                <td className="max-w-sm px-4 py-4 text-xs leading-relaxed text-muted-foreground">
-                  {idea.reason || "AI không cung cấp lý do."}
-                </td>
-                <td className="px-4 py-4 text-xs text-muted-foreground">
-                  <button
-                    type="button"
-                    onClick={() => onOpenResponse(idea.response_id)}
-                    className="inline-flex items-center gap-1 text-[#8B5E34] hover:text-foreground"
-                  >
-                    Xem lượt trả lời <ArrowRight className="h-3 w-3" />
-                  </button>
-                </td>
-                <td className="whitespace-nowrap px-4 py-4 font-mono text-[11px] text-muted-foreground">
-                  {new Date(idea.created_at).toLocaleString("vi-VN")}
-                </td>
-              </tr>
-            ))}
-            {(!audit || audit.ideas.length === 0) && (
-              <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                  Chưa có ý nào bị bước tách ý loại ở đồ vật này.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {audit && audit.displayed_count < audit.total_count && (
-        <p className="mt-3 text-right text-xs text-muted-foreground">
-          Đang hiển thị {audit.displayed_count}/{audit.total_count} bản ghi mới nhất.
-        </p>
       )}
-    </section>
+      {challengeReason && <p className="mt-3 border-l-2 border-[#8B5E34] pl-3 text-[11px] leading-5 text-stone-500">Phản biện: {challengeReason}</p>}
+    </div>
   );
 }
 
-function CuratorLedger({
-  audit,
-  onOpenResponse,
-}: {
-  audit: AdminCuratorAudit | null;
-  onOpenResponse: (responseId: string) => void;
-}) {
-  const [filter, setFilter] = useState<CuratorFilter>("ALL");
-  const visibleDecisions = useMemo(() => {
-    if (!audit) return [];
-    if (filter === "ALL") return audit.decisions;
-    if (filter === "GUARDED") {
-      return audit.decisions.filter((entry) =>
-        ["CURATOR_OBJECT_GUARD", "MISSING_DECISION"].includes(entry.decision),
-      );
-    }
-    return audit.decisions.filter((entry) => entry.decision === filter);
-  }, [audit, filter]);
-  const filters: { value: CuratorFilter; label: string; count: number }[] = [
-    { value: "ALL", label: "Tất cả", count: audit?.total_count ?? 0 },
-    { value: "MATCH_EXISTING", label: "Khớp mã có sẵn", count: audit?.match_existing_count ?? 0 },
-    { value: "CREATE_NEW", label: "Tạo mã mới", count: audit?.create_new_count ?? 0 },
-    { value: "INVALID", label: "AI loại", count: audit?.invalid_count ?? 0 },
-    { value: "GUARDED", label: "Hệ thống chặn", count: audit?.guarded_count ?? 0 },
-  ];
-
-  const badgeVariant = (decision: AdminCuratorDecisionIdea["decision"]) => {
-    if (decision === "MATCH_EXISTING") return "success" as const;
-    if (decision === "CREATE_NEW") return "warning" as const;
-    if (decision === "INVALID" || decision === "CURATOR_OBJECT_GUARD") return "destructive" as const;
-    return "secondary" as const;
-  };
-
+function Picker({ items, onSelect }: { items: AdminCodebookOverview[]; onSelect: (id: string) => void }) {
   return (
-    <section className="mt-7">
-      <div className="border-b border-border pb-5">
-        <h2 className="font-serif text-2xl">Quyết định đối chiếu mã</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-          Mỗi dòng cho biết AI đã khớp vào mã có sẵn, tạo mã mới hay loại ý tưởng.
-        </p>
-      </div>
-      <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Lọc quyết định đối chiếu mã">
-        {filters.map((entry) => (
-          <button
-            key={entry.value}
-            type="button"
-            onClick={() => setFilter(entry.value)}
-            className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${filter === entry.value ? "border-[#513827] bg-[#513827] text-white" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}
-          >
-            {entry.label} <span className="ml-1 font-mono">{entry.count}</span>
+    <div className="mx-auto max-w-6xl px-5 py-10">
+      <header className="border-b border-stone-300 pb-8">
+        <p className="flex items-center gap-2 text-sm text-[#8B5E34]"><BookOpen className="h-4 w-4" /> Sổ mã chức năng</p>
+        <h1 className="mt-3 max-w-3xl font-serif text-4xl leading-tight text-stone-900">Theo dõi cách AI hình thành category cho từng đồ vật</h1>
+        <p className="mt-4 max-w-2xl text-sm leading-6 text-stone-500">Mã mới được kiểm tra và kích hoạt ngay khi người tham gia gửi bài. Trang này chỉ hiển thị căn cứ, không thay đổi các điểm đã tính.</p>
+      </header>
+      <div className="mt-8 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
+        {items.map((item) => (
+          <button key={item.item_id} type="button" onClick={() => onSelect(item.item_id)} className="grid w-full gap-3 border-b border-stone-200 px-5 py-5 text-left last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8B5E34]/25 md:grid-cols-[minmax(0,1fr)_8rem_8rem_2rem] md:items-center">
+            <div><p className="font-serif text-xl text-stone-900">{item.item_name}</p><p className="mt-1 text-xs text-stone-400">{item.qualifying_response_count} lượt trả lời · {item.contributing_idea_count} ý đã mã hóa</p></div>
+            <div><p className="text-xs text-stone-400">Mã hoạt động</p><p className="mt-1 font-mono text-lg text-stone-800">{item.accepted_code_count}</p></div>
+            <div><p className="text-xs text-stone-400">Bị loại/trùng</p><p className="mt-1 font-mono text-lg text-stone-800">{item.extraction_invalid_count + item.extraction_duplicate_count}</p></div>
+            <ArrowRight className="hidden h-4 w-4 text-[#8B5E34] md:block" />
           </button>
         ))}
-      </div>
-
-      <div className="mt-4 overflow-x-auto rounded-xl border border-border">
-        <table className="w-full min-w-[1180px] text-sm">
-          <thead className="border-b border-border bg-muted/40 text-left text-[10px] uppercase tracking-[0.13em] text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3 font-medium">Ý đã phân loại</th>
-              <th className="px-4 py-3 font-medium">Quyết định</th>
-              <th className="px-4 py-3 font-medium">Mã được gán</th>
-              <th className="px-4 py-3 font-medium">Độ tin cậy</th>
-              <th className="px-4 py-3 font-medium">Lý do</th>
-              <th className="px-4 py-3 font-medium">Nguồn</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {visibleDecisions.map((entry) => (
-              <tr key={entry.idea_id} className="bg-card align-top">
-                <td className="max-w-sm px-4 py-4">
-                  <p className="font-serif text-base text-foreground">{entry.original}</p>
-                  {entry.normalized && entry.normalized !== entry.original && (
-                    <p className="mt-1.5 text-xs text-muted-foreground">Chuẩn hoá: {entry.normalized}</p>
-                  )}
-                </td>
-                <td className="px-4 py-4">
-                  <Badge variant={badgeVariant(entry.decision)}>{CURATOR_LABEL[entry.decision]}</Badge>
-                </td>
-                <td className="max-w-xs px-4 py-4">
-                  {entry.code_name ? (
-                    <p className="font-medium text-foreground">{entry.code_name}</p>
-                  ) : (
-                    <span className="text-muted-foreground">Không gắn mã</span>
-                  )}
-                </td>
-                <td className="px-4 py-4 font-mono text-xs tabular-nums">
-                  {(entry.confidence * 100).toFixed(0)}%
-                </td>
-                <td className="max-w-sm px-4 py-4 text-xs leading-relaxed text-muted-foreground">
-                  {entry.reason || "AI không cung cấp lý do."}
-                </td>
-                <td className="px-4 py-4 text-xs text-muted-foreground">
-                  <button
-                    type="button"
-                    onClick={() => onOpenResponse(entry.response_id)}
-                    className="inline-flex items-center gap-1 text-[#8B5E34] hover:text-foreground"
-                  >
-                    Xem lượt trả lời <ArrowRight className="h-3 w-3" />
-                  </button>
-                  <p className="mt-2">{new Date(entry.created_at).toLocaleString("vi-VN")}</p>
-                </td>
-              </tr>
-            ))}
-            {visibleDecisions.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                  Chưa có quyết định đối chiếu trong nhóm này.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {audit && audit.displayed_count < audit.total_count && (
-        <p className="mt-3 text-right text-xs text-muted-foreground">
-          Đang hiển thị {audit.displayed_count}/{audit.total_count} quyết định mới nhất.
-        </p>
-      )}
-    </section>
-  );
-}
-
-function CodebookPicker({
-  items,
-  onSelect,
-}: {
-  items: AdminCodebookOverview[];
-  onSelect: (itemId: string) => void;
-}) {
-  return (
-    <div className="mx-auto max-w-6xl px-5 py-10 animate-fade-in-up">
-      <header className="grid gap-6 border-b border-border pb-8 md:grid-cols-[1fr_18rem] md:items-end">
-        <div>
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <BookOpen className="h-4 w-4" /> Danh sách sổ mã
-          </p>
-          <h1 className="mt-3 max-w-3xl font-serif text-4xl leading-tight">
-            Chọn đồ vật cần kiểm tra sổ mã
-          </h1>
-        </div>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Mỗi đồ vật có dữ liệu đóng góp, hệ thống mã và lịch sử thay đổi riêng.
-        </p>
-      </header>
-
-      <div className="mt-8 overflow-hidden rounded-xl border border-border bg-card">
-        <div className="hidden grid-cols-[minmax(0,1fr)_9rem_12rem_7rem_9rem_2rem] gap-5 border-b border-border bg-muted/35 px-5 py-3 text-xs text-muted-foreground md:grid">
-          <span>Đồ vật</span>
-          <span>Trạng thái</span>
-          <span>Điều kiện chấm điểm</span>
-          <span className="text-right">Mã đang dùng</span>
-          <span className="text-right">Ý bị loại</span>
-          <span />
-        </div>
-        <div className="divide-y divide-border">
-          {items.map((item) => {
-            const participantProgress = item.qualifying_participant_count / Math.max(item.scoring_min_participants, 1);
-            const responseProgress = item.qualifying_response_count / Math.max(item.scoring_min_responses, 1);
-            const progress = Math.min(100, Math.min(participantProgress, responseProgress) * 100);
-            return (
-              <button
-                key={item.item_id}
-                type="button"
-                onClick={() => onSelect(item.item_id)}
-                className="grid w-full gap-4 px-5 py-5 text-left transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground/20 md:grid-cols-[minmax(0,1fr)_9rem_12rem_7rem_9rem_2rem] md:items-center md:gap-5"
-              >
-                <div>
-                  <p className="font-serif text-xl text-foreground">{item.item_name}</p>
-                </div>
-                <Badge
-                  variant={item.calibration_status === "ACTIVE" ? "success" : "secondary"}
-                  className="w-fit"
-                >
-                  {CALIBRATION_LABEL[item.calibration_status] ?? item.calibration_status}
-                </Badge>
-                <div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full bg-foreground" style={{ width: `${progress}%` }} />
-                  </div>
-                  <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-                    {item.qualifying_participant_count}/{item.scoring_min_participants} người · {item.qualifying_response_count}/{item.scoring_min_responses} response
-                  </p>
-                </div>
-                <p className="font-mono text-lg text-foreground md:text-right">
-                  {item.accepted_code_count}
-                </p>
-                <div className="font-mono text-xs md:text-right">
-                  <p className="text-rose-700">{item.extraction_invalid_count} không hợp lệ</p>
-                  <p className="mt-1 text-stone-500">{item.extraction_duplicate_count} trùng</p>
-                </div>
-                <ArrowRight className="hidden h-4 w-4 text-muted-foreground md:block" />
-              </button>
-            );
-          })}
-          {items.length === 0 && (
-            <p className="px-5 py-16 text-center font-serif text-xl text-muted-foreground">
-              Chưa có đồ vật nào trong hệ thống.
-            </p>
-          )}
-        </div>
       </div>
     </div>
   );
@@ -665,331 +163,112 @@ export default function AdminCodebooks() {
   const navigate = useNavigate();
   const [items, setItems] = useState<AdminCodebookOverview[]>([]);
   const [summary, setSummary] = useState<AdminCodebookSummary | null>(null);
-  const [mergeTargets, setMergeTargets] = useState<AdminCodeOption[]>([]);
-  const [extractionAudit, setExtractionAudit] = useState<AdminExtractionAudit | null>(null);
-  const [curatorAudit, setCuratorAudit] = useState<AdminCuratorAudit | null>(null);
-  const [ledgerView, setLedgerView] = useState<LedgerView>("CODEBOOK");
-  const [filter, setFilter] = useState<Filter>("ALL");
+  const [audit, setAudit] = useState<AdminCuratorAudit | null>(null);
+  const [excluded, setExcluded] = useState<AdminExtractionAudit | null>(null);
+  const [view, setView] = useState<View>("CODES");
   const [page, setPage] = useState(1);
-  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setSummary(null);
-    setMergeTargets([]);
-    setExtractionAudit(null);
-    setCuratorAudit(null);
-    setLedgerView("CODEBOOK");
-    setError(null);
+    setLoading(true); setError(null);
+    const requests = [api.adminListCodebooks()] as const;
     Promise.all([
-      api.adminListCodebooks(),
-      itemId ? api.adminExtractionAudit(itemId) : Promise.resolve(null),
+      ...requests,
+      itemId ? api.adminCodebook(itemId, page, PAGE_SIZE, "ACCEPTED") : Promise.resolve(null),
       itemId ? api.adminCuratorAudit(itemId) : Promise.resolve(null),
-      itemId ? api.adminCodeOptions(itemId) : Promise.resolve([]),
-    ]).then(([data, extraction, curator, options]) => {
-      setItems(data);
-      setExtractionAudit(extraction);
-      setCuratorAudit(curator);
-      setMergeTargets(options);
-    }).catch((err: Error) => setError(err.message)).finally(() => {
-      if (!itemId) setLoading(false);
-    });
-  }, [itemId]);
+      itemId ? api.adminExtractionAudit(itemId) : Promise.resolve(null),
+    ]).then(([allItems, codebook, curator, extraction]) => {
+      setItems(allItems); setSummary(codebook); setAudit(curator); setExcluded(extraction);
+    }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false));
+  }, [itemId, page]);
 
-  useEffect(() => {
-    if (!itemId) return;
-    setLoading(true);
-    setError(null);
-    api.adminCodebook(itemId, page, CODE_PAGE_SIZE, filter)
-      .then((next) => {
-        setSummary(next);
-        if (next.code_page !== page) setPage(next.code_page);
-      })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [filter, itemId, page]);
+  const visibleCodes = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase("vi");
+    if (!normalized) return summary?.codes ?? [];
+    return (summary?.codes ?? []).filter((code) => `${code.name} ${code.description} ${code.functional_key}`.toLocaleLowerCase("vi").includes(normalized));
+  }, [query, summary]);
 
-  const visibleCodes = summary?.codes ?? [];
+  if (loading) return <div className="p-10 text-sm text-stone-500">Đang đọc sổ mã…</div>;
+  if (error) return <div className="p-10 text-sm text-red-700">{error}</div>;
+  if (!itemId) return <Picker items={items} onSelect={(id) => navigate(`/admin/codebooks/${id}`)} />;
+  if (!summary) return <div className="p-10 text-sm text-stone-500">Không tìm thấy sổ mã.</div>;
 
-  const apply = async (
-    operation: () => Promise<AdminCodebookSummary>,
-    successMessage = "Đã cập nhật sổ mã.",
-  ) => {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const updated = await operation();
-      const [next, options, extraction, curator] = await Promise.all([
-        api.adminCodebook(updated.item_id, page, CODE_PAGE_SIZE, filter),
-        api.adminCodeOptions(updated.item_id),
-        api.adminExtractionAudit(updated.item_id),
-        api.adminCuratorAudit(updated.item_id),
-      ]);
-      setSummary(next);
-      setPage(next.code_page);
-      setMergeTargets(options);
-      setItems((current) => current.map((item) => item.item_id === next.item_id ? next : item));
-      setExtractionAudit(extraction);
-      setCuratorAudit(curator);
-      setNotice(successMessage);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Không thể cập nhật sổ mã.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remapAllResponses = async () => {
-    if (!summary) return;
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.adminRemapItem(summary.item_id);
-      const [nextSummary, options, nextExtraction, nextCurator] = await Promise.all([
-        api.adminCodebook(summary.item_id, page, CODE_PAGE_SIZE, filter),
-        api.adminCodeOptions(summary.item_id),
-        api.adminExtractionAudit(summary.item_id),
-        api.adminCuratorAudit(summary.item_id),
-      ]);
-      setSummary(nextSummary);
-      setPage(nextSummary.code_page);
-      setMergeTargets(options);
-      setExtractionAudit(nextExtraction);
-      setCuratorAudit(nextCurator);
-      setItems((current) =>
-        current.map((item) =>
-          item.item_id === nextSummary.item_id ? nextSummary : item,
-        ),
-      );
-      setNotice(`Đã phân loại lại ${result.processed} lượt trả lời.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Không thể phân loại lại dữ liệu.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="p-8 text-sm text-muted-foreground">Đang tải sổ mã…</div>;
-  }
-
-  if (!itemId) {
-    return (
-      <CodebookPicker
-        items={items}
-        onSelect={(id) => {
-          setFilter("ALL");
-          setPage(1);
-          navigate(`/admin/codebooks/${id}`);
-        }}
-      />
-    );
-  }
-
-  if (!summary) {
-    return <div className="p-8 text-sm text-destructive">{error || "Không tìm thấy sổ mã."}</div>;
-  }
+  const tabs: Array<[View, string, number]> = [
+    ["CODES", "Mã đang hoạt động", summary.accepted_code_count],
+    ["DECISIONS", "Nhật ký phân xử", audit?.total_count ?? 0],
+    ["EXCLUDED", "Ý bị loại", excluded?.total_count ?? 0],
+  ];
 
   return (
-    <div className="mx-auto max-w-[1500px] px-5 py-8 animate-fade-in-up">
-      <header className="flex flex-wrap items-end justify-between gap-5">
-        <div>
-          <p className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            <Sparkles className="h-3.5 w-3.5" /> Sổ mã động · AI tự vận hành
-          </p>
-          <h1 className="mt-2 font-serif text-3xl">Sổ mã của {summary.item_name}</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Mã hợp lệ được dùng tự động. Quản trị viên chỉ cần xử lý các trường hợp ngoại lệ.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => navigate("/admin/codebooks")}>
-            <ArrowLeft className="h-4 w-4" /> Chọn đồ vật khác
-          </Button>
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => {
-              const confirmed = window.confirm(
-                `Xây dựng lại toàn bộ dữ liệu của “${summary.item_name}” từ response gốc? Hệ thống sẽ chạy lại bước tách ý, đối chiếu mã và chấm các lượt đủ điều kiện.`,
-              );
-              if (confirmed) void remapAllResponses();
-            }}
-          >
-            <ScanSearch className={`h-4 w-4 ${busy ? "animate-pulse" : ""}`} /> Xây dựng lại từ response gốc
-          </Button>
-          <Button
-            variant="outline"
-            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            disabled={busy}
-            onClick={() => {
-              const confirmed = window.confirm(
-                `Xoá toàn bộ mã của “${summary.item_name}”? Response gốc vẫn được giữ; mapping và điểm sẽ được đặt lại để có thể xây dựng lại.`,
-              );
-              if (confirmed) void apply(() => api.adminDeleteAllCodes(summary.item_id));
-            }}
-          >
-            <Trash2 className="h-4 w-4" /> Xoá toàn bộ mã
-          </Button>
+    <div className="min-h-[calc(100vh-4rem)] animate-fade-in bg-[#F7F4EF]">
+      <header className="border-b border-stone-200 bg-white px-5 py-7 md:px-8">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/admin/codebooks")} className="-ml-3 text-stone-500 hover:bg-[#8B5E34]/[0.07] hover:text-stone-900"><ArrowLeft className="h-4 w-4" /> Các đồ vật</Button>
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
+          <div><p className="flex items-center gap-2 text-sm text-[#8B5E34]"><Sparkles className="h-4 w-4" /> AI tạo mã và tính điểm trực tiếp</p><h1 className="mt-2 font-serif text-4xl text-stone-900">{summary.item_name}</h1></div>
+          <div className="flex gap-8"><Stat label="Mã hoạt động" value={summary.accepted_code_count} /><Stat label="Ý đã mã hóa" value={summary.contributing_idea_count} /><Stat label="Lượt gửi" value={summary.qualifying_response_count} /></div>
         </div>
       </header>
 
-      {error && <p className="mt-5 border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</p>}
-      {notice && <p className="mt-5 border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{notice}</p>}
+      <div className="px-5 py-7 md:px-8">
+        <div className="flex flex-wrap gap-1 border-b border-stone-300">
+          {tabs.map(([value, label, count]) => <button key={value} type="button" onClick={() => setView(value)} className={`rounded-t-md border-b-2 px-4 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B5E34]/25 ${view === value ? "border-[#8B5E34] bg-[#8B5E34]/[0.06] text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800"}`}>{label} <span className="ml-2 font-mono text-xs">{count}</span></button>)}
+        </div>
 
-      <div className="mt-7 overflow-hidden rounded-xl border border-border bg-card">
-        <div className="grid divide-y divide-border md:grid-cols-[1fr_auto] md:divide-x md:divide-y-0">
-          <ScoringReadiness summary={summary} />
-          <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3 md:w-[34rem]">
-            {[
-              ["Trạng thái", CALIBRATION_LABEL[summary.calibration_status] ?? summary.calibration_status],
-              ["Mã đang dùng", summary.accepted_code_count],
-              ["Ý cần đối chiếu", summary.pending_idea_count],
-              ["Ý bị loại", summary.extraction_invalid_count],
-              ["Ý trùng lặp", summary.extraction_duplicate_count],
-            ].map(([label, value]) => (
-              <div key={label} className="bg-card p-4">
-                <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
-                <p className="mt-2 font-mono text-sm">{value}</p>
-              </div>
-            ))}
+        {view === "CODES" && <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200 bg-[#FFFEFC] px-5 py-4 md:px-7">
+            <div><h2 className="font-serif text-2xl text-stone-900">Category chức năng</h2><p className="mt-1 text-xs text-stone-500">Mở từng mã để xem goal, role, mechanism và ranh giới áp dụng.</p></div>
+            <label className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-stone-200 bg-[#FBF8F4] px-3 py-2 shadow-inner transition-colors focus-within:border-[#8B5E34]/45 focus-within:ring-2 focus-within:ring-[#8B5E34]/10"><Search className="h-4 w-4 text-stone-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, định nghĩa hoặc functional key" className="w-full bg-transparent text-sm text-stone-800 outline-none placeholder:text-stone-400" /></label>
           </div>
-        </div>
+          {visibleCodes.map((code) => <CodeCard key={code.id} code={code} />)}
+          {visibleCodes.length === 0 && <p className="px-6 py-14 text-center text-sm text-stone-500">Không có mã phù hợp.</p>}
+          {summary.code_page_count > 1 && <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-[#FFFEFC] px-5 py-4"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Trang trước</Button><span className="font-mono text-xs text-stone-500">{page}/{summary.code_page_count}</span><Button size="sm" variant="outline" disabled={page >= summary.code_page_count} onClick={() => setPage((value) => value + 1)}>Trang sau</Button></div>}
+        </section>}
+
+        {view === "DECISIONS" && (
+          <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
+            <div className="border-b border-stone-200 bg-[#FFFEFC] px-5 py-5 md:px-7">
+              <h2 className="font-serif text-2xl text-stone-900">Nhật ký phân xử</h2>
+              <p className="mt-1 text-sm text-stone-500">Mỗi quyết định giữ lại response gốc, chữ ký chức năng và bằng chứng tại thời điểm chấm.</p>
+            </div>
+            <div className="divide-y divide-stone-200">
+              {audit?.decisions.map((decision) => (
+                <article key={decision.idea_id} className="px-5 py-6 md:px-7">
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1.6fr)_auto_minmax(0,1fr)] md:items-start">
+                    <div>
+                      <p className="text-base font-medium leading-6 text-stone-900">{decision.original}</p>
+                      <p className="mt-1 text-xs leading-5 text-stone-400">{decision.normalized}</p>
+                    </div>
+                    <Badge variant={decision.decision === "CREATE_NEW" ? "success" : decision.decision === "MATCH_EXISTING" ? "outline" : decision.decision === "INVALID" ? "destructive" : "warning"}>{decisionLabel[decision.decision] ?? decision.decision}</Badge>
+                    <div className="md:text-right">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-stone-400">Category</p>
+                      <p className="mt-1 font-mono text-xs text-stone-700">{decision.code_name ?? "Chưa gán mã"}</p>
+                    </div>
+                  </div>
+                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-lg border border-stone-200 bg-[#FBF8F4] p-4">
+                      <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-stone-400">Functional signature</p>
+                      <Signature value={decision.functional_signature} />
+                    </div>
+                    <div className="rounded-lg border border-stone-200 bg-white p-4">
+                      <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-stone-400">Căn cứ quyết định</p>
+                      <DecisionEvidence reason={decision.reason} value={decision.mapping_evidence} />
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {!audit?.decisions.length && <p className="px-5 py-14 text-center text-sm text-stone-500">Chưa có quyết định phân xử.</p>}
+            </div>
+          </section>
+        )}
+
+        {view === "EXCLUDED" && <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]"><div className="border-b border-stone-200 bg-[#FFFEFC] px-6 py-5"><p className="flex items-center gap-2 font-serif text-2xl text-stone-900"><FileWarning className="h-5 w-5 text-rose-600" /> Response không được mã hóa</p><p className="mt-1 text-sm text-stone-500">Giữ nguyên dữ liệu gốc cùng lý do loại hoặc trùng.</p></div><div className="divide-y divide-stone-200">{excluded?.ideas.map((idea) => <div key={idea.idea_id} className="grid gap-3 px-6 py-4 md:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)]"><Badge variant={idea.status === "DUPLICATE" ? "secondary" : "destructive"}>{idea.status === "DUPLICATE" ? "Trùng ý" : "Không hợp lệ"}</Badge><div><p className="text-sm text-stone-900">{idea.original}</p><p className="mt-1 text-xs text-stone-400">{idea.normalized}</p></div><p className="text-xs leading-5 text-stone-500">{idea.reason}</p></div>)}</div></section>}
       </div>
-
-      <PipelineLedgerNav
-        value={ledgerView}
-        onChange={setLedgerView}
-        summary={summary}
-        extractionAudit={extractionAudit}
-        curatorAudit={curatorAudit}
-      />
-
-      {ledgerView === "CODEBOOK" && <>
-      <div className="mt-7 flex flex-wrap gap-1 border-b border-border">
-        {FILTERS.map((entry) => (
-          <button
-            key={entry.value}
-            type="button"
-            onClick={() => {
-              setPage(1);
-              setFilter(entry.value);
-            }}
-            className={`border-b-2 px-3 py-2 text-xs font-medium transition-colors ${filter === entry.value ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-4 overflow-x-auto rounded-xl border border-border">
-        <table className="w-full min-w-[1180px] table-fixed text-sm">
-          <colgroup>
-            <col className="w-[31%]" />
-            <col className="w-[13%]" />
-            <col className="w-[15%]" />
-            <col className="w-[19%]" />
-            <col className="w-[22%]" />
-          </colgroup>
-          <thead className="border-b border-border bg-muted/40 text-left text-[10px] uppercase tracking-[0.13em] text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3 font-medium">Mã và mô tả</th>
-              <th className="px-4 py-3 font-medium">Phân loại</th>
-              <th className="px-4 py-3 text-right font-medium">Tần suất</th>
-              <th className="px-4 py-3 font-medium">Lý do của AI</th>
-              <th className="px-4 py-3 font-medium">Điều chỉnh</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {visibleCodes.map((code) => (
-              <CodeRow
-                key={code.id}
-                code={code}
-                totalContributingIdeas={summary.contributing_idea_count}
-                targets={mergeTargets.filter((target) => target.id !== code.id)}
-                busy={busy}
-                onSave={(patch) => apply(
-                  () => api.adminUpdateCode(summary.item_id, code.id, patch),
-                  patch.validation_status === "ACCEPTED"
-                    ? `Đã chấp nhận mã “${code.name}”.`
-                    : patch.validation_status === "REJECTED"
-                      ? `Đã loại mã “${code.name}”.`
-                      : `Đã lưu thay đổi cho mã “${code.name}”.`,
-                )}
-                onMerge={(target) => apply(
-                  () => api.adminMergeCode(summary.item_id, code.id, target),
-                  `Đã gộp mã “${code.name}”.`,
-                )}
-                onDelete={() => {
-                  const confirmed = window.confirm(
-                    `Xoá mã “${code.name}”? Các câu trả lời đang dùng mã này sẽ chuyển sang chờ phân loại lại.`,
-                  );
-                  if (confirmed) {
-                    void apply(
-                      () => api.adminDeleteCode(summary.item_id, code.id),
-                      `Đã xoá mã “${code.name}”.`,
-                    );
-                  }
-                }}
-              />
-            ))}
-            {visibleCodes.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-16 text-center font-serif text-xl text-muted-foreground">Chưa có mã ở nhóm này.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-        <p className="text-xs text-muted-foreground">
-          {summary.code_total === 0
-            ? "Không có mã phù hợp."
-            : `Hiển thị ${(summary.code_page - 1) * summary.code_page_size + 1}–${Math.min(summary.code_page * summary.code_page_size, summary.code_total)} trong ${summary.code_total} mã`}
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || summary.code_page <= 1}
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Trang trước
-          </Button>
-          <span className="min-w-20 text-center font-mono text-xs text-muted-foreground">
-            {summary.code_page_count === 0
-              ? "0 / 0"
-              : `${summary.code_page} / ${summary.code_page_count}`}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || summary.code_page >= summary.code_page_count}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Trang sau <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-
-      </>}
-
-      {ledgerView === "EXTRACTION" && (
-        <ExtractionLedger
-          audit={extractionAudit}
-          onOpenResponse={(responseId) => navigate(`/result/${responseId}`)}
-        />
-      )}
-      {ledgerView === "CURATOR" && (
-        <CuratorLedger
-          audit={curatorAudit}
-          onOpenResponse={(responseId) => navigate(`/result/${responseId}`)}
-        />
-      )}
     </div>
   );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return <div className="text-right"><p className="text-xs text-stone-400">{label}</p><p className="mt-1 font-mono text-xl text-stone-900">{value}</p></div>;
 }

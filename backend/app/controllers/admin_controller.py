@@ -1,5 +1,8 @@
 """Nghiệp vụ thống kê dành riêng cho quản trị viên."""
 
+import csv
+import io
+
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -19,6 +22,7 @@ from app.models.models import (
 from app.pipeline.codebook_service import (
     item_is_ready_for_scoring,
     refresh_item_scoring_state,
+    qualifying_idea_count,
     qualifying_participant_count,
     qualifying_response_count,
 )
@@ -31,6 +35,7 @@ from app.models.models import Participant as ParticipantModel
 from app.models.models import Response as ResponseModel
 from app.schemas.schemas import (
     AdminDailyStat,
+    AdminAiGroupStats,
     AdminDashboardStats,
     AdminItemBreakdown,
     AdminCodePatch,
@@ -78,6 +83,128 @@ def _to_recent(row: ResponseModel) -> AdminRecentResponse:
         elaboration=row.elaboration,
         scoring_status=row.scoring_status.value,
     )
+
+
+def _ai_group_stats(db: Session) -> list[AdminAiGroupStats]:
+    """Tổng hợp theo người để một người nộp nhiều lượt không lấn át trung bình nhóm."""
+    groups = ("LOW", "HIGH")
+    participant_counts = dict(
+        db.execute(
+            select(ParticipantModel.ai_usage_group, func.count(ParticipantModel.id))
+            .where(ParticipantModel.ai_usage_group.in_(groups))
+            .group_by(ParticipantModel.ai_usage_group)
+        ).all()
+    )
+    response_counts = dict(
+        db.execute(
+            select(ParticipantModel.ai_usage_group, func.count(ResponseModel.id))
+            .join(ResponseModel, ResponseModel.participant_id == ParticipantModel.id)
+            .where(ParticipantModel.ai_usage_group.in_(groups))
+            .group_by(ParticipantModel.ai_usage_group)
+        ).all()
+    )
+    final_counts = dict(
+        db.execute(
+            select(ParticipantModel.ai_usage_group, func.count(ResponseModel.id))
+            .join(ResponseModel, ResponseModel.participant_id == ParticipantModel.id)
+            .where(
+                ParticipantModel.ai_usage_group.in_(groups),
+                ResponseModel.scoring_status == ResponseScoringStatus.FINAL,
+            )
+            .group_by(ParticipantModel.ai_usage_group)
+        ).all()
+    )
+    participant_means = (
+        select(
+            ParticipantModel.ai_usage_group.label("group_name"),
+            ResponseModel.participant_id.label("participant_id"),
+            func.avg(ResponseModel.fluency).label("fluency"),
+            func.avg(ResponseModel.flexibility).label("flexibility"),
+            func.avg(ResponseModel.originality).label("originality"),
+            func.avg(ResponseModel.elaboration).label("elaboration"),
+        )
+        .join(ResponseModel, ResponseModel.participant_id == ParticipantModel.id)
+        .where(
+            ParticipantModel.ai_usage_group.in_(groups),
+            ResponseModel.scoring_status == ResponseScoringStatus.FINAL,
+        )
+        .group_by(ParticipantModel.ai_usage_group, ResponseModel.participant_id)
+        .subquery()
+    )
+    score_rows = db.execute(
+        select(
+            participant_means.c.group_name,
+            func.avg(participant_means.c.fluency),
+            func.avg(participant_means.c.flexibility),
+            func.avg(participant_means.c.originality),
+            func.avg(participant_means.c.elaboration),
+        ).group_by(participant_means.c.group_name)
+    ).all()
+    scores = {row[0]: row[1:] for row in score_rows}
+    return [
+        AdminAiGroupStats(
+            group=group,
+            participant_count=int(participant_counts.get(group, 0)),
+            response_count=int(response_counts.get(group, 0)),
+            final_response_count=int(final_counts.get(group, 0)),
+            mean_fluency=float(scores[group][0]) if group in scores else None,
+            mean_flexibility=float(scores[group][1]) if group in scores else None,
+            mean_originality=float(scores[group][2]) if group in scores else None,
+            mean_elaboration=float(scores[group][3]) if group in scores else None,
+        )
+        for group in groups
+    ]
+
+
+def export_response_scores_csv(db: Session) -> str:
+    """Xuất bảng rộng theo lượt để phân tích hai nhóm bằng R, SPSS hoặc Excel."""
+    rows = db.execute(
+        select(ResponseModel, ParticipantModel, ItemModel)
+        .join(ParticipantModel, ResponseModel.participant_id == ParticipantModel.id)
+        .join(ItemModel, ResponseModel.item_id == ItemModel.id)
+        .order_by(ResponseModel.created_at, ResponseModel.id)
+    ).all()
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(
+        [
+            "participant_id",
+            "ai_usage_group",
+            "age",
+            "gender",
+            "occupation",
+            "response_id",
+            "item_id",
+            "item_name",
+            "submitted_at",
+            "scoring_status",
+            "fluency",
+            "flexibility",
+            "originality",
+            "elaboration",
+        ]
+    )
+    for response, participant, item in rows:
+        has_final_score = response.scoring_status == ResponseScoringStatus.FINAL
+        writer.writerow(
+            [
+                participant.id,
+                participant.ai_usage_group or "",
+                participant.age if participant.age is not None else "",
+                participant.gender or "",
+                participant.occupation or "",
+                response.id,
+                item.id,
+                item.name,
+                response.created_at.isoformat() if response.created_at else "",
+                response.scoring_status.value,
+                response.fluency if has_final_score else "",
+                response.flexibility if has_final_score else "",
+                response.originality if has_final_score else "",
+                response.elaboration if has_final_score else "",
+            ]
+        )
+    return buffer.getvalue()
 
 
 def get_dashboard_stats(db: Session) -> AdminDashboardStats:
@@ -157,9 +284,10 @@ def get_dashboard_stats(db: Session) -> AdminDashboardStats:
                 response_count=response_count,
                 calibration_status=item.calibration_status.value,
                 qualifying_response_count=qualifying_response_count(db, item.id),
+                qualifying_idea_count=qualifying_idea_count(db, item.id),
                 qualifying_participant_count=qualifying_participant_count(db, item.id),
                 scoring_min_participants=item.scoring_min_participants,
-                scoring_min_responses=item.scoring_min_responses,
+                scoring_min_ideas=item.scoring_min_ideas,
                 accepted_code_count=item_code_counts.get(CodeValidationStatus.ACCEPTED, 0),
                 uncertain_code_count=item_code_counts.get(CodeValidationStatus.UNCERTAIN, 0),
                 rejected_code_count=item_code_counts.get(CodeValidationStatus.REJECTED, 0),
@@ -188,6 +316,7 @@ def get_dashboard_stats(db: Session) -> AdminDashboardStats:
         daily_stats=daily_stats,
         by_item=by_item,
         recent_responses=[_to_recent(row) for row in recent_rows],
+        ai_group_stats=_ai_group_stats(db),
     )
 
 
@@ -211,6 +340,7 @@ def list_participants_with_stats(db: Session) -> list[AdminParticipantSummary]:
             age=participant.age,
             gender=participant.gender,
             occupation=participant.occupation,
+            ai_usage_group=participant.ai_usage_group,
             created_at=participant.created_at,
             response_count=count,
             last_submitted_at=last.isoformat() if last else None,
@@ -271,10 +401,6 @@ def _code_counts(
         query = query.where(ResponseIdea.code_id.in_(code_ids))
     if scoring_only:
         query = query.where(
-            or_(
-                ResponseIdea.confidence >= settings.code_uncertain_confidence,
-                ItemCode.admin_locked.is_(True),
-            ),
             ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
             ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
         )
@@ -327,6 +453,8 @@ def get_extraction_audit(
             status=idea.mapping_status,
             reason=idea.reason,
             created_at=idea.created_at,
+            functional_signature=idea.functional_signature or {},
+            mapping_evidence=idea.mapping_evidence or {},
         )
         for idea, participant_id in rows
     ]
@@ -355,6 +483,9 @@ def get_curator_audit(
         "MATCH_EXISTING",
         "CREATE_NEW",
         "INVALID",
+        "UNCERTAIN",
+        "OUT_OF_CODEBOOK",
+        "POLICY_REJECTED",
         "CURATOR_OBJECT_GUARD",
         "MISSING_DECISION",
     ]
@@ -394,6 +525,8 @@ def get_curator_audit(
             confidence=idea.confidence,
             reason=idea.reason,
             created_at=idea.created_at,
+            functional_signature=idea.functional_signature or {},
+            mapping_evidence=idea.mapping_evidence or {},
         )
         for idea, participant_id, code_name in rows
     ]
@@ -402,6 +535,8 @@ def get_curator_audit(
     invalid_count = counts.get("INVALID", 0)
     guarded_count = counts.get("CURATOR_OBJECT_GUARD", 0) + counts.get(
         "MISSING_DECISION", 0
+    ) + counts.get("UNCERTAIN", 0) + counts.get("OUT_OF_CODEBOOK", 0) + counts.get(
+        "POLICY_REJECTED", 0
     )
     total_count = match_count + create_count + invalid_count + guarded_count
     return AdminCuratorAudit(
@@ -448,10 +583,6 @@ def _codebook_overview(db: Session, item_id: str) -> AdminCodebookOverview:
                 [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
             ),
             ResponseIdea.mapping_status == "VALID",
-            or_(
-                ResponseIdea.confidence >= settings.code_uncertain_confidence,
-                ItemCode.admin_locked.is_(True),
-            ),
             ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
             ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
         )
@@ -480,7 +611,7 @@ def _codebook_overview(db: Session, item_id: str) -> AdminCodebookOverview:
         qualifying_participant_count=participant_count,
         contributing_idea_count=contributing_idea_count,
         scoring_min_participants=item.scoring_min_participants,
-        scoring_min_responses=item.scoring_min_responses,
+        scoring_min_ideas=item.scoring_min_ideas,
         pending_idea_count=pending_count,
         extraction_invalid_count=extraction_counts.get("INVALID", 0),
         extraction_duplicate_count=extraction_counts.get("DUPLICATE", 0),
@@ -586,6 +717,11 @@ def get_codebook(
                 contributing_idea_count=contributing_ideas,
                 frequency=contributing_ideas / denominator,
                 created_at=row.created_at,
+                functional_key=row.functional_key,
+                functional_signature=row.functional_signature or {},
+                inclusion_rules=row.inclusion_rules or [],
+                exclusion_rules=row.exclusion_rules or [],
+                positive_examples=row.positive_examples or [],
             )
         )
     return AdminCodebookSummary(
@@ -621,8 +757,11 @@ def list_code_options(db: Session, item_id: str) -> list[AdminCodeOption]:
 
 
 def remap_item(item_id: str) -> int:
-    """Cho admin chủ động chạy lại cả hai tầng mapping của một đồ vật."""
-    return reprocess_item_mappings(item_id)
+    """Sổ mã append-only không cho phép thay đổi điểm đã chốt bằng remap thủ công."""
+    raise HTTPException(
+        status_code=409,
+        detail="Sổ mã đang chạy trực tiếp và bất biến; không hỗ trợ phân loại lại dữ liệu cũ.",
+    )
 
 
 def _refresh_after_admin_change(db: Session, item: ItemModel) -> None:
@@ -668,12 +807,6 @@ def _response_still_has_uncertain_idea(response: ResponseModel) -> bool:
         if idea.code is None:
             return True
         if idea.code.validation_status == CodeValidationStatus.UNCERTAIN:
-            return True
-        if (
-            idea.code.validation_status == CodeValidationStatus.ACCEPTED
-            and idea.confidence < settings.code_uncertain_confidence
-            and not idea.code.admin_locked
-        ):
             return True
     return False
 
@@ -758,9 +891,19 @@ def patch_code(db: Session, item_id: str, code_id: str, patch: AdminCodePatch) -
     code = db.get(ItemCode, code_id)
     if item is None or code is None or code.item_id != item_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy code của đồ vật.")
+    raise HTTPException(
+        status_code=409,
+        detail="Mã đã được dùng để tính điểm là bất biến; quản trị chỉ có quyền kiểm toán.",
+    )
     if code.maturity_status == CodeMaturityStatus.MERGED:
         raise HTTPException(status_code=409, detail="Mã đã gộp chỉ được giữ để truy vết.")
     changes = patch.model_dump(exclude_unset=True)
+    forbidden = set(changes) - {"name"}
+    if forbidden:
+        raise HTTPException(
+            status_code=409,
+            detail="Mã đã dùng để tính điểm là bất biến; chỉ được sửa nhãn hiển thị.",
+        )
     original_name = code.name
     previous_status = code.validation_status
     affected_response_ids = list(
@@ -824,6 +967,10 @@ def patch_code(db: Session, item_id: str, code_id: str, patch: AdminCodePatch) -
 
 
 def merge_code(db: Session, item_id: str, source_id: str, target_id: str) -> AdminCodebookSummary:
+    raise HTTPException(
+        status_code=409,
+        detail="Sổ mã append-only không hỗ trợ gộp mã sau khi đã tính điểm.",
+    )
     item = db.get(ItemModel, item_id)
     if source_id == target_id:
         raise HTTPException(status_code=400, detail="Không thể gộp một code vào chính nó.")
@@ -931,6 +1078,10 @@ def _reset_affected_response(row: ResponseModel, code_name: str) -> None:
 
 def delete_code(db: Session, item_id: str, code_id: str) -> AdminCodebookSummary:
     """Xoá cứng một code; response gốc vẫn được giữ và chuyển sang chờ phân loại lại."""
+    raise HTTPException(
+        status_code=409,
+        detail="Mã đã dùng để tính điểm là bất biến và không thể xoá.",
+    )
     item = db.get(ItemModel, item_id)
     code = db.get(ItemCode, code_id)
     if item is None or code is None or code.item_id != item_id:
@@ -980,6 +1131,10 @@ def delete_code(db: Session, item_id: str, code_id: str) -> AdminCodebookSummary
 
 
 def delete_all_codes(db: Session, item_id: str) -> AdminCodebookSummary:
+    raise HTTPException(
+        status_code=409,
+        detail="Sổ mã append-only không hỗ trợ xoá mã sau khi đã tính điểm.",
+    )
     """Đặt lại codebook của một đồ vật mà không xoá raw response của nghiên cứu."""
     item = db.get(ItemModel, item_id)
     if item is None:

@@ -40,20 +40,37 @@ from app.schemas.schemas import (
     ScoreRequest,
     ScoreResponse,
     ScoringResult,
+    FunctionalSignature,
 )
 
 
 def _client() -> OpenAI:
-    if not settings.openrouter_api_key:
-        raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY chưa được cấu hình.")
-    return OpenAI(base_url="https://openrouter.ai/api/v1", api_key=settings.openrouter_api_key)
+    """Khởi tạo client OpenAI-compatible theo provider được chọn trong môi trường."""
+    if not settings.active_llm_api_key:
+        env_name = {
+            "groq": "GROQ_API_KEY",
+            "cloudflare": "CLOUDFLARE_API_TOKEN",
+            "byteplus": "BYTEPLUS_API_KEY",
+        }[settings.llm_provider]
+        raise HTTPException(status_code=500, detail=f"{env_name} chưa được cấu hình.")
+    if settings.llm_provider == "cloudflare" and not settings.cloudflare_account_id:
+        raise HTTPException(
+            status_code=500,
+            detail="CLOUDFLARE_ACCOUNT_ID chưa được cấu hình.",
+        )
+    return OpenAI(
+        base_url=settings.active_llm_base_url.rstrip("/"),
+        api_key=settings.active_llm_api_key,
+        # Tự quản lý retry trong chat_json để tôn trọng Retry-After và tránh retry lồng nhau.
+        max_retries=0,
+    )
 
 
 def _mock_mapping(
     item: Item, raw: str, existing_codes: list[dict]
 ) -> tuple[IdeaExtractionResult, CuratorResult]:
     """Mock có cùng contract hai tầng để test không vô tình quay lại code tĩnh."""
-    lines = [line.strip() for line in raw.replace(",", "\n").splitlines() if line.strip()][:12]
+    lines = [line.strip() for line in raw.splitlines() if line.strip()][:10]
     extraction = IdeaExtractionResult(
         ideas=[
             ExtractedIdea(
@@ -63,8 +80,14 @@ def _mock_mapping(
                 uses_target_object=True,
                 object_used=item.name,
                 target_object_role="Đóng vai trò vật thể chính trong công dụng mô phỏng.",
+                line_index=index,
+                functional_signature=FunctionalSignature(
+                    goal=line,
+                    object_role=f"Dùng {item.name} làm vật thể chính",
+                    mechanism="Cơ chế mô phỏng ổn định",
+                ),
             )
-            for line in lines
+            for index, line in enumerate(lines)
         ]
     )
     by_name = {code["name"].strip().casefold(): code for code in existing_codes}
@@ -79,6 +102,7 @@ def _mock_mapping(
                     existing_code_id=existing["id"],
                     target_object_confirmed=True,
                     target_object_role="Dùng đúng đồ vật mục tiêu.",
+                    functional_signature=extraction.ideas[index].functional_signature,
                     confidence=0.99,
                     reason="[MOCK] Khớp code đã có.",
                 )
@@ -92,6 +116,18 @@ def _mock_mapping(
                     code_description=f"[MOCK] Dùng {item.name}: {line[:120]}",
                     target_object_confirmed=True,
                     target_object_role="Dùng đúng đồ vật mục tiêu.",
+                    functional_signature=extraction.ideas[index].functional_signature,
+                    inclusion_rules=[f"Dùng {item.name} theo chức năng {line[:80]}"],
+                    exclusion_rules=["Không bao gồm mục đích hoặc cơ chế khác"],
+                    positive_examples=[line],
+                    policy_gates={
+                        "response_is_valid": True,
+                        "no_existing_code_covers": True,
+                        "functionally_distinct": True,
+                        "granularity_consistent": True,
+                        "paraphrase_stable": True,
+                        "counterexample_passed": True,
+                    },
                     confidence=0.95,
                     reason="[MOCK] Công dụng hợp lệ chưa có trong codebook.",
                 )
@@ -125,24 +161,25 @@ def _needs_curator_retry(curator: CuratorResult, extraction: IdeaExtractionResul
         idea.status == "VALID" and idea.uses_target_object for idea in extraction.ideas
     )
     return len(curator.decisions) < expected or any(
-        decision.confidence < settings.code_accept_confidence
+        decision.decision in {"OUT_OF_CODEBOOK", "UNCERTAIN"}
         or (
             decision.decision != "INVALID"
-            and (
-                not decision.target_object_confirmed
-                or not decision.target_object_role.strip()
-            )
+            and (not decision.target_object_confirmed or not decision.target_object_role.strip())
         )
         for decision in curator.decisions
     )
 
 
 def _prefer_confident(first: CuratorResult, second: CuratorResult) -> CuratorResult:
-    """Lần hai chỉ ghi đè khi chắc chắn hơn, tránh lấy trung bình làm mất ý hiếm."""
+    """Ưu tiên quyết định đã qua policy; confidence chỉ dùng phá thế hoà để kiểm toán."""
+    rank = {"CREATE_NEW": 4, "MATCH_EXISTING": 4, "INVALID": 3, "UNCERTAIN": 1, "OUT_OF_CODEBOOK": 0}
     selected = {decision.idea_index: decision for decision in first.decisions}
     for decision in second.decisions:
         previous = selected.get(decision.idea_index)
-        if previous is None or decision.confidence > previous.confidence:
+        if previous is None or (rank[decision.decision], decision.confidence) > (
+            rank[previous.decision],
+            previous.confidence,
+        ):
             selected[decision.idea_index] = decision
     return CuratorResult(decisions=list(selected.values()))
 
@@ -398,9 +435,9 @@ def _status_message(status: ResponseScoringStatus) -> str:
             "Một số ý cần AI đối chiếu lại. Dữ liệu đã được giữ nguyên và chưa bị tính là 0."
         ),
         ResponseScoringStatus.PROVISIONAL: (
-            "Trạng thái cũ đang chờ được chuyển sang cơ chế chấm một lần."
+            "Điểm tạm thời đang chờ bộ dữ liệu nghiên cứu được chốt."
         ),
-        ResponseScoringStatus.FINAL: "Điểm đã được chốt theo dữ liệu realtime tại thời điểm chấm.",
+        ResponseScoringStatus.FINAL: "Điểm đã được chốt sau khi đồ vật đạt ngưỡng dữ liệu nghiên cứu.",
         ResponseScoringStatus.EXCLUDED: "Lượt này bị loại khỏi dữ liệu theo quyết định quản trị.",
     }[status]
 
@@ -423,10 +460,16 @@ def create_response(
     participant: ParticipantModel,
     background_tasks: BackgroundTasks | None = None,
 ) -> ScoreResponse:
-    item_row = db.get(ItemModel, req.item_id)
+    # Khóa theo đồ vật trong suốt chu trình mã hóa để hai lượt gửi đồng thời
+    # không thể cùng tạo hai code cho một chức năng mới.
+    item_row = db.scalar(
+        select(ItemModel)
+        .where(ItemModel.id == req.item_id)
+        .with_for_update()
+    )
     if item_row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
-    raw = req.raw_input.strip()
+    raw = "\n".join(req.responses).strip()
     if not raw:
         raise HTTPException(status_code=400, detail="Câu trả lời rỗng.")
 
@@ -451,7 +494,7 @@ def create_response(
         client = None
     else:
         client = _client()
-        extraction, mapping_meta = run_idea_extraction(item, raw, client) #trích xuất ý tưởng
+        extraction, mapping_meta = run_idea_extraction(item, req.responses, client)
         curator, curator_meta = run_code_curator(item, extraction, existing_codes, client)
         if _needs_curator_retry(curator, extraction):
             second_curator, second_meta = run_code_curator(
@@ -465,20 +508,20 @@ def create_response(
     )
     row.mapping = mapping.model_dump()
     row.mapping_meta = {"idea_extraction": mapping_meta, "code_curator": curator_meta}
-    if has_uncertain:
-        row.scoring_status = ResponseScoringStatus.PENDING_REVIEW
-
+    row.scoring_status = (
+        ResponseScoringStatus.PENDING_REVIEW
+        if has_uncertain
+        else ResponseScoringStatus.COLLECTING
+    )
     became_ready = refresh_item_scoring_state(db, item_row)
-    if item_is_ready_for_scoring(db, item_row) and not has_uncertain:
-        _score_row(db, row, client)
-    if became_ready:
-        # Chấm bù trong cùng transaction để submit vượt ngưỡng hoàn tất nhất quán.
-        reprocess_item_scores_in_session(db, item_row.id)
+    if item_is_ready_for_scoring(db, item_row):
+        if became_ready:
+            reprocess_item_scores_in_session(db, item_row.id)
+        else:
+            _score_row(db, row, client)
 
     db.commit()
     db.refresh(row)
-    if background_tasks is not None:
-        background_tasks.add_task(retry_pending_item_mappings, item_row.id)
     return _to_response(row)
 
 

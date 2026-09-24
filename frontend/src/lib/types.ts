@@ -12,6 +12,18 @@ export interface MappedIdea {
   code: string;
   status: IdeaStatus;
   reason: string;
+  line_index: number;
+  functional_signature: FunctionalSignature;
+  curator_decision: string;
+}
+
+export interface FunctionalSignature {
+  goal: string;
+  object_role: string;
+  mechanism: string;
+  transformation: string;
+  target: string;
+  context: string;
 }
 
 export interface MappingResult {
@@ -19,10 +31,13 @@ export interface MappingResult {
 }
 
 export interface PerIdeaScore {
+  original: string;
   normalized: string;
   code: string;
   originality: number;
   elaboration: number;
+  meaningful_word_count: number;
+  elaboration_details: Record<string, string>;
   note: string;
 }
 
@@ -57,11 +72,14 @@ export type ParticipantGender =
   | "other"
   | "prefer_not_to_say";
 
+export type AiUsageGroup = "LOW" | "HIGH";
+
 export interface ParticipantProfile {
   full_name: string;
   age: number;
   gender: ParticipantGender;
   occupation: string;
+  ai_usage_group: AiUsageGroup;
 }
 
 export interface Participant extends ParticipantProfile {
@@ -76,6 +94,7 @@ export interface ParticipantIdentity {
   full_name: string | null;
   email_masked: string | null;
   email_verified_at: string | null;
+  ai_usage_group: AiUsageGroup | null;
 }
 
 export interface ParticipantIdentifyResult {
@@ -120,9 +139,10 @@ export interface AdminItemBreakdown {
   response_count: number;
   calibration_status: string;
   qualifying_response_count: number;
+  qualifying_idea_count: number;
   qualifying_participant_count: number;
   scoring_min_participants: number;
-  scoring_min_responses: number;
+  scoring_min_ideas: number;
   accepted_code_count: number;
   uncertain_code_count: number;
   rejected_code_count: number;
@@ -154,6 +174,18 @@ export interface AdminDashboardStats {
   daily_stats: AdminDailyStat[];
   by_item: AdminItemBreakdown[];
   recent_responses: AdminRecentResponse[];
+  ai_group_stats: AdminAiGroupStats[];
+}
+
+export interface AdminAiGroupStats {
+  group: AiUsageGroup;
+  participant_count: number;
+  response_count: number;
+  final_response_count: number;
+  mean_fluency: number | null;
+  mean_flexibility: number | null;
+  mean_originality: number | null;
+  mean_elaboration: number | null;
 }
 
 export interface AdminParticipantSummary {
@@ -164,6 +196,7 @@ export interface AdminParticipantSummary {
   age: number | null;
   gender: string | null;
   occupation: string | null;
+  ai_usage_group: AiUsageGroup | null;
   created_at: string;
   response_count: number;
   last_submitted_at: string | null;
@@ -203,6 +236,11 @@ export interface AdminCodebookCode {
   contributing_idea_count: number;
   frequency: number;
   created_at: string;
+  functional_key: string;
+  functional_signature: FunctionalSignature;
+  inclusion_rules: string[];
+  exclusion_rules: string[];
+  positive_examples: string[];
 }
 
 export interface AdminCodeOption {
@@ -241,6 +279,9 @@ export interface AdminCuratorDecisionIdea {
   decision:
     | "MATCH_EXISTING"
     | "CREATE_NEW"
+    | "OUT_OF_CODEBOOK"
+    | "UNCERTAIN"
+    | "POLICY_REJECTED"
     | "INVALID"
     | "CURATOR_OBJECT_GUARD"
     | "MISSING_DECISION";
@@ -249,6 +290,8 @@ export interface AdminCuratorDecisionIdea {
   confidence: number;
   reason: string;
   created_at: string;
+  functional_signature: FunctionalSignature;
+  mapping_evidence: Record<string, unknown>;
 }
 
 export interface AdminCuratorAudit {
@@ -271,7 +314,7 @@ export interface AdminCodebookOverview {
   qualifying_participant_count: number;
   contributing_idea_count: number;
   scoring_min_participants: number;
-  scoring_min_responses: number;
+  scoring_min_ideas: number;
   pending_idea_count: number;
   extraction_invalid_count: number;
   extraction_duplicate_count: number;

@@ -23,4 +23,9 @@ app.include_router(admin.router)
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "model": settings.llm_model}
+    return {
+        "status": "ok",
+        "provider": settings.llm_provider,
+        "model": settings.active_llm_model,
+        "reference_cases_enabled": settings.reference_cases_enabled,
+    }

@@ -16,6 +16,7 @@ from app.models.models import (
     ResponseIdea,
     ResponseScoringStatus,
 )
+from app.pipeline.code_retrieval import functional_key, local_embedding, signature_text
 from app.pipeline.dynamic_mapping import normalize_code_name
 from app.schemas.schemas import CuratorResult, IdeaExtractionResult, MappedIdea, MappingResult, PerIdeaScore
 
@@ -32,7 +33,17 @@ def list_curator_codes(db: Session, item_id: str) -> list[dict]:
         )
     ).all()
     return [
-        {"id": row.id, "name": row.name, "description": row.description}
+        {
+            "id": row.id,
+            "name": row.name,
+            "description": row.description,
+            "functional_key": row.functional_key,
+            "functional_signature": row.functional_signature or {},
+            "inclusion_rules": row.inclusion_rules or [],
+            "exclusion_rules": row.exclusion_rules or [],
+            "positive_examples": row.positive_examples or [],
+            "embedding": row.embedding or [],
+        }
         for row in rows
         if _code_mentions_target(item, row)
     ]
@@ -40,9 +51,9 @@ def list_curator_codes(db: Session, item_id: str) -> list[dict]:
 
 def _mentions_target(value: str, item_name: str) -> bool:
     """So sánh không dấu để buộc output gọi đúng đồ vật mục tiêu."""
-    target = normalize_code_name(item_name)
-    content = normalize_code_name(value)
-    return bool(target and target in content)
+    target_tokens = set(normalize_code_name(item_name).split())
+    content_tokens = set(normalize_code_name(value).split())
+    return bool(target_tokens and target_tokens.issubset(content_tokens))
 
 
 def _code_mentions_target(item: Item, code: ItemCode) -> bool:
@@ -81,15 +92,32 @@ def _find_or_create_code(
     reason: str,
     validation_status: CodeValidationStatus,
     source_response_id: str,
+    signature: dict,
+    inclusion_rules: list[str],
+    exclusion_rules: list[str],
+    positive_examples: list[str],
 ) -> ItemCode:
     normalized_name = normalize_code_name(name) or f"code-{uuid.uuid4().hex[:8]}"
+    key = functional_key(signature)
     existing = db.scalar(
         select(ItemCode).where(
             ItemCode.item_id == item_id,
-            ItemCode.normalized_name == normalized_name,
-        )
+            or_(
+                ItemCode.normalized_name == normalized_name,
+                ItemCode.functional_key == key if key else ItemCode.normalized_name == normalized_name,
+            ),
+        ).with_for_update()
     )
     if existing:
+        if not existing.functional_key and key:
+            existing.functional_key = key
+            existing.functional_signature = signature
+            existing.inclusion_rules = inclusion_rules
+            existing.exclusion_rules = exclusion_rules
+            existing.positive_examples = positive_examples
+            existing.embedding = local_embedding(
+                f"{existing.name} {existing.description} {signature_text(signature)}"
+            )
         # Nếu AI gặp lại đúng tên của code legacy, chỉ lúc này code mới được "khám phá lại"
         # từ dữ liệu thật và tham gia codebook động; bản thân seed cũ không tự tạo tần suất.
         if (
@@ -127,6 +155,12 @@ def _find_or_create_code(
         relevance_reason=reason,
         rejection_reason=reason if validation_status == CodeValidationStatus.REJECTED else "",
         source_response_id=source_response_id,
+        functional_key=key,
+        functional_signature=signature,
+        inclusion_rules=inclusion_rules,
+        exclusion_rules=exclusion_rules,
+        positive_examples=positive_examples,
+        embedding=local_embedding(f"{name} {description} {signature_text(signature)}"),
     )
     db.add(row)
     db.flush()
@@ -156,6 +190,8 @@ def persist_mapping(
         decision_name = "EXTRACTION"
         confidence = 1.0 if status != "VALID" else 0.0
         reason = idea.reason
+        idea_signature = idea.functional_signature
+        evidence: dict = {"idea_functional_signature": idea_signature.model_dump()}
 
         if status == "VALID" and not _extraction_is_grounded(item, idea):
             status = "INVALID"
@@ -176,6 +212,19 @@ def persist_mapping(
                 decision_name = decision.decision
                 confidence = decision.confidence
                 reason = decision.reason
+                category_signature = (
+                    decision.functional_signature
+                    if decision.functional_signature.goal
+                    else idea_signature
+                )
+                evidence = {
+                    "idea_functional_signature": idea_signature.model_dump(),
+                    "curator_functional_signature": decision.functional_signature.model_dump(),
+                    "existing_code_evaluations": decision.existing_code_evaluations,
+                    "nearest_code_ids": decision.nearest_code_ids,
+                    "policy_gates": decision.policy_gates,
+                    "challenge_reason": decision.challenge_reason,
+                }
                 if decision.decision == "MATCH_EXISTING":
                     code_row = allowed_codes.get(decision.existing_code_id or "")
                     if code_row is None or code_row.maturity_status != CodeMaturityStatus.ACTIVE:
@@ -187,16 +236,22 @@ def persist_mapping(
                         decision_name = "CURATOR_OBJECT_GUARD"
                         code_row = None
                         reason = f"Curator không xác nhận được vai trò của {item.name}."
-                    elif confidence < settings.code_uncertain_confidence:
-                        has_uncertain = True
                 elif decision.decision == "CREATE_NEW":
                     grounded = _curator_is_grounded(item, decision)
-                    validation = (
-                        CodeValidationStatus.ACCEPTED
-                        if grounded and confidence >= settings.code_accept_confidence
-                        else CodeValidationStatus.UNCERTAIN
-                        if grounded
-                        else CodeValidationStatus.REJECTED
+                    required_gates = {
+                        "response_is_valid",
+                        "no_existing_code_covers",
+                        "functionally_distinct",
+                        "granularity_consistent",
+                        "paraphrase_stable",
+                        "counterexample_passed",
+                    }
+                    gates_pass = required_gates.issubset(decision.policy_gates) and all(
+                        decision.policy_gates.get(gate, False) for gate in required_gates
+                    )
+                    core_signature_complete = all(
+                        getattr(category_signature, field).strip()
+                        for field in ("goal", "object_role", "mechanism")
                     )
                     if not grounded:
                         status = "INVALID"
@@ -204,34 +259,32 @@ def persist_mapping(
                         reason = (
                             f"Code Curator không chứng minh được code dùng đúng {item.name}."
                         )
-                    has_uncertain = has_uncertain or validation == CodeValidationStatus.UNCERTAIN
-                    code_row = _find_or_create_code(
-                        db,
-                        item_id=item.id,
-                        name=decision.code_name or idea.normalized,
-                        description=decision.code_description,
-                        confidence=confidence,
-                        reason=reason,
-                        validation_status=validation,
-                        source_response_id=response.id,
-                    )
-                    allowed_codes[code_row.id] = code_row
+                    elif gates_pass and core_signature_complete:
+                        code_row = _find_or_create_code(
+                            db,
+                            item_id=item.id,
+                            name=decision.code_name or idea.normalized,
+                            description=decision.code_description,
+                            confidence=confidence,
+                            reason=reason,
+                            validation_status=CodeValidationStatus.ACCEPTED,
+                            source_response_id=response.id,
+                            signature=category_signature.model_dump(),
+                            inclusion_rules=decision.inclusion_rules,
+                            exclusion_rules=decision.exclusion_rules,
+                            positive_examples=decision.positive_examples,
+                        )
+                        allowed_codes[code_row.id] = code_row
+                    else:
+                        has_uncertain = True
+                        decision_name = "POLICY_REJECTED"
+                        code_row = None
+                        reason = "Chưa đủ các cổng bằng chứng bắt buộc để tạo mã mới."
+                elif decision.decision in {"OUT_OF_CODEBOOK", "UNCERTAIN"}:
+                    has_uncertain = True
+                    code_row = None
                 else:
                     status = "INVALID"
-                    code_row = _find_or_create_code(
-                        db,
-                        item_id=item.id,
-                        name=decision.code_name or idea.normalized,
-                        description=decision.code_description,
-                        confidence=confidence,
-                        reason=reason,
-                        validation_status=CodeValidationStatus.REJECTED,
-                        source_response_id=response.id,
-                    )
-
-        # Code UNCERTAIN vẫn được lưu làm bằng chứng nhưng chưa được tính điểm.
-        if code_row and code_row.validation_status == CodeValidationStatus.UNCERTAIN:
-            has_uncertain = True
 
         db.add(
             ResponseIdea(
@@ -239,6 +292,9 @@ def persist_mapping(
                 code_id=code_row.id if code_row else None,
                 original=idea.original,
                 normalized=idea.normalized,
+                line_index=idea.line_index,
+                functional_signature=idea_signature.model_dump(),
+                mapping_evidence=evidence,
                 mapping_status=status,
                 curator_decision=decision_name,
                 confidence=confidence,
@@ -253,6 +309,9 @@ def persist_mapping(
                 status=status,
                 is_valid=status == "VALID" and code_row is not None,
                 reason=reason,
+                line_index=idea.line_index,
+                functional_signature=idea_signature,
+                curator_decision=decision_name,
             )
         )
 
@@ -290,6 +349,27 @@ def qualifying_response_count(db: Session, item_id: str) -> int:
     )
 
 
+def qualifying_idea_count(db: Session, item_id: str) -> int:
+    """Đếm ý VALID đã gắn mã được chấp nhận của một đồ vật."""
+    return int(
+        db.scalar(
+            select(func.count(ResponseIdea.id))
+            .join(Response, Response.id == ResponseIdea.response_id)
+            .join(ItemCode, ItemCode.id == ResponseIdea.code_id)
+            .where(
+                Response.item_id == item_id,
+                Response.scoring_status.notin_(
+                    [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
+                ),
+                ResponseIdea.mapping_status == "VALID",
+                ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
+                ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+            )
+        )
+        or 0
+    )
+
+
 def _code_live_counts(db: Session, item_id: str) -> dict[str, tuple[int, int, int]]:
     rows = db.execute(
         select(
@@ -306,10 +386,6 @@ def _code_live_counts(db: Session, item_id: str) -> dict[str, tuple[int, int, in
                 [ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]
             ),
             ResponseIdea.mapping_status == "VALID",
-            or_(
-                ResponseIdea.confidence >= settings.code_uncertain_confidence,
-                ItemCode.admin_locked.is_(True),
-            ),
             ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
             ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
         )
@@ -319,18 +395,18 @@ def _code_live_counts(db: Session, item_id: str) -> dict[str, tuple[int, int, in
 
 
 def item_is_ready_for_scoring(db: Session, item: Item) -> bool:
-    """Một đồ vật chỉ được chấm khi đồng thời đủ số người và số response."""
+    """Chỉ chấm khi đủ đồng thời số người và số ý hợp lệ theo thiết kế nghiên cứu."""
     return (
-        qualifying_participant_count(db, item.id)
+        item.calibration_status != ItemCalibrationStatus.PAUSED
+        and qualifying_participant_count(db, item.id)
         >= (item.scoring_min_participants or settings.scoring_min_participants)
-        and qualifying_response_count(db, item.id)
-        >= (item.scoring_min_responses or settings.scoring_min_responses)
-        and item.calibration_status != ItemCalibrationStatus.PAUSED
+        and qualifying_idea_count(db, item.id)
+        >= (item.scoring_min_ideas or settings.scoring_min_ideas)
     )
 
 
 def refresh_item_scoring_state(db: Session, item: Item) -> bool:
-    """Cập nhật trạng thái theo hai ngưỡng và báo item có vừa chuyển sang sẵn sàng hay không."""
+    """Đồng bộ trạng thái thu thập và báo thời điểm đồ vật vừa đủ ngưỡng."""
     was_active = item.calibration_status == ItemCalibrationStatus.ACTIVE
     ready = item_is_ready_for_scoring(db, item)
     if item.calibration_status != ItemCalibrationStatus.PAUSED:
@@ -350,15 +426,20 @@ def originality_for_response(
         .where(
             ResponseIdea.response_id == response.id,
             ResponseIdea.mapping_status == "VALID",
-            or_(
-                ResponseIdea.confidence >= settings.code_uncertain_confidence,
-                ItemCode.admin_locked.is_(True),
-            ),
             ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
             ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
         )
         .order_by(ResponseIdea.created_at, ResponseIdea.id)
     ).all()
+    fluency = int(
+        db.scalar(
+            select(func.count()).select_from(ResponseIdea).where(
+                ResponseIdea.response_id == response.id,
+                ResponseIdea.mapping_status == "VALID",
+            )
+        )
+        or 0
+    )
     live_counts = _code_live_counts(db, response.item_id)
     valid_idea_count = sum(idea_total for _, _, idea_total in live_counts.values())
     denominator = max(valid_idea_count, 1)
@@ -393,12 +474,14 @@ def originality_for_response(
         "frequency_source": "realtime_at_scoring",
         "qualifying_participant_count": qualifying_participant_count(db, response.item_id),
         "qualifying_response_count": qualifying_response_count(db, response.item_id),
+        "qualifying_idea_count": qualifying_idea_count(db, response.item_id),
         "valid_idea_count": valid_idea_count,
         "formula": {"rare_at_or_below": 0.01, "uncommon_at_or_below": 0.05},
         "code_frequencies": frequency_rows,
     }
     per_idea = [
         PerIdeaScore(
+            original=idea.original,
             normalized=idea.normalized,
             code=code_names.get(idea.code_id, ""),
             originality=originality(idea.code_id),
@@ -406,4 +489,4 @@ def originality_for_response(
         )
         for idea in valid_ideas
     ]
-    return len(valid_ideas), len(flexibility_codes), flexibility_codes, per_idea, basis
+    return fluency, len(flexibility_codes), flexibility_codes, per_idea, basis

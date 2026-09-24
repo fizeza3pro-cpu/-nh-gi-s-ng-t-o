@@ -12,6 +12,11 @@ const GENDER_LABELS: Record<string, string> = {
   prefer_not_to_say: "Không trả lời",
 };
 
+const AI_GROUP_LABELS: Record<string, string> = {
+  LOW: "Ít sử dụng AI",
+  HIGH: "Sử dụng AI nhiều",
+};
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "Chưa nộp bài";
   const d = new Date(iso);
@@ -72,6 +77,7 @@ export default function AdminParticipants() {
                 <th className="px-4 py-3 font-medium">Tuổi</th>
                 <th className="px-4 py-3 font-medium">Giới tính</th>
                 <th className="px-4 py-3 font-medium">Chuyên ngành</th>
+                <th className="px-4 py-3 font-medium">Nhóm AI</th>
                 <th className="px-4 py-3 text-right font-medium">
                   Số lượt nộp
                 </th>
@@ -108,6 +114,11 @@ export default function AdminParticipants() {
                   <td className="px-4 py-3.5 font-medium">
                     {participant.occupation || "Dữ liệu cũ"}
                   </td>
+                  <td className="px-4 py-3.5">
+                    {participant.ai_usage_group
+                      ? AI_GROUP_LABELS[participant.ai_usage_group]
+                      : "Chưa phân nhóm"}
+                  </td>
                   <td className="px-4 py-3.5 text-right font-mono tabular-nums">
                     {participant.response_count}
                   </td>
@@ -127,7 +138,7 @@ export default function AdminParticipants() {
               {participants.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-4 py-8 text-center text-muted-foreground"
                   >
                     Chưa có người tham gia nào.

@@ -95,6 +95,7 @@ class Participant(Base):
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     gender: Mapped[str | None] = mapped_column(String(32), nullable=True)
     occupation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ai_usage_group: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     device_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
@@ -114,8 +115,8 @@ class Item(Base):
         default=ItemCalibrationStatus.COLLECTING,
         nullable=False,
     )
-    scoring_min_participants: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
-    scoring_min_responses: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    scoring_min_participants: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
+    scoring_min_ideas: Mapped[int] = mapped_column(Integer, default=150, nullable=False)
     responses: Mapped[list["Response"]] = relationship(back_populates="item")
     dynamic_codes: Mapped[list["ItemCode"]] = relationship(
         back_populates="item", foreign_keys="ItemCode.item_id"
@@ -172,6 +173,12 @@ class ItemCode(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
+    functional_key: Mapped[str] = mapped_column(String(512), default="", nullable=False, index=True)
+    functional_signature: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    inclusion_rules: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    exclusion_rules: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    positive_examples: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    embedding: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     validation_status: Mapped[CodeValidationStatus] = mapped_column(
         SAEnum(CodeValidationStatus, name="code_validation_status"),
         default=CodeValidationStatus.ACCEPTED,
@@ -219,6 +226,9 @@ class ResponseIdea(Base):
     code_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("item_codes.id"), nullable=True)
     original: Mapped[str] = mapped_column(Text, nullable=False)
     normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    line_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    functional_signature: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    mapping_evidence: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     mapping_status: Mapped[str] = mapped_column(String(16), nullable=False)
     curator_decision: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)

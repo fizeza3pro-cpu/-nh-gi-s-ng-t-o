@@ -1,0 +1,71 @@
+[
+  {
+    "id": "EX-INVALID-EMPTY-01",
+    "stage": "extraction",
+    "item": "Đũa",
+    "input": {
+      "responses": ["Rất sáng tạo và hữu ích"]
+    },
+    "expected": {
+      "ideas": [
+        {
+          "line_index": 0,
+          "status": "INVALID",
+          "reason": "Không mô tả công dụng hoặc vai trò của đũa."
+        }
+      ]
+    },
+    "principle": "Lời đánh giá chung không phải một công dụng AUT."
+  },
+  {
+    "id": "CU-INVALID-WRONG-OBJECT-01",
+    "stage": "curator",
+    "item": "Dây thừng",
+    "input": {
+      "response": "Cuộn tờ báo làm ống nhòm",
+      "object_used": "Giấy báo",
+      "candidate_codes": []
+    },
+    "expected": {
+      "decision": "INVALID",
+      "target_object_confirmed": false
+    },
+    "principle": "Curator phải chặn lần hai khi Extraction để lọt công dụng của đồ vật khác."
+  },
+  {
+    "id": "CH-UNCERTAIN-OVER-SPLIT-01",
+    "stage": "challenger",
+    "item": "Gạch",
+    "input": {
+      "response": "Dùng gạch chặn cửa phòng ngủ",
+      "nearest_codes": [
+        {
+          "id": "EXAMPLE-STOP",
+          "name": "Cố định bằng trọng lượng",
+          "definition": "Dùng khối lượng và ma sát của gạch để ngăn vật di chuyển"
+        }
+      ],
+      "proposed_new_code": "Chặn cửa phòng ngủ"
+    },
+    "expected": {
+      "decision": "MATCH_EXISTING",
+      "existing_code_id": "EXAMPLE-STOP",
+      "failed_policy_gates": ["no_existing_code_covers", "functionally_distinct", "granularity_consistent"]
+    },
+    "principle": "Không tạo category hẹp theo căn phòng hoặc đúng một target khi code chức năng hiện tại đã bao phủ."
+  },
+  {
+    "id": "CH-UNCERTAIN-NOVELTY-ONLY-01",
+    "stage": "challenger",
+    "item": "Kẹp giấy",
+    "input": {
+      "response": "Dùng kẹp giấy trong một tác phẩm nghệ thuật rất hiếm gặp",
+      "nearest_codes": []
+    },
+    "expected": {
+      "decision": "UNCERTAIN",
+      "failed_policy_gates": ["functionally_distinct", "paraphrase_stable", "counterexample_passed"]
+    },
+    "principle": "Độ hiếm hoặc lời khẳng định sáng tạo không đủ chứng minh mục đích, vai trò và cơ chế của một code mới."
+  }
+]

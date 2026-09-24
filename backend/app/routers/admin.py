@@ -1,6 +1,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.controllers import admin_controller
@@ -27,6 +28,18 @@ router = APIRouter(
 @router.get("/dashboard", response_model=AdminDashboardStats)
 def dashboard(db: Session = Depends(get_db)) -> AdminDashboardStats:
     return admin_controller.get_dashboard_stats(db)
+
+
+@router.get("/exports/responses.csv", response_class=Response)
+def export_responses(db: Session = Depends(get_db)) -> Response:
+    content = "\ufeff" + admin_controller.export_response_scores_csv(db)
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="aut-response-scores.csv"'
+        },
+    )
 
 
 @router.get("/participants", response_model=list[AdminParticipantSummary])

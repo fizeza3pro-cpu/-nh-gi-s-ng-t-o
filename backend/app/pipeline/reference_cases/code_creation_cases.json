@@ -1,0 +1,86 @@
+[
+  {
+    "id": "CH-CREATE-HEAT-01",
+    "stage": "challenger",
+    "item": "Gạch",
+    "input": {
+      "response": "Nung gạch rồi dùng nhiệt của nó để sưởi chân",
+      "nearest_codes": [
+        {"id": "EXAMPLE-WEIGHT", "name": "Tạo tải trọng", "mechanism": "khối lượng và trọng lực"},
+        {"id": "EXAMPLE-BUILD", "name": "Vật liệu xây", "mechanism": "xếp và liên kết thành kết cấu"}
+      ]
+    },
+    "expected": {
+      "decision": "CREATE_NEW",
+      "functional_signature": {
+        "goal": "giữ ấm",
+        "object_role": "vật tích nhiệt",
+        "mechanism": "hấp thụ và giải phóng nhiệt"
+      },
+      "required_policy_gates": [
+        "response_is_valid",
+        "no_existing_code_covers",
+        "functionally_distinct",
+        "granularity_consistent",
+        "paraphrase_stable",
+        "counterexample_passed"
+      ]
+    },
+    "principle": "Chỉ tạo khi mục đích, vai trò và cơ chế đều tạo thành category ổn định mà các code gần nhất không bao phủ."
+  },
+  {
+    "id": "CH-MATCH-TARGET-CHANGE-01",
+    "stage": "challenger",
+    "item": "Chai nhựa",
+    "input": {
+      "response": "Đục lỗ chai để tưới cây xương rồng",
+      "nearest_codes": [
+        {
+          "id": "EXAMPLE-WATER",
+          "name": "Phân phối nước qua lỗ nhỏ",
+          "definition": "Dùng chai làm bình chứa và đưa nước ra qua lỗ nhỏ để tưới"
+        }
+      ]
+    },
+    "expected": {
+      "decision": "MATCH_EXISTING",
+      "existing_code_id": "EXAMPLE-WATER"
+    },
+    "principle": "Đổi loại cây không làm thay đổi chức năng cốt lõi nên phải quay lại code hiện có."
+  },
+  {
+    "id": "CH-UNCERTAIN-VAGUE-01",
+    "stage": "challenger",
+    "item": "Đũa",
+    "input": {
+      "response": "Làm một dụng cụ sáng tạo",
+      "nearest_codes": []
+    },
+    "expected": {
+      "decision": "UNCERTAIN"
+    },
+    "principle": "Không có đủ mục đích và cơ chế để chứng minh một category ổn định; codebook trống không đồng nghĩa được phép tạo code."
+  },
+  {
+    "id": "CH-CREATE-ACOUSTIC-01",
+    "stage": "challenger",
+    "item": "Chai nhựa",
+    "input": {
+      "response": "Thổi ngang miệng chai để tạo tiếng sáo",
+      "nearest_codes": [
+        {"id": "EXAMPLE-CONTAINER", "name": "Vật chứa", "mechanism": "giữ vật chất trong khoang"},
+        {"id": "EXAMPLE-FUNNEL", "name": "Dẫn chất lỏng", "mechanism": "dòng chảy qua miệng chai"}
+      ]
+    },
+    "expected": {
+      "decision": "CREATE_NEW",
+      "functional_signature": {
+        "goal": "tạo âm thanh",
+        "object_role": "buồng cộng hưởng",
+        "mechanism": "dao động cột không khí"
+      }
+    },
+    "principle": "Cộng hưởng âm là cơ chế có thể nhận diện qua nhiều cách diễn đạt và không được code chứa hay dẫn chất lỏng bao phủ."
+  }
+]
+

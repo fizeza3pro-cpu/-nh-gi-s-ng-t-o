@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ArrowRight, Sparkles, Timer } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -67,7 +67,7 @@ function useRevealOnScroll<T extends HTMLElement>() {
 // Các kết quả mẫu để "Mẫu kết quả" tự luân phiên minh hoạ nhiều đồ vật khác nhau.
 const SAMPLE_RESULTS = [
   {
-    object: "Đũa",
+    object: "Balo quân nhu",
     scores: [
       { label: "Số ý", value: "7" },
       { label: "Đa dạng", value: "5" },
@@ -75,10 +75,10 @@ const SAMPLE_RESULTS = [
       { label: "Chi tiết", value: "16" },
     ],
     quote:
-      "Ý tưởng linh hoạt ở nhóm vũ khí và nhạc cụ, nhưng có thể đẩy độ độc đáo của ý tưởng cao hơn bằng các công dụng trong nấu nướng.",
+      "Các ý tưởng trải rộng từ chứa đựng, cố định đến che chắn và thiết bị hỗ trợ dã ngoại.",
   },
   {
-    object: "Ly giấy",
+    object: "Xẻng công binh",
     scores: [
       { label: "Số ý", value: "9" },
       { label: "Đa dạng", value: "6" },
@@ -86,10 +86,10 @@ const SAMPLE_RESULTS = [
       { label: "Chi tiết", value: "21" },
     ],
     quote:
-      "Ý tưởng trải đều nhiều danh mục, đặc biệt mạnh ở nhóm đồ chơi và dụng cụ đo lường tự chế.",
+      "Ý tưởng khai thác cả hình dạng, vật liệu và khả năng biến đổi của đồ vật.",
   },
   {
-    object: "Kẹp giấy",
+    object: "Cuộn chỉ",
     scores: [
       { label: "Số ý", value: "11" },
       { label: "Đa dạng", value: "4" },
@@ -97,7 +97,7 @@ const SAMPLE_RESULTS = [
       { label: "Chi tiết", value: "12" },
     ],
     quote:
-      "Nhiều ý táo bạo nhưng tập trung quanh nhóm công cụ nhỏ, thử mở rộng sang nghệ thuật hoặc trang sức.",
+      "Nhiều ý táo bạo, từ đo lường và đánh dấu đến mô hình, trang trí và liên kết vật liệu.",
   },
 ] as const;
 

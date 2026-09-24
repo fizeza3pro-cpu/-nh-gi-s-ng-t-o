@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BookOpenCheck,
   Database,
+  Download,
   FlaskConical,
   ShieldQuestion,
   Users2,
@@ -53,6 +54,10 @@ function formatDateTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatMean(value: number | null): string {
+  return value === null ? "Chưa có" : value.toFixed(2);
 }
 
 function StatusBadge({ value }: { value: string }) {
@@ -105,6 +110,20 @@ function Panel({ title, note, children }: { title: string; note?: string; childr
 export default function AdminOverview() {
   const [stats, setStats] = useState<AdminDashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  async function downloadScores() {
+    if (exporting) return;
+    setExporting(true);
+    setError(null);
+    try {
+      await api.adminDownloadResponsesCsv();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không thể xuất dữ liệu.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     api.adminDashboard().then(setStats).catch((err: Error) => setError(err.message));
@@ -159,23 +178,72 @@ export default function AdminOverview() {
             Tiến độ dữ liệu và sổ mã
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-            Trang tổng quan phản ánh dữ liệu đang được thu thập và mức sẵn sàng để chấm điểm một lần.
+            Theo dõi hai nhóm sử dụng AI và mức sẵn sàng chấm điểm của từng đồ vật.
           </p>
         </div>
-        <Link
-          to="/admin/codebooks"
-          className="inline-flex items-center gap-2 text-sm font-medium text-[#8B5E34] hover:text-stone-900"
-        >
-          Mở sổ mã động <ArrowRight className="h-4 w-4" />
-        </Link>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+          <button
+            type="button"
+            onClick={downloadScores}
+            disabled={exporting}
+            className="inline-flex items-center gap-2 border border-stone-300 bg-white px-3.5 py-2 text-sm font-medium text-stone-800 hover:border-stone-500 disabled:cursor-wait disabled:opacity-60"
+          >
+            <Download className="h-4 w-4" />
+            {exporting ? "Đang xuất…" : "Xuất dữ liệu CSV"}
+          </button>
+          <Link
+            to="/admin/codebooks"
+            className="inline-flex items-center gap-2 text-sm font-medium text-[#8B5E34] hover:text-stone-900"
+          >
+            Mở sổ mã động <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       </header>
 
       <section className="grid grid-cols-2 gap-x-4 gap-y-7 border-b border-stone-300 pb-8 lg:grid-cols-4 lg:gap-x-8">
         <Metric icon={Database} label="Tổng lượt trả lời" value={stats.total_responses} note={`${stats.qualifying_response_count} response đủ điều kiện`} />
         <Metric icon={Users2} label="Người tham gia" value={stats.total_participants} note="Hồ sơ email riêng biệt" />
         <Metric icon={FlaskConical} label="7 ngày gần nhất" value={stats.responses_last_7_days} note={trendNote} />
-        <Metric icon={BookOpenCheck} label="Mã được chấp nhận" value={stats.accepted_code_count} note={`${stats.uncertain_code_count} cần theo dõi · ${stats.rejected_code_count} bị loại`} />
+        <Metric icon={BookOpenCheck} label="Mã đang hoạt động" value={stats.accepted_code_count} note={`${stats.uncertain_code_count} cần theo dõi · ${stats.rejected_code_count} bị loại`} />
       </section>
+
+      <div className="mt-6">
+        <Panel title="Hai nhóm nghiên cứu" note="Điểm trung bình được tính theo người, chỉ từ các lượt đã chốt điểm.">
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-y border-stone-200 bg-stone-50 text-xs text-stone-500">
+                <tr>
+                  <th className="px-3 py-3 font-medium">Nhóm</th>
+                  <th className="px-3 py-3 text-right font-medium">Người</th>
+                  <th className="px-3 py-3 text-right font-medium">Lượt nộp</th>
+                  <th className="px-3 py-3 text-right font-medium">Số ý</th>
+                  <th className="px-3 py-3 text-right font-medium">Đa dạng</th>
+                  <th className="px-3 py-3 text-right font-medium">Độc đáo</th>
+                  <th className="px-3 py-3 text-right font-medium">Chi tiết</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-200">
+                {stats.ai_group_stats.map((group) => (
+                  <tr key={group.group}>
+                    <td className="px-3 py-4 font-medium text-stone-900">
+                      {group.group === "HIGH" ? "Sử dụng AI nhiều" : "Ít sử dụng AI"}
+                    </td>
+                    <td className="px-3 py-4 text-right font-mono tabular-nums">{group.participant_count}</td>
+                    <td className="px-3 py-4 text-right font-mono tabular-nums">
+                      {group.response_count}
+                      <span className="ml-1 text-[11px] text-stone-400">({group.final_response_count} đã chốt)</span>
+                    </td>
+                    <td className="px-3 py-4 text-right font-mono tabular-nums">{formatMean(group.mean_fluency)}</td>
+                    <td className="px-3 py-4 text-right font-mono tabular-nums">{formatMean(group.mean_flexibility)}</td>
+                    <td className="px-3 py-4 text-right font-mono tabular-nums">{formatMean(group.mean_originality)}</td>
+                    <td className="px-3 py-4 text-right font-mono tabular-nums">{formatMean(group.mean_elaboration)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      </div>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.35fr_1fr]">
         <Panel title="Nhịp thu thập" note="Số lượt trả lời mới trong 14 ngày gần nhất.">
@@ -203,7 +271,7 @@ export default function AdminOverview() {
       </div>
 
       <div className="mt-5">
-        <Panel title="Tiến độ theo đồ vật" note="Chỉ mở chấm điểm khi đồng thời đủ ngưỡng người tham gia và response.">
+        <Panel title="Dữ liệu theo đồ vật" note="Chỉ mở chấm khi đạt đồng thời 24 người và 150 ý hợp lệ.">
           <div className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="border-y border-stone-200 bg-stone-50 text-xs text-stone-500">
@@ -218,8 +286,8 @@ export default function AdminOverview() {
               <tbody className="divide-y divide-stone-200">
                 {stats.by_item.map((item) => {
                   const participantProgress = item.qualifying_participant_count / Math.max(item.scoring_min_participants, 1);
-                  const responseProgress = item.qualifying_response_count / Math.max(item.scoring_min_responses, 1);
-                  const progress = Math.min(100, Math.round(Math.min(participantProgress, responseProgress) * 100));
+                  const ideaProgress = item.qualifying_idea_count / Math.max(item.scoring_min_ideas, 1);
+                  const progress = Math.min(100, Math.round(Math.min(participantProgress, ideaProgress) * 100));
                   return (
                     <tr key={item.item_id} className="hover:bg-stone-50/70">
                       <td className="px-3 py-4">
@@ -230,9 +298,9 @@ export default function AdminOverview() {
                       </td>
                       <td className="px-3 py-4"><StatusBadge value={item.calibration_status} /></td>
                       <td className="px-3 py-4 font-mono tabular-nums text-stone-700">
-                        <span>{item.qualifying_response_count} response</span>
+                        <span>{item.qualifying_idea_count} ý hợp lệ</span>
                         <span className="mt-1 block text-[11px] text-stone-400">
-                          {item.qualifying_participant_count} người
+                          {item.qualifying_participant_count} người · {item.qualifying_response_count} lượt
                         </span>
                       </td>
                       <td className="w-48 px-3 py-4">
@@ -240,7 +308,7 @@ export default function AdminOverview() {
                           <div className="h-full bg-[#8B5E34] transition-all" style={{ width: `${progress}%` }} />
                         </div>
                         <p className="mt-1.5 text-[11px] text-stone-500">
-                          {item.qualifying_participant_count}/{item.scoring_min_participants} người · {item.qualifying_response_count}/{item.scoring_min_responses} response
+                          {item.qualifying_participant_count}/{item.scoring_min_participants} người · {item.qualifying_idea_count}/{item.scoring_min_ideas} ý
                         </p>
                       </td>
                       <td className="px-3 py-4 font-mono text-xs tabular-nums">

@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react";
 import {
-  ArrowLeft,
   ArrowRight,
   Fingerprint,
   Loader2,
@@ -11,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type {
+  AiUsageGroup,
   ParticipantGender,
   ParticipantIdentity,
   ParticipantProfile,
@@ -23,6 +23,25 @@ const GENDER_OPTIONS: Array<{ value: ParticipantGender; label: string }> = [
   { value: "prefer_not_to_say", label: "Không muốn trả lời" },
 ];
 
+const AI_USAGE_OPTIONS: Array<{
+  value: AiUsageGroup;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "LOW",
+    label: "Ít sử dụng",
+    description:
+      "Tôi không sử dụng hoặc chỉ thỉnh thoảng sử dụng AI trong học tập, công việc.",
+  },
+  {
+    value: "HIGH",
+    label: "Sử dụng nhiều",
+    description:
+      "Tôi thường xuyên sử dụng AI như một công cụ hỗ trợ trong học tập, công việc.",
+  },
+];
+
 const fieldClassName =
   "h-11 w-full rounded-lg border border-input bg-background px-3.5 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-foreground/40 focus:ring-2 focus:ring-ring";
 
@@ -31,56 +50,35 @@ export default function ParticipantProfileForm({
 }: {
   onComplete: (participant: ParticipantIdentity) => void;
 }) {
-  const [step, setStep] = useState<"EMAIL" | "PROFILE">("EMAIL");
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState<ParticipantGender | "">("");
   const [occupation, setOccupation] = useState("");
+  const [aiUsageGroup, setAiUsageGroup] = useState<AiUsageGroup | "">("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const emailReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const profileReady =
+    emailReady &&
     fullName.trim().length >= 2 &&
     Number(age) >= 10 &&
     Number(age) <= 100 &&
     gender !== "" &&
-    occupation.trim().length >= 2;
-
-  async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!emailReady || submitting) return;
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      const result = await api.identifyParticipant(email.trim());
-      if (result.profile_required) {
-        setStep("PROFILE");
-      } else if (result.participant) {
-        onComplete(result.participant);
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Không thể kiểm tra email. Hãy thử lại.",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
+    occupation.trim().length >= 2 &&
+    aiUsageGroup !== "";
 
   async function handleProfileSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!profileReady || submitting || !gender) return;
+    if (!profileReady || submitting || !gender || !aiUsageGroup) return;
 
     const profile: ParticipantProfile = {
       full_name: fullName.trim(),
       age: Number(age),
       gender,
       occupation: occupation.trim(),
+      ai_usage_group: aiUsageGroup,
     };
     setSubmitting(true);
     setError(null);
@@ -100,122 +98,58 @@ export default function ParticipantProfileForm({
 
   return (
     <section className="overflow-hidden rounded-2xl border border-border bg-card">
-      <div className="grid lg:grid-cols-[0.82fr_1.18fr]">
+      <div className="grid lg:grid-cols-[0.72fr_1.28fr]">
         <div className="border-b border-border bg-foreground p-7 text-background lg:border-b-0 lg:border-r lg:p-9">
           <Fingerprint
             className="h-8 w-8 text-background/80"
             strokeWidth={1.5}
           />
           <h2 className="mt-8 max-w-xs font-serif text-3xl leading-tight">
-            Xác định người tham gia khảo sát
+            Thông tin người tham gia
           </h2>
           <p className="mt-4 max-w-sm text-sm leading-6 text-background/70">
-            Vui lòng điền đầy đủ thông tin theo yêu cầu để bắt đầu tiến hành trả
-            lời
+            Hoàn thành một biểu mẫu duy nhất trước khi bắt đầu bài khảo sát AUT.
           </p>
 
           <div className="mt-8 border-t border-background/20 pt-5">
             <div className="flex gap-3 text-sm leading-6 text-background/75">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
-              <p></p>
+              <p>
+                Email chỉ được lưu dưới dạng mã tra cứu và bản che một phần.
+                Nhóm sử dụng AI phục vụ thống kê nghiên cứu.
+              </p>
             </div>
           </div>
         </div>
 
-        {step === "EMAIL" ? (
-          <form onSubmit={handleEmailSubmit} className="p-7 lg:p-9">
-            <div className="max-w-xl">
-              <p className="text-xs text-muted-foreground">Bước 1</p>
-              <h3 className="mt-2 font-serif text-2xl">
-                Nhận diện người tham gia
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Nếu email đã từng tham gia, bạn sẽ vào bài ngay. Email mới sẽ
-                cần bổ sung hồ sơ nghiên cứu một lần.
-              </p>
+        <form onSubmit={handleProfileSubmit} className="p-7 lg:p-9">
+          <div className="max-w-2xl">
+            <h3 className="font-serif text-2xl">Hồ sơ khảo sát</h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Điền thông tin và chọn mức sử dụng AI phù hợp nhất với bạn.
+            </p>
 
-              <div className="mt-8 space-y-2">
-                <label
-                  htmlFor="participant-email"
-                  className="text-sm font-medium"
-                >
-                  Email
-                </label>
-                <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    id="participant-email"
-                    type="email"
-                    inputMode="email"
-                    autoComplete="email"
-                    required
-                    autoFocus
-                    maxLength={320}
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="ban@example.com"
-                    className={`${fieldClassName} pl-10`}
-                  />
-                </div>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Chưa có OTP nên email này là thông tin tự khai, chưa phải danh
-                  tính đã xác thực.
-                </p>
-              </div>
-
-              {error && (
-                <p
-                  className="mt-5 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
-                  role="alert"
-                >
-                  {error}
-                </p>
-              )}
-
-              <div className="mt-8 flex justify-end border-t border-border pt-6">
-                <Button
-                  type="submit"
-                  size="lg"
-                  disabled={!emailReady || submitting}
-                  className="sm:min-w-48"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" /> Đang kiểm tra
-                    </>
-                  ) : (
-                    <>
-                      Tiếp tục <ArrowRight className="h-4 w-4" />
-                    </>
-                  )}
-                </Button>
+            <div className="mt-7 space-y-2">
+              <label htmlFor="participant-email" className="text-sm font-medium">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  id="participant-email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  required
+                  autoFocus
+                  maxLength={320}
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="ban@example.com"
+                  className={`${fieldClassName} pl-10`}
+                />
               </div>
             </div>
-          </form>
-        ) : (
-          <form onSubmit={handleProfileSubmit} className="p-7 lg:p-9">
-            <div className="max-w-xl">
-              <p className="text-xs text-muted-foreground">Bước 2 trong 2</p>
-              <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-serif text-2xl">
-                    Bổ sung hồ sơ nghiên cứu
-                  </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {email.trim().toLowerCase()}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep("EMAIL");
-                    setError(null);
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" /> Đổi email
-                </button>
-              </div>
 
               <div className="mt-7 space-y-2">
                 <label
@@ -231,7 +165,6 @@ export default function ParticipantProfileForm({
                   required
                   minLength={2}
                   maxLength={255}
-                  autoFocus
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
                   placeholder="Ví dụ: Nguyễn Minh Anh"
@@ -311,6 +244,43 @@ export default function ParticipantProfileForm({
                 </div>
               </fieldset>
 
+              <fieldset className="mt-7 border-t border-border pt-6">
+                <legend className="pr-3 text-sm font-medium">
+                  Mức độ sử dụng AI trong học tập hoặc công việc
+                </legend>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {AI_USAGE_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      className={`cursor-pointer rounded-xl border p-4 transition-colors focus-within:ring-2 focus-within:ring-ring ${
+                        aiUsageGroup === option.value
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-input bg-background hover:bg-muted/50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="participant-ai-usage"
+                        value={option.value}
+                        checked={aiUsageGroup === option.value}
+                        onChange={() => setAiUsageGroup(option.value)}
+                        className="sr-only"
+                      />
+                      <span className="text-sm font-semibold">{option.label}</span>
+                      <span
+                        className={`mt-1.5 block text-xs leading-5 ${
+                          aiUsageGroup === option.value
+                            ? "text-background/75"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {option.description}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
               {error && (
                 <p
                   className="mt-5 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
@@ -343,9 +313,8 @@ export default function ParticipantProfileForm({
                   )}
                 </Button>
               </div>
-            </div>
-          </form>
-        )}
+          </div>
+        </form>
       </div>
     </section>
   );

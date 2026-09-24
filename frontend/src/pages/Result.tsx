@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowRight, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { api, cacheResponse, readCachedResponse } from "@/lib/api";
+import { api, readCachedResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { IdeaStatus, ScoreResponse } from "@/lib/types";
 
@@ -56,41 +56,6 @@ export default function Result() {
         setLoading(false);
       });
   }, [navigatedResponse, responseId]);
-
-  useEffect(() => {
-    if (
-      !responseId ||
-      !resp ||
-      !["PENDING_REVIEW", "COLLECTING"].includes(resp.scoring_status)
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    let requesting = false;
-    const refresh = async () => {
-      if (requesting) return;
-      requesting = true;
-      try {
-        const next = await api.getResponse(responseId);
-        if (!cancelled) {
-          setResp(next);
-          cacheResponse(next);
-        }
-      } catch {
-        // Giữ kết quả hiện có khi mạng tạm gián đoạn; lần polling sau sẽ thử lại.
-      } finally {
-        requesting = false;
-      }
-    };
-
-    void refresh();
-    const interval = window.setInterval(refresh, 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [responseId, resp?.scoring_status]);
 
   if (loading) {
     return (

@@ -12,6 +12,11 @@ const GENDER_LABELS: Record<string, string> = {
   prefer_not_to_say: "Không trả lời",
 };
 
+const AI_GROUP_LABELS: Record<string, string> = {
+  LOW: "Ít sử dụng AI",
+  HIGH: "Sử dụng AI nhiều",
+};
+
 function fmtDate(iso: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -74,6 +79,9 @@ export default function AdminParticipantDetail() {
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             Email: {detail.participant.email_masked || "Chưa liên kết email"} · {detail.participant.email_verified_at ? "Đã xác thực" : "Chưa xác thực"}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Nhóm nghiên cứu: {detail.participant.ai_usage_group ? AI_GROUP_LABELS[detail.participant.ai_usage_group] : "Chưa phân nhóm"}
           </p>
           <p className="mt-1 font-mono text-xs text-muted-foreground">
             Tham gia {fmtDate(detail.participant.created_at)}

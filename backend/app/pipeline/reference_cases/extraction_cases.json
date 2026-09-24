@@ -1,0 +1,103 @@
+[
+  {
+    "id": "EX-VALID-HEAT-01",
+    "stage": "extraction",
+    "item": "Gạch",
+    "input": {
+      "responses": ["Nung viên gạch rồi đặt dưới chân để sưởi"]
+    },
+    "expected": {
+      "ideas": [
+        {
+          "line_index": 0,
+          "status": "VALID",
+          "normalized": "Dùng gạch nóng để giữ ấm",
+          "uses_target_object": true,
+          "functional_signature": {
+            "goal": "giữ ấm",
+            "object_role": "vật tích và truyền nhiệt",
+            "mechanism": "hấp thụ rồi giải phóng nhiệt"
+          }
+        }
+      ]
+    },
+    "principle": "Câu ngắn vẫn hợp lệ khi mô tả được mục đích, vai trò của đúng đồ vật và cơ chế vật lý."
+  },
+  {
+    "id": "EX-INVALID-OBJECT-01",
+    "stage": "extraction",
+    "item": "Dây thừng",
+    "input": {
+      "responses": ["Gấp giấy báo để bọc quà"]
+    },
+    "expected": {
+      "ideas": [
+        {
+          "line_index": 0,
+          "status": "INVALID",
+          "uses_target_object": false,
+          "object_used": "Giấy báo",
+          "reason": "Response sử dụng đồ vật khác, không nêu vai trò của dây thừng."
+        }
+      ]
+    },
+    "principle": "Không suy diễn rằng đồ vật mục tiêu tham gia nếu response chỉ mô tả một đồ vật khác."
+  },
+  {
+    "id": "EX-DUPLICATE-01",
+    "stage": "extraction",
+    "item": "Chai nhựa",
+    "input": {
+      "responses": ["Đục lỗ nắp chai để tưới cây", "Làm bình tưới hoa bằng chai có lỗ nhỏ"]
+    },
+    "expected": {
+      "ideas": [
+        {
+          "line_index": 0,
+          "status": "VALID",
+          "functional_signature": {
+            "goal": "cấp nước cho cây",
+            "object_role": "bình chứa và phân phối nước",
+            "mechanism": "nước chảy qua lỗ nhỏ"
+          }
+        },
+        {
+          "line_index": 1,
+          "status": "DUPLICATE",
+          "duplicate_of_index": 0
+        }
+      ]
+    },
+    "principle": "Hai cách diễn đạt có cùng mục đích, vai trò và cơ chế trong một lượt chỉ được tính một ý."
+  },
+  {
+    "id": "EX-NOT-DUPLICATE-01",
+    "stage": "extraction",
+    "item": "Đũa",
+    "input": {
+      "responses": ["Dùng đũa làm nẹp ngón tay", "Dùng đũa làm que dựng cây non"]
+    },
+    "expected": {
+      "ideas": [
+        {"line_index": 0, "status": "VALID"},
+        {"line_index": 1, "status": "VALID"}
+      ]
+    },
+    "principle": "Cùng dùng đồ vật làm thanh đỡ nhưng khác mục đích và hệ vật được cố định thì có thể là hai ý hợp lệ, không tự động coi là trùng."
+  },
+  {
+    "id": "EX-VALID-COMMON-01",
+    "stage": "extraction",
+    "item": "Kẹp giấy",
+    "input": {
+      "responses": ["Kẹp các tờ hóa đơn lại với nhau"]
+    },
+    "expected": {
+      "ideas": [
+        {"line_index": 0, "status": "VALID", "uses_target_object": true}
+      ]
+    },
+    "principle": "Công dụng thông thường vẫn VALID; độ phổ biến chỉ liên quan Originality, không phải adequacy."
+  }
+]
+

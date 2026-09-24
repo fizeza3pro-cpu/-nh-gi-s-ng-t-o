@@ -21,7 +21,7 @@ import type {
 const BASE = "/api";
 const TOKEN_KEY = "aut:token";
 const PARTICIPANT_ID_KEY = "aut:participant-id";
-const PARTICIPANT_PROFILE_KEY = "aut:participant-email-profile:v2";
+const PARTICIPANT_PROFILE_KEY = "aut:participant-email-profile:v3";
 export const PARTICIPANT_PROFILE_CHANGED = "aut:participant-profile-changed";
 
 // --- Quản lý token (localStorage) ---
@@ -51,7 +51,8 @@ export function getParticipantIdentity(): ParticipantIdentity | null {
   if (!participantId || !raw) return null;
   try {
     const participant = JSON.parse(raw) as ParticipantIdentity;
-    return participant.id === participantId ? participant : null;
+    const hasAiGroup = participant.ai_usage_group === "LOW" || participant.ai_usage_group === "HIGH";
+    return participant.id === participantId && hasAiGroup ? participant : null;
   } catch {
     return null;
   }
@@ -137,19 +138,24 @@ export const api = {
   },
 
   createParticipant: async (email: string, profile: ParticipantProfile) => {
+    const participantId = getParticipantId();
     const participant = await fetch(`${BASE}/participants`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, ...profile }),
+      body: JSON.stringify({
+        email,
+        ...profile,
+        ...(participantId ? { participant_id: participantId } : {}),
+      }),
     }).then(handle<ParticipantIdentity>);
     return rememberParticipant(participant);
   },
 
-  score: (itemId: string, rawInput: string) =>
+  score: (itemId: string, responses: string[]) =>
     fetch(`${BASE}/score`, {
       method: "POST",
       headers: participantHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ item_id: itemId, raw_input: rawInput }),
+      body: JSON.stringify({ item_id: itemId, responses }),
     }).then(handle<ScoreResponse>),
 
   listResponses: () =>
@@ -170,6 +176,31 @@ export const api = {
     fetch(`${BASE}/admin/dashboard`, { headers: authHeaders() }).then(
       handle<AdminDashboardStats>,
     ),
+
+  adminDownloadResponsesCsv: async () => {
+    const response = await fetch(`${BASE}/admin/exports/responses.csv`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      let message = `Lỗi ${response.status}`;
+      try {
+        const body = (await response.json()) as { detail?: string };
+        message = body.detail || message;
+      } catch {
+        // Phản hồi lỗi không phải JSON.
+      }
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `aut-ket-qua-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  },
 
   adminListParticipants: () =>
     fetch(`${BASE}/admin/participants`, { headers: authHeaders() }).then(

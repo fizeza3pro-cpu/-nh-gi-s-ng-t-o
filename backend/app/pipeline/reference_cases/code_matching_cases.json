@@ -1,0 +1,83 @@
+[
+  {
+    "id": "CU-MATCH-PARAPHRASE-01",
+    "stage": "curator",
+    "item": "Gạch",
+    "input": {
+      "response": "Dùng viên gạch đã hơ nóng để làm ấm giường",
+      "functional_signature": {
+        "goal": "giữ ấm",
+        "object_role": "vật tích nhiệt",
+        "mechanism": "hấp thụ và truyền nhiệt"
+      },
+      "candidate_codes": [
+        {
+          "id": "EXAMPLE-HEAT",
+          "name": "Tích và truyền nhiệt",
+          "definition": "Dùng gạch như vật tích và truyền nhiệt để điều chỉnh nhiệt độ"
+        }
+      ]
+    },
+    "expected": {
+      "decision": "MATCH_EXISTING",
+      "existing_code_id": "EXAMPLE-HEAT"
+    },
+    "principle": "Đổi đối tượng được sưởi từ chân sang giường không tạo chức năng mới."
+  },
+  {
+    "id": "CU-MATCH-CONTEXT-01",
+    "stage": "curator",
+    "item": "Dây thừng",
+    "input": {
+      "response": "Căng dây thừng trong phòng để phơi áo mưa",
+      "candidate_codes": [
+        {
+          "id": "EXAMPLE-SUSPEND",
+          "name": "Tạo đường treo chịu lực",
+          "definition": "Dùng dây thừng căng giữa các điểm để treo vật"
+        }
+      ]
+    },
+    "expected": {
+      "decision": "MATCH_EXISTING",
+      "existing_code_id": "EXAMPLE-SUSPEND"
+    },
+    "principle": "Khác địa điểm hoặc vật được treo chỉ là target/context khi cơ chế chịu lực không đổi."
+  },
+  {
+    "id": "CU-OUT-CORE-FUNCTION-01",
+    "stage": "curator",
+    "item": "Chai nhựa",
+    "input": {
+      "response": "Thổi ngang miệng chai để tạo nốt nhạc",
+      "candidate_codes": [
+        {
+          "id": "EXAMPLE-CONTAINER",
+          "name": "Vật chứa",
+          "definition": "Dùng thể tích bên trong chai để chứa vật chất"
+        }
+      ]
+    },
+    "expected": {
+      "decision": "OUT_OF_CODEBOOK"
+    },
+    "principle": "Tạo cộng hưởng âm là cơ chế và mục đích khác cốt lõi với chứa vật chất. Curator chỉ báo ngoài codebook, chưa tự tạo code."
+  },
+  {
+    "id": "CU-UNCERTAIN-AMBIGUOUS-01",
+    "stage": "curator",
+    "item": "Đũa",
+    "input": {
+      "response": "Dùng để giữ đồ vật",
+      "candidate_codes": [
+        {"id": "EXAMPLE-CLAMP", "name": "Kẹp giữ", "definition": "Ép hai phía để giữ vật"},
+        {"id": "EXAMPLE-PROP", "name": "Chống đỡ", "definition": "Chịu lực để đỡ vật"}
+      ]
+    },
+    "expected": {
+      "decision": "UNCERTAIN"
+    },
+    "principle": "Không đủ thông tin để xác định cơ chế kẹp hay chống đỡ; không được đoán theo confidence."
+  }
+]
+

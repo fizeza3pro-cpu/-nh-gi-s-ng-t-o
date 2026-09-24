@@ -27,8 +27,10 @@ class _Completions:
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls = 0
+        self.requests = []
 
-    def create(self, **_kwargs):
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
         r = self._responses[min(self.calls, len(self._responses) - 1)]
         self.calls += 1
         if isinstance(r, Exception):

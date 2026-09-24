@@ -40,7 +40,7 @@ def identify_participant(
         select(ParticipantModel).where(ParticipantModel.email_hash == email_hash)
     )
     if participant is not None:
-        if not participant.full_name:
+        if not participant.full_name or not participant.ai_usage_group:
             return ParticipantIdentifyResult(profile_required=True)
         return ParticipantIdentifyResult(
             profile_required=False,
@@ -54,7 +54,7 @@ def identify_participant(
             legacy.email_masked = _mask_email(payload.email)
             db.commit()
             db.refresh(legacy)
-            if not legacy.full_name:
+            if not legacy.full_name or not legacy.ai_usage_group:
                 return ParticipantIdentifyResult(profile_required=True)
             return ParticipantIdentifyResult(
                 profile_required=False,
@@ -71,15 +71,14 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         select(ParticipantModel).where(ParticipantModel.email_hash == email_hash)
     )
     if existing is not None:
-        # Hồ sơ tạo trước migration chưa có họ tên: cho phép bổ sung đúng một lần,
-        # đồng thời chỉ lấp các trường nhân khẩu học còn thiếu.
-        if not existing.full_name:
-            existing.full_name = payload.full_name
-            existing.age = existing.age if existing.age is not None else payload.age
-            existing.gender = existing.gender or payload.gender
-            existing.occupation = existing.occupation or payload.occupation
-            db.commit()
-            db.refresh(existing)
+        # Biểu mẫu một bước đồng thời là nơi người tham gia xác nhận lại hồ sơ.
+        existing.full_name = payload.full_name
+        existing.age = payload.age
+        existing.gender = payload.gender
+        existing.occupation = payload.occupation
+        existing.ai_usage_group = payload.ai_usage_group
+        db.commit()
+        db.refresh(existing)
         return ParticipantIdentityOut.model_validate(existing)
 
     participant_id = str(payload.participant_id or uuid.uuid4())
@@ -93,9 +92,10 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         existing_id.email_hash = email_hash
         existing_id.email_masked = _mask_email(payload.email)
         existing_id.full_name = payload.full_name
-        existing_id.age = existing_id.age if existing_id.age is not None else payload.age
-        existing_id.gender = existing_id.gender or payload.gender
-        existing_id.occupation = existing_id.occupation or payload.occupation
+        existing_id.age = payload.age
+        existing_id.gender = payload.gender
+        existing_id.occupation = payload.occupation
+        existing_id.ai_usage_group = payload.ai_usage_group
         db.commit()
         db.refresh(existing_id)
         return ParticipantIdentityOut.model_validate(existing_id)
@@ -108,6 +108,7 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         age=payload.age,
         gender=payload.gender,
         occupation=payload.occupation,
+        ai_usage_group=payload.ai_usage_group,
     )
     db.add(participant)
     db.commit()

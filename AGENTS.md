@@ -22,7 +22,7 @@ khác thường càng tốt. Hệ thống chấm 4 chỉ số kinh điển của
 | **Fluency**     | Số lượng ý tưởng    | Đếm ý hợp lệ (status = VALID)                                    |
 | **Flexibility** | Độ đa dạng danh mục | Đếm số `code` (danh mục ngữ nghĩa) khác nhau                     |
 | **Originality** | Độ hiếm/bất ngờ     | Công thức 0–2 mỗi ý, dựa trên tỷ lệ ý hợp lệ của code trong mẫu  |
-| **Elaboration** | Độ chi tiết         | LLM chấm 1–5 mỗi ý                                               |
+| **Elaboration** | Độ chi tiết         | Backend tính 1–5 từ 4 nhóm bằng chứng; LLM chỉ trích dẫn chứng    |
 
 ### Pipeline động (phần lõi, KHÔNG được đơn giản hoá khi refactor chỗ khác)
 
@@ -49,7 +49,7 @@ Lý do tách 2 tầng: để việc "hiểu ý người dùng viết gì" (mappi
 thế nào" (scoring) — tránh nhiễu do cách hành văn tự do, sai chính tả, viết tắt. **Khi sửa bug hay
 thêm tính năng, không gộp 2 tầng này lại với nhau.**
 
-`app/pipeline/llm.py` là lớp gọi LLM qua OpenRouter, có `MOCK_MODE` để test không tốn API.
+`app/pipeline/llm.py` là lớp gọi BytePlus ModelArk bằng giao thức tương thích OpenAI, có `MOCK_MODE` để test không tốn API.
 `codebook_service.py` tạo snapshot tần suất bất biến theo từng đồ vật để tính Originality có thể
 tái lập; code mới được Curator tự động nhận hoặc loại và admin có quyền điều chỉnh sau.
 
@@ -62,7 +62,7 @@ tái lập; code mới được Curator tự động nhận hoặc loại và ad
 | Backend  | Python 3.11, FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2, `uv` (package manager)                    |
 | DB       | PostgreSQL (`psycopg`)                                                                                |
 | Auth     | JWT (`pyjwt`) + `bcrypt` — **đang refactor, xem mục 5**                                               |
-| LLM      | OpenAI SDK trỏ vào OpenRouter, model cấu hình qua `.env`                                              |
+| LLM      | OpenAI SDK trỏ vào BytePlus ModelArk, model cấu hình qua `.env`                                      |
 | Frontend | React 18 + TypeScript, Vite, React Router 6, Tailwind CSS, shadcn/ui-style components, `lucide-react` |
 | Deploy   | Backend → Render (`render.yaml`), Frontend → Vercel (`vercel.json`, rewrite `/api/*` sang Render)     |
 
@@ -175,7 +175,9 @@ render.yaml / vercel.json           # config deploy
 Backend cần `.env` (không có sẵn trong repo, tự tạo) với tối thiểu:
 
 ```
-OPENROUTER_API_KEY=...
+BYTEPLUS_API_KEY=...
+BYTEPLUS_BASE_URL=https://ark.ap-southeast.bytepluses.com/api/v3
+BYTEPLUS_MODEL=deepseek-v4-flash-260731
 DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/aut
 JWT_SECRET=...
 PARTICIPANT_EMAIL_SECRET=...  # nên cố định; đổi giá trị sẽ làm email cũ không tra cứu được

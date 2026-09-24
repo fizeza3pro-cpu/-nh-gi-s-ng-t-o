@@ -51,6 +51,7 @@ class ParticipantCreate(ParticipantIdentify):
     age: int = Field(ge=10, le=100)
     gender: Literal["male", "female", "other", "prefer_not_to_say"]
     occupation: str = Field(min_length=2, max_length=255)
+    ai_usage_group: Literal["LOW", "HIGH"]
 
     @field_validator("full_name", "occupation")
     @classmethod
@@ -70,6 +71,7 @@ class ParticipantOut(BaseModel):
     age: int | None
     gender: str | None
     occupation: str | None
+    ai_usage_group: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -82,6 +84,7 @@ class ParticipantIdentityOut(BaseModel):
     full_name: str | None
     email_masked: str | None
     email_verified_at: datetime | None
+    ai_usage_group: str | None
 
     model_config = {"from_attributes": True}
 
@@ -100,6 +103,24 @@ class Item(BaseModel):
 
 
 
+class FunctionalSignature(BaseModel):
+    """Mô tả chức năng chuẩn, độc lập với cách diễn đạt bề mặt của response."""
+
+    goal: str = ""
+    object_role: str = ""
+    mechanism: str = ""
+    transformation: str = ""
+    target: str = ""
+    context: str = ""
+
+    @field_validator(
+        "goal", "object_role", "mechanism", "transformation", "target", "context", mode="before"
+    )
+    @classmethod
+    def normalize_nullable_text(cls, value):
+        return "" if value is None else " ".join(str(value).split())
+
+
 class MappedIdea(BaseModel):
     original: str
     normalized: str
@@ -107,6 +128,9 @@ class MappedIdea(BaseModel):
     status: Literal["VALID", "INVALID", "DUPLICATE"]
     is_valid: bool  # suy từ status, không tin trực tiếp trường do LLM trả về
     reason: str = ""
+    line_index: int = 0
+    functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
+    curator_decision: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -122,10 +146,13 @@ class MappingResult(BaseModel):
 
 
 class PerIdeaScore(BaseModel):
+    original: str = ""
     normalized: str
     code: str
     originality: int = Field(ge=0, le=2)
     elaboration: int = Field(ge=1, le=5)
+    meaningful_word_count: int = Field(default=0, ge=0)
+    elaboration_details: dict[str, str] = Field(default_factory=dict)
     note: str = ""
 
 
@@ -141,7 +168,21 @@ class ScoringResult(BaseModel):
 
 class ScoreRequest(BaseModel):
     item_id: str
-    raw_input: str
+    responses: list[str] = Field(default_factory=list, max_length=10)
+    raw_input: str = ""
+
+    @model_validator(mode="after")
+    def normalize_responses(self):
+        """Nhận giao diện 10 dòng mới và vẫn đọc request cũ trong thời gian chuyển đổi."""
+        values = self.responses or self.raw_input.splitlines()
+        cleaned = [" ".join(value.split()) for value in values if value and value.strip()]
+        if not cleaned:
+            raise ValueError("Cần nhập ít nhất một ý tưởng.")
+        if len(cleaned) > 10:
+            raise ValueError("Mỗi lượt chỉ được gửi tối đa 10 ý tưởng.")
+        self.responses = cleaned
+        self.raw_input = "\n".join(cleaned)
+        return self
 
 
 class ScoreResponse(BaseModel):
@@ -178,6 +219,9 @@ class ExtractedIdea(BaseModel):
     object_used: str = ""
     target_object_role: str = ""
     reason: str = ""
+    line_index: int = Field(default=0, ge=0, le=9)
+    duplicate_of_index: int | None = Field(default=None, ge=0, le=9)
+    functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
 
     @field_validator("object_used", "target_object_role", "reason", mode="before")
     @classmethod
@@ -192,7 +236,9 @@ class IdeaExtractionResult(BaseModel):
 
 class CuratorDecision(BaseModel):
     idea_index: int = Field(ge=0)
-    decision: Literal["MATCH_EXISTING", "CREATE_NEW", "INVALID"]
+    decision: Literal[
+        "MATCH_EXISTING", "OUT_OF_CODEBOOK", "CREATE_NEW", "INVALID", "UNCERTAIN"
+    ]
     existing_code_id: str | None = None
     code_name: str | None = None
     code_description: str = ""
@@ -200,6 +246,14 @@ class CuratorDecision(BaseModel):
     target_object_role: str = ""
     confidence: float = Field(ge=0, le=1)
     reason: str = ""
+    functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
+    existing_code_evaluations: list[dict] = Field(default_factory=list)
+    inclusion_rules: list[str] = Field(default_factory=list)
+    exclusion_rules: list[str] = Field(default_factory=list)
+    positive_examples: list[str] = Field(default_factory=list)
+    nearest_code_ids: list[str] = Field(default_factory=list)
+    policy_gates: dict[str, bool] = Field(default_factory=dict)
+    challenge_reason: str = ""
 
     @field_validator("code_description", "target_object_role", "reason", mode="before")
     @classmethod
@@ -219,9 +273,10 @@ class AdminItemBreakdown(BaseModel):
     response_count: int
     calibration_status: str = "COLLECTING"
     qualifying_response_count: int = 0
+    qualifying_idea_count: int = 0
     qualifying_participant_count: int = 0
     scoring_min_participants: int
-    scoring_min_responses: int
+    scoring_min_ideas: int
     accepted_code_count: int = 0
     uncertain_code_count: int = 0
     rejected_code_count: int = 0
@@ -240,6 +295,17 @@ class AdminScoringStatusCounts(BaseModel):
     excluded: int = 0
 
 
+class AdminAiGroupStats(BaseModel):
+    group: Literal["LOW", "HIGH"]
+    participant_count: int = 0
+    response_count: int = 0
+    final_response_count: int = 0
+    mean_fluency: float | None = None
+    mean_flexibility: float | None = None
+    mean_originality: float | None = None
+    mean_elaboration: float | None = None
+
+
 class AdminDashboardStats(BaseModel):
     total_participants: int
     total_responses: int
@@ -253,6 +319,7 @@ class AdminDashboardStats(BaseModel):
     daily_stats: list[AdminDailyStat]
     by_item: list[AdminItemBreakdown]
     recent_responses: list["AdminRecentResponse"]
+    ai_group_stats: list[AdminAiGroupStats]
 
 
 class AdminParticipantSummary(BaseModel):
@@ -263,6 +330,7 @@ class AdminParticipantSummary(BaseModel):
     age: int | None
     gender: str | None
     occupation: str | None
+    ai_usage_group: str | None
     created_at: datetime
     response_count: int
     last_submitted_at: str | None = None
@@ -309,6 +377,11 @@ class AdminCodebookCode(BaseModel):
     contributing_idea_count: int
     frequency: float
     created_at: datetime
+    functional_key: str = ""
+    functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
+    inclusion_rules: list[str] = Field(default_factory=list)
+    exclusion_rules: list[str] = Field(default_factory=list)
+    positive_examples: list[str] = Field(default_factory=list)
 
 
 class AdminCodeOption(BaseModel):
@@ -350,6 +423,8 @@ class AdminCuratorDecisionIdea(BaseModel):
     confidence: float
     reason: str
     created_at: datetime
+    functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
+    mapping_evidence: dict = Field(default_factory=dict)
 
 
 class AdminCuratorAudit(BaseModel):
@@ -372,7 +447,7 @@ class AdminCodebookOverview(BaseModel):
     qualifying_participant_count: int
     contributing_idea_count: int
     scoring_min_participants: int
-    scoring_min_responses: int
+    scoring_min_ideas: int
     pending_idea_count: int
     extraction_invalid_count: int
     extraction_duplicate_count: int

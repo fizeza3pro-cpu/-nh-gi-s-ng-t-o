@@ -1,5 +1,4 @@
 
-<<<<<<< HEAD
 Làm theo đúng thứ tự từ trên xuống. Ứng dụng gồm **2 phần chạy song song**:
 backend (FastAPI, cổng 8000) và frontend (React/Vite, cổng 5173). Vì vậy bạn
 cần **mở 2 cửa sổ terminal**.
@@ -44,8 +43,9 @@ uv run uvicorn app.main:app --reload
   ```
 - **Giữ nguyên terminal này** — đừng đóng, đừng bấm Ctrl+C. Backend phải chạy liên tục.
 
-Kiểm tra: mở trình duyệt vào http://localhost:8000/api/health
-→ thấy `{"status":"ok","model":"gpt-4o"}` là đạt.
+Kiểm tra: mở trình duyệt vào http://localhost:8000/api/health. Trường `provider` và `model` cho
+biết backend đang dùng BytePlus, Groq hay Cloudflare; `reference_cases_enabled` cho biết bộ án lệ có được đưa
+vào prompt hay không.
 
 ---
 
@@ -106,20 +106,79 @@ Backend đọc cấu hình từ file `backend/.env`. Mở file đó bằng trìn
 MOCK_MODE=true
 ```
 
-App vẫn chạy đủ luồng nhưng điểm là mẫu, **không gọi OpenAI, không tốn tiền**.
+App vẫn chạy đủ luồng nhưng điểm là mẫu, **không gọi BytePlus, không tốn tiền**.
 Phù hợp để xem giao diện.
 
-### Cách B — Chấm bằng AI thật (GPT-4o)
+### Cách B — Chấm bằng AI thật qua BytePlus ModelArk
 
 Đặt trong `backend/.env`:
 
 ```
-OPENAI_API_KEY=sk-...key-cua-ban...
+LLM_PROVIDER=byteplus
+BYTEPLUS_API_KEY=thay-bang-api-key-cua-ban
+BYTEPLUS_BASE_URL=https://ark.ap-southeast.bytepluses.com/api/v3
+BYTEPLUS_MODEL=deepseek-v4-flash-260731
 MOCK_MODE=false
 ```
 
-Sau khi lưu file, backend ở terminal 1 sẽ **tự nạp lại** (nhờ `--reload`). Lần
-nộp bài tiếp theo sẽ chấm bằng GPT-4o thật.
+`BYTEPLUS_MODEL` có thể là model name ở trên hoặc inference endpoint ID được
+BytePlus hiển thị trong phần **Quick API Access**. API key, model/endpoint và
+`BYTEPLUS_BASE_URL` phải thuộc cùng một region. Sau khi lưu file, hãy khởi động lại backend.
+
+### Cách C — Chấm bằng model trên Groq
+
+Đặt trong `backend/.env`:
+
+```
+LLM_PROVIDER=groq
+GROQ_API_KEY=thay-bang-api-key-groq
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_REASONING_EFFORT=low
+MOCK_MODE=false
+```
+
+### Cách D — Chấm bằng Cloudflare Workers AI
+
+Tạo Workers AI API Token và lấy Account ID trong Cloudflare Dashboard, rồi đặt:
+
+```
+LLM_PROVIDER=cloudflare
+CLOUDFLARE_API_TOKEN=thay-bang-workers-ai-api-token
+CLOUDFLARE_ACCOUNT_ID=thay-bang-cloudflare-account-id
+CLOUDFLARE_MODEL=@cf/meta/llama-3.3-70b-instruct-fp8-fast
+CLOUDFLARE_MAX_TOKENS=4096
+MOCK_MODE=false
+```
+
+Model mặc định trên hỗ trợ JSON Mode. Có thể cấu hình riêng Curator bằng
+`CLOUDFLARE_CODE_CURATOR_MODEL`; nếu bỏ trống, toàn bộ pipeline dùng `CLOUDFLARE_MODEL`.
+
+Đổi lại `LLM_PROVIDER=byteplus` để quay về BytePlus hoặc `LLM_PROVIDER=groq` để dùng Groq.
+Không cần sửa source code. Extraction,
+Curator/Challenger và Scoring đều dùng provider đang chọn; metadata của mỗi lượt lưu cả provider
+và model để đối chiếu.
+
+`LLM_PROVIDER` là bắt buộc; backend sẽ báo lỗi cấu hình nếu thiếu thay vì tự chọn BytePlus.
+Sau khi đổi provider, cần lưu `backend/.env` và khởi động lại backend. Có thể kiểm tra cấu hình
+đang thực sự được nạp tại `GET /api/health`; `provider` và `model` phải khớp cấu hình đã chọn.
+Trên Render, đổi `LLM_PROVIDER` trong **Environment** rồi redeploy; chỉ thêm API key/token không
+tự chuyển provider.
+
+### Bật hoặc tắt dataset tham khảo
+
+```
+REFERENCE_CASES_ENABLED=true
+REFERENCE_CASES_LIMIT=2
+```
+
+Dataset nằm tại `backend/app/pipeline/reference_cases/`. Đây là các án lệ provisional giúp AI áp
+dụng quy tắc, không phải codebook và không tham gia tính điểm. Đặt `false` để A/B test cùng model
+nhưng không cung cấp ví dụ tham khảo.
+
+Mặc định chỉ lấy 2 án lệ gần nhất cho mỗi tầng và gửi JSON nén để giảm token. Với Groq GPT-OSS,
+`GROQ_REASONING_EFFORT=low` giảm token suy luận; chỉ tăng lên sau khi đối chiếu dataset gán nhãn
+cho thấy độ chính xác chưa đạt. Token được theo dõi trực tiếp trên dashboard của provider.
 
 > Nếu chưa có file `.env`, tạo từ mẫu: vào thư mục `backend`, sao chép
 > `.env.example` thành `.env` rồi điền key.
@@ -140,6 +199,4 @@ Về mỗi terminal (1 và 2) bấm **Ctrl + C**. Đóng 2 cửa sổ là xong.
 | `uv: command not found`                                   | Chưa cài uv. Chạy `pip install uv` (Bước 0).                                           |
 | `npm: command not found`                                  | Chưa cài Node.js. Cài lại (Bước 0).                                                    |
 | Cổng 8000 hoặc 5173 báo "address already in use"          | Đã có tiến trình cũ chiếm cổng. Đóng terminal cũ, hoặc khởi động lại máy rồi chạy lại. |
-| Nộp bài báo lỗi khi `MOCK_MODE=false`                     | Sai/thiếu `OPENAI_API_KEY` trong `backend/.env`, hoặc key hết hạn mức.                 |
-=======
->>>>>>> be79ab9818d0bb564329d76515b25d60e4f28afa
+| Nộp bài báo lỗi khi `MOCK_MODE=false`                     | Kiểm tra `LLM_PROVIDER`, thông tin xác thực và model tương ứng của BytePlus/Groq/Cloudflare. |
