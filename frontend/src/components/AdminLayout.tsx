@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   Bell,
@@ -134,6 +134,34 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const mobileCloseRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    setMobileOpen(false);
+    setMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileOpen && !menuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileOpen(false);
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen, mobileOpen]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    mobileCloseRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileOpen]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -143,6 +171,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
+            aria-expanded={mobileOpen}
+            aria-controls="admin-mobile-sidebar"
             className="rounded-md p-2 hover:bg-muted md:hidden"
             aria-label="Mở menu"
           >
@@ -168,6 +198,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             type="button"
             disabled
             title="Sắp có"
+            aria-label="Tìm kiếm — sắp có"
             className="hidden cursor-not-allowed rounded-md p-2 text-muted-foreground/50 sm:block"
           >
             <Search className="h-4.5 w-4.5" />
@@ -176,6 +207,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             type="button"
             disabled
             title="Sắp có"
+            aria-label="Thông báo — sắp có"
             className="relative hidden cursor-not-allowed rounded-md p-2 text-muted-foreground/50 sm:block"
           >
             <Bell className="h-4.5 w-4.5" />
@@ -185,6 +217,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              aria-controls="admin-account-menu"
               className="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 hover:bg-muted"
             >
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
@@ -199,13 +234,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             </button>
 
             {menuOpen && (
-              <div className="absolute right-0 top-full mt-2 w-48 rounded-lg border border-border bg-card p-1 shadow-md">
+              <div id="admin-account-menu" role="menu" className="absolute right-0 top-full mt-2 w-48 rounded-lg border border-border bg-card p-1 shadow-md">
                 <button
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
                     logout();
                   }}
+                  role="menuitem"
                   className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-foreground/80 hover:bg-muted"
                 >
                   <LogOut className="h-4 w-4" /> Đăng xuất
@@ -224,7 +260,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
         {/* Sidebar mobile (overlay) với hiệu ứng mượt mà */}
         <div
-          className={`fixed inset-0 z-40 md:hidden transition-all duration-300 ${
+          className={`fixed inset-0 z-40 md:hidden transition-[visibility] duration-300 ${
             mobileOpen ? "visible" : "invisible pointer-events-none"
           }`}
         >
@@ -238,12 +274,17 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
           {/* Thanh Menu trượt từ trái qua (Sidebar) */}
           <aside
+            id="admin-mobile-sidebar"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Điều hướng quản trị"
             className={`absolute left-0 top-0 flex h-full w-72 flex-col bg-background shadow-xl transition-transform duration-300 ease-in-out ${
               mobileOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
             <div className="flex justify-end p-2">
               <button
+                ref={mobileCloseRef}
                 type="button"
                 onClick={() => setMobileOpen(false)}
                 className="rounded-md p-2 hover:bg-muted"

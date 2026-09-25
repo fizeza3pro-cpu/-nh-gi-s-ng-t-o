@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, FileWarning, Fingerprint, Search, Sparkles } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -61,7 +61,7 @@ function CodeCard({ code }: { code: AdminCodebookCode }) {
   const [open, setOpen] = useState(false);
   return (
     <article className="border-b border-stone-200 last:border-b-0">
-      <button type="button" onClick={() => setOpen((value) => !value)} className="grid w-full gap-4 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8B5E34]/25 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_7rem_7rem] md:items-center md:px-7">
+      <button type="button" onClick={() => setOpen((value) => !value)} className="grid w-full gap-4 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-research/25 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_7rem_7rem] md:items-center md:px-7">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-serif text-xl text-stone-900">{code.name}</h3>
@@ -83,9 +83,9 @@ function CodeCard({ code }: { code: AdminCodebookCode }) {
         </div>
       </button>
       {open && (
-        <div className="mx-4 mb-4 grid gap-6 rounded-lg border border-[#8B5E34]/30 bg-white px-5 py-6 shadow-[0_12px_28px_-24px_rgba(56,39,30,0.65)] md:mx-6 md:grid-cols-2 md:px-6">
+        <div className="mx-4 mb-4 grid gap-6 rounded-lg border border-research/30 bg-white px-5 py-6 shadow-[0_12px_28px_-24px_rgba(56,39,30,0.65)] md:mx-6 md:grid-cols-2 md:px-6">
           <div>
-            <p className="mb-3 flex items-center gap-2 text-sm font-medium text-stone-900"><Fingerprint className="h-4 w-4 text-[#8B5E34]" /> Chữ ký chức năng</p>
+            <p className="mb-3 flex items-center gap-2 text-sm font-medium text-stone-900"><Fingerprint className="h-4 w-4 text-research" /> Chữ ký chức năng</p>
             <Signature value={code.functional_signature} />
             <p className="mt-5 text-xs leading-5 text-stone-500">Căn cứ tạo mã: {code.relevance_reason || "Không có mô tả bổ sung."}</p>
           </div>
@@ -131,27 +131,27 @@ function DecisionEvidence({ reason, value }: { reason: string; value: Record<str
           ))}
         </div>
       )}
-      {challengeReason && <p className="mt-3 border-l-2 border-[#8B5E34] pl-3 text-[11px] leading-5 text-stone-500">Phản biện: {challengeReason}</p>}
+      {challengeReason && <p className="mt-3 border-l-2 border-research pl-3 text-[11px] leading-5 text-stone-500">Phản biện: {challengeReason}</p>}
     </div>
   );
 }
 
-function Picker({ items, onSelect }: { items: AdminCodebookOverview[]; onSelect: (id: string) => void }) {
+function Picker({ items }: { items: AdminCodebookOverview[] }) {
   return (
     <div className="mx-auto max-w-6xl px-5 py-10">
       <header className="border-b border-stone-300 pb-8">
-        <p className="flex items-center gap-2 text-sm text-[#8B5E34]"><BookOpen className="h-4 w-4" /> Sổ mã chức năng</p>
+        <p className="flex items-center gap-2 text-sm text-research"><BookOpen className="h-4 w-4" /> Sổ mã chức năng</p>
         <h1 className="mt-3 max-w-3xl font-serif text-4xl leading-tight text-stone-900">Theo dõi cách AI hình thành category cho từng đồ vật</h1>
         <p className="mt-4 max-w-2xl text-sm leading-6 text-stone-500">Mã mới được kiểm tra và kích hoạt ngay khi người tham gia gửi bài. Trang này chỉ hiển thị căn cứ, không thay đổi các điểm đã tính.</p>
       </header>
       <div className="mt-8 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
         {items.map((item) => (
-          <button key={item.item_id} type="button" onClick={() => onSelect(item.item_id)} className="grid w-full gap-3 border-b border-stone-200 px-5 py-5 text-left last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8B5E34]/25 md:grid-cols-[minmax(0,1fr)_8rem_8rem_2rem] md:items-center">
+          <Link key={item.item_id} to={`/admin/codebooks/${item.item_id}`} className="grid w-full gap-3 border-b border-stone-200 px-5 py-5 text-left last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-research/25 md:grid-cols-[minmax(0,1fr)_8rem_8rem_2rem] md:items-center">
             <div><p className="font-serif text-xl text-stone-900">{item.item_name}</p><p className="mt-1 text-xs text-stone-400">{item.qualifying_response_count} lượt trả lời · {item.contributing_idea_count} ý đã mã hóa</p></div>
             <div><p className="text-xs text-stone-400">Mã hoạt động</p><p className="mt-1 font-mono text-lg text-stone-800">{item.accepted_code_count}</p></div>
             <div><p className="text-xs text-stone-400">Bị loại/trùng</p><p className="mt-1 font-mono text-lg text-stone-800">{item.extraction_invalid_count + item.extraction_duplicate_count}</p></div>
-            <ArrowRight className="hidden h-4 w-4 text-[#8B5E34] md:block" />
-          </button>
+            <ArrowRight className="hidden h-4 w-4 text-research md:block" />
+          </Link>
         ))}
       </div>
     </div>
@@ -160,7 +160,6 @@ function Picker({ items, onSelect }: { items: AdminCodebookOverview[]; onSelect:
 
 export default function AdminCodebooks() {
   const { itemId } = useParams<{ itemId?: string }>();
-  const navigate = useNavigate();
   const [items, setItems] = useState<AdminCodebookOverview[]>([]);
   const [summary, setSummary] = useState<AdminCodebookSummary | null>(null);
   const [audit, setAudit] = useState<AdminCuratorAudit | null>(null);
@@ -192,7 +191,7 @@ export default function AdminCodebooks() {
 
   if (loading) return <div className="p-10 text-sm text-stone-500">Đang đọc sổ mã…</div>;
   if (error) return <div className="p-10 text-sm text-red-700">{error}</div>;
-  if (!itemId) return <Picker items={items} onSelect={(id) => navigate(`/admin/codebooks/${id}`)} />;
+  if (!itemId) return <Picker items={items} />;
   if (!summary) return <div className="p-10 text-sm text-stone-500">Không tìm thấy sổ mã.</div>;
 
   const tabs: Array<[View, string, number]> = [
@@ -202,33 +201,33 @@ export default function AdminCodebooks() {
   ];
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] animate-fade-in bg-[#F7F4EF]">
+    <div className="min-h-[calc(100vh-4rem)] animate-fade-in bg-background">
       <header className="border-b border-stone-200 bg-white px-5 py-7 md:px-8">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/admin/codebooks")} className="-ml-3 text-stone-500 hover:bg-[#8B5E34]/[0.07] hover:text-stone-900"><ArrowLeft className="h-4 w-4" /> Các đồ vật</Button>
+        <Button asChild variant="ghost" size="sm" className="-ml-3 text-stone-500 hover:bg-research-soft hover:text-stone-900"><Link to="/admin/codebooks"><ArrowLeft className="h-4 w-4" /> Các đồ vật</Link></Button>
         <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
-          <div><p className="flex items-center gap-2 text-sm text-[#8B5E34]"><Sparkles className="h-4 w-4" /> AI tạo mã và tính điểm trực tiếp</p><h1 className="mt-2 font-serif text-4xl text-stone-900">{summary.item_name}</h1></div>
+          <div><p className="flex items-center gap-2 text-sm text-research"><Sparkles className="h-4 w-4" /> AI tạo mã và tính điểm trực tiếp</p><h1 className="mt-2 font-serif text-4xl text-stone-900">{summary.item_name}</h1></div>
           <div className="flex gap-8"><Stat label="Mã hoạt động" value={summary.accepted_code_count} /><Stat label="Ý đã mã hóa" value={summary.contributing_idea_count} /><Stat label="Lượt gửi" value={summary.qualifying_response_count} /></div>
         </div>
       </header>
 
       <div className="px-5 py-7 md:px-8">
         <div className="flex flex-wrap gap-1 border-b border-stone-300">
-          {tabs.map(([value, label, count]) => <button key={value} type="button" onClick={() => setView(value)} className={`rounded-t-md border-b-2 px-4 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B5E34]/25 ${view === value ? "border-[#8B5E34] bg-[#8B5E34]/[0.06] text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800"}`}>{label} <span className="ml-2 font-mono text-xs">{count}</span></button>)}
+          {tabs.map(([value, label, count]) => <button key={value} type="button" onClick={() => setView(value)} className={`rounded-t-md border-b-2 px-4 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-research/25 ${view === value ? "border-research bg-research-soft/60 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800"}`}>{label} <span className="ml-2 font-mono text-xs">{count}</span></button>)}
         </div>
 
         {view === "CODES" && <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200 bg-[#FFFEFC] px-5 py-4 md:px-7">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200 bg-card px-5 py-4 md:px-7">
             <div><h2 className="font-serif text-2xl text-stone-900">Category chức năng</h2><p className="mt-1 text-xs text-stone-500">Mở từng mã để xem goal, role, mechanism và ranh giới áp dụng.</p></div>
-            <label className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-stone-200 bg-[#FBF8F4] px-3 py-2 shadow-inner transition-colors focus-within:border-[#8B5E34]/45 focus-within:ring-2 focus-within:ring-[#8B5E34]/10"><Search className="h-4 w-4 text-stone-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, định nghĩa hoặc functional key" className="w-full bg-transparent text-sm text-stone-800 outline-none placeholder:text-stone-400" /></label>
+            <label className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-stone-200 bg-research-soft/50 px-3 py-2 shadow-inner transition-colors focus-within:border-research/45 focus-within:ring-2 focus-within:ring-research/10"><Search className="h-4 w-4 text-stone-400" /><input aria-label="Tìm mã chức năng" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, định nghĩa hoặc khóa chức năng…" className="w-full bg-transparent text-sm text-stone-800 outline-none placeholder:text-stone-400 focus-visible:outline-none" /></label>
           </div>
           {visibleCodes.map((code) => <CodeCard key={code.id} code={code} />)}
           {visibleCodes.length === 0 && <p className="px-6 py-14 text-center text-sm text-stone-500">Không có mã phù hợp.</p>}
-          {summary.code_page_count > 1 && <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-[#FFFEFC] px-5 py-4"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Trang trước</Button><span className="font-mono text-xs text-stone-500">{page}/{summary.code_page_count}</span><Button size="sm" variant="outline" disabled={page >= summary.code_page_count} onClick={() => setPage((value) => value + 1)}>Trang sau</Button></div>}
+          {summary.code_page_count > 1 && <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-card px-5 py-4"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Trang trước</Button><span className="font-mono text-xs text-stone-500">{page}/{summary.code_page_count}</span><Button size="sm" variant="outline" disabled={page >= summary.code_page_count} onClick={() => setPage((value) => value + 1)}>Trang sau</Button></div>}
         </section>}
 
         {view === "DECISIONS" && (
           <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
-            <div className="border-b border-stone-200 bg-[#FFFEFC] px-5 py-5 md:px-7">
+            <div className="border-b border-stone-200 bg-card px-5 py-5 md:px-7">
               <h2 className="font-serif text-2xl text-stone-900">Nhật ký phân xử</h2>
               <p className="mt-1 text-sm text-stone-500">Mỗi quyết định giữ lại response gốc, chữ ký chức năng và bằng chứng tại thời điểm chấm.</p>
             </div>
@@ -247,7 +246,7 @@ export default function AdminCodebooks() {
                     </div>
                   </div>
                   <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-lg border border-stone-200 bg-[#FBF8F4] p-4">
+                    <div className="rounded-lg border border-stone-200 bg-research-soft/40 p-4">
                       <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-stone-400">Functional signature</p>
                       <Signature value={decision.functional_signature} />
                     </div>
@@ -263,7 +262,7 @@ export default function AdminCodebooks() {
           </section>
         )}
 
-        {view === "EXCLUDED" && <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]"><div className="border-b border-stone-200 bg-[#FFFEFC] px-6 py-5"><p className="flex items-center gap-2 font-serif text-2xl text-stone-900"><FileWarning className="h-5 w-5 text-rose-600" /> Response không được mã hóa</p><p className="mt-1 text-sm text-stone-500">Giữ nguyên dữ liệu gốc cùng lý do loại hoặc trùng.</p></div><div className="divide-y divide-stone-200">{excluded?.ideas.map((idea) => <div key={idea.idea_id} className="grid gap-3 px-6 py-4 md:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)]"><Badge variant={idea.status === "DUPLICATE" ? "secondary" : "destructive"}>{idea.status === "DUPLICATE" ? "Trùng ý" : "Không hợp lệ"}</Badge><div><p className="text-sm text-stone-900">{idea.original}</p><p className="mt-1 text-xs text-stone-400">{idea.normalized}</p></div><p className="text-xs leading-5 text-stone-500">{idea.reason}</p></div>)}</div></section>}
+        {view === "EXCLUDED" && <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]"><div className="border-b border-stone-200 bg-card px-6 py-5"><p className="flex items-center gap-2 font-serif text-2xl text-stone-900"><FileWarning className="h-5 w-5 text-rose-600" /> Response không được mã hóa</p><p className="mt-1 text-sm text-stone-500">Giữ nguyên dữ liệu gốc cùng lý do loại hoặc trùng.</p></div><div className="divide-y divide-stone-200">{excluded?.ideas.map((idea) => <div key={idea.idea_id} className="grid gap-3 px-6 py-4 md:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)]"><Badge variant={idea.status === "DUPLICATE" ? "secondary" : "destructive"}>{idea.status === "DUPLICATE" ? "Trùng ý" : "Không hợp lệ"}</Badge><div><p className="text-sm text-stone-900">{idea.original}</p><p className="mt-1 text-xs text-stone-400">{idea.normalized}</p></div><p className="text-xs leading-5 text-stone-500">{idea.reason}</p></div>)}</div></section>}
       </div>
     </div>
   );

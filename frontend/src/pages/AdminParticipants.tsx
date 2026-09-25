@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableViewport } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import type { AdminParticipantSummary } from "@/lib/types";
 
@@ -68,8 +69,9 @@ export default function AdminParticipants() {
       )}
 
       {participants && (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <table className="w-full text-sm">
+        <TableViewport>
+          <Table className="min-w-[980px]">
+            <caption className="sr-only">Danh sách người tham gia khảo sát</caption>
             <thead className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">Họ và tên</th>
@@ -146,8 +148,8 @@ export default function AdminParticipants() {
                 </tr>
               )}
             </tbody>
-          </table>
-        </div>
+          </Table>
+        </TableViewport>
       )}
     </div>
   );

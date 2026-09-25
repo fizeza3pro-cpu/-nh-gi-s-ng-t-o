@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 
 interface AreaSparklineProps {
   values: number[];
@@ -26,9 +27,14 @@ export function AreaSparkline({
   const step = values.length > 1 ? width / (values.length - 1) : 0;
 
   const [animate, setAnimate] = useState(false);
+  const reducedMotion = usePrefersReducedMotion();
   const fingerprint = values.join(",");
 
   useEffect(() => {
+    if (reducedMotion) {
+      setAnimate(true);
+      return;
+    }
     setAnimate(false);
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
@@ -38,7 +44,7 @@ export function AreaSparkline({
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [fingerprint]);
+  }, [fingerprint, reducedMotion]);
 
   const points = values.map((v, i) => {
     const x = i * step;
@@ -74,7 +80,10 @@ export function AreaSparkline({
       className="w-full"
       preserveAspectRatio="none"
       style={{ height }}
+      role="img"
+      aria-label={`Số lượt trả lời theo thời gian. Giá trị gần nhất: ${values.at(-1) ?? 0}`}
     >
+      <title>Xu hướng số lượt trả lời theo thời gian</title>
       <defs>
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.22" />
@@ -86,7 +95,9 @@ export function AreaSparkline({
         fill={`url(#${gradId})`}
         style={{
           clipPath: animate ? "inset(0 0% 0 0)" : "inset(0 100% 0 0)",
-          transition: `clip-path ${animationDuration}ms ease-out`,
+          transition: reducedMotion
+            ? "none"
+            : `clip-path ${animationDuration}ms ease-out`,
         }}
       />
       <path
@@ -99,7 +110,9 @@ export function AreaSparkline({
         style={{
           strokeDasharray: 1,
           strokeDashoffset: animate ? 0 : 1,
-          transition: `stroke-dashoffset ${animationDuration}ms ease-out`,
+          transition: reducedMotion
+            ? "none"
+            : `stroke-dashoffset ${animationDuration}ms ease-out`,
         }}
       />
       {points.length > 0 && (
@@ -110,7 +123,9 @@ export function AreaSparkline({
           fill={color}
           style={{
             opacity: animate ? 1 : 0,
-            transition: `opacity 200ms ease-out ${animationDuration - 150}ms`,
+            transition: reducedMotion
+              ? "none"
+              : `opacity 200ms ease-out ${animationDuration - 150}ms`,
           }}
         />
       )}

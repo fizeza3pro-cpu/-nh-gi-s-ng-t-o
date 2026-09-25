@@ -10,7 +10,7 @@ export default function AdminRoute() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        Đang tải...
+        Đang tải…
       </div>
     );
   }

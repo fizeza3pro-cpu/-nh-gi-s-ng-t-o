@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import type { Item } from "@/lib/types";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 
 const DIMENSIONS = [
   {
@@ -29,16 +30,6 @@ const DIMENSIONS = [
     body: "Đánh giá độ rõ ràng, cụ thể và đầy đủ trong cách mô tả ý tưởng.",
   },
 ] as const;
-
-/** true nếu trình duyệt yêu cầu giảm chuyển động — tắt hiệu ứng khi cần. */
-function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(mq.matches);
-  }, []);
-  return reduced;
-}
 
 /** Trả về ref + trạng thái "đã lọt vào khung nhìn" để kích hoạt hiệu ứng khi cuộn tới. */
 function useRevealOnScroll<T extends HTMLElement>() {
@@ -112,8 +103,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [sampleIndex, setSampleIndex] = useState(0);
   const [sampleVisible, setSampleVisible] = useState(true);
+  const reducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
+    if (reducedMotion) return;
     let fadeTimeout: ReturnType<typeof setTimeout>;
     const interval = setInterval(() => {
       setSampleVisible(false);
@@ -126,10 +119,9 @@ export default function Home() {
       clearInterval(interval);
       clearTimeout(fadeTimeout);
     };
-  }, []);
+  }, [reducedMotion]);
 
   const sample = SAMPLE_RESULTS[sampleIndex];
-  const reducedMotion = usePrefersReducedMotion();
   const [heroLoaded, setHeroLoaded] = useState(false);
   const methodReveal = useRevealOnScroll<HTMLDivElement>();
   const itemsReveal = useRevealOnScroll<HTMLDivElement>();
@@ -160,13 +152,13 @@ export default function Home() {
       if (element) {
         setTimeout(() => {
           element.scrollIntoView({
-            behavior: "smooth",
+            behavior: reducedMotion ? "auto" : "smooth",
             block: "start",
           });
         }, 300);
       }
     }
-  }, [location]);
+  }, [location, reducedMotion]);
 
   useEffect(() => {
     api
@@ -183,8 +175,8 @@ export default function Home() {
         <div className="container relative grid gap-12 py-20 md:grid-cols-[1.4fr_1fr] md:py-28">
           <div style={reveal(heroLoaded)}>
             <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5" />
-              Đo tư duy phân kỳ ·
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              Bài tập sáng tạo trong 3 phút
             </p>
             <h1 className="font-serif text-4xl font-medium leading-[1.05] tracking-tight text-balance md:text-6xl">
               Cách bạn dùng một đồ vật bình thường có thể tiết lộ
@@ -218,7 +210,7 @@ export default function Home() {
           <div className="md:pl-6" style={reveal(heroLoaded, 150)}>
             <Card className="relative bg-card shadow-[0_1px_0_hsl(var(--border)),0_24px_48px_-32px_rgba(0,0,0,0.18)]">
               <div className="absolute -top-3 left-6 rounded-sm bg-foreground px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-background">
-                Mẫu kết quả
+                Minh hoạ kết quả
               </div>
               <CardContent className="space-y-5 p-7 pt-8">
                 <div
@@ -227,7 +219,9 @@ export default function Home() {
                     transform: sampleVisible
                       ? "translateY(0px)"
                       : "translateY(4px)",
-                    transition: `opacity ${SAMPLE_FADE_MS}ms ease, transform ${SAMPLE_FADE_MS}ms ease`,
+                    transition: reducedMotion
+                      ? "none"
+                      : `opacity ${SAMPLE_FADE_MS}ms ease, transform ${SAMPLE_FADE_MS}ms ease`,
                   }}
                   className="space-y-5"
                 >
@@ -251,6 +245,9 @@ export default function Home() {
                   </div>
                   <p className="border-l-2 border-foreground/60 pl-4 text-sm italic leading-relaxed text-muted-foreground">
                     “{sample.quote}”
+                  </p>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Điểm thực tế chỉ hiển thị khi bộ dữ liệu của đồ vật đã đủ điều kiện.
                   </p>
                 </div>
               </CardContent>
@@ -359,7 +356,7 @@ export default function Home() {
                           {(idx + 1).toString().padStart(2, "0")}
                         </span>
                         <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                          Sổ mã động
+                          Bài tập 3 phút
                         </span>
                       </div>
                       <h3 className="font-serif text-3xl">{item.name}</h3>

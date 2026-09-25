@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Inbox } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableViewport } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import type { AdminParticipantDetail as AdminParticipantDetailType } from "@/lib/types";
 
@@ -105,8 +106,9 @@ export default function AdminParticipantDetail() {
           )}
 
           {detail.responses.length > 0 && (
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <table className="w-full text-sm">
+            <TableViewport>
+              <Table className="min-w-[760px]">
+                <caption className="sr-only">Lịch sử trả lời của người tham gia</caption>
                 <thead className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 font-medium">Thời gian</th>
@@ -151,8 +153,8 @@ export default function AdminParticipantDetail() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+              </Table>
+            </TableViewport>
           )}
         </>
       )}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 
 interface DonutChartProps {
   data: { label: string; value: number; color: string }[];
@@ -24,10 +25,15 @@ export function DonutChart({
   const sum = data.reduce((s, d) => s + d.value, 0) || 1;
 
   const [animate, setAnimate] = useState(false);
+  const reducedMotion = usePrefersReducedMotion();
   // "chữ ký" dữ liệu để phát lại animation mỗi khi data đổi (vd. filter)
   const fingerprint = data.map((d) => `${d.label}:${d.value}`).join("|");
 
   useEffect(() => {
+    if (reducedMotion) {
+      setAnimate(true);
+      return;
+    }
     setAnimate(false);
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
@@ -37,7 +43,7 @@ export function DonutChart({
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [fingerprint]);
+  }, [fingerprint, reducedMotion]);
 
   let offsetAcc = 0;
   const segments = data.map((d) => {
@@ -59,7 +65,14 @@ export function DonutChart({
   return (
     <div className="flex items-center gap-8">
       <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <svg
+          width={size}
+          height={size}
+          viewBox={`0 0 ${size} ${size}`}
+          role="img"
+          aria-label={`Phân bố ${totalLabel.toLocaleLowerCase()}: tổng ${total.toLocaleString("vi-VN")}`}
+        >
+          <title>Phân bố trạng thái {totalLabel.toLocaleLowerCase()}</title>
           <g transform={`rotate(-90 ${r} ${r})`}>
             {segments.map((s) => (
               <circle
@@ -77,7 +90,9 @@ export function DonutChart({
                 }
                 strokeDashoffset={s.dashOffset}
                 style={{
-                  transition: `stroke-dasharray ${s.duration}ms ease-out ${s.delay}ms`,
+                  transition: reducedMotion
+                    ? "none"
+                    : `stroke-dasharray ${s.duration}ms ease-out ${s.delay}ms`,
                 }}
               />
             ))}

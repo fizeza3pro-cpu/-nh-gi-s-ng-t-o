@@ -26,6 +26,11 @@
     --destructive: 0 70% 45%;
     --destructive-foreground: 0 0% 100%;
 
+    --research: 28 45% 37%;
+    --research-foreground: 36 25% 98%;
+    --research-soft: 31 35% 94%;
+    --research-bright: 29 45% 58%;
+
     --radius: 0.625rem;
   }
 
@@ -34,10 +39,24 @@
   }
   body {
     @apply font-sans;
+    min-width: 320px;
     font-feature-settings: "ss01", "cv11";
   }
   html {
     scroll-behavior: smooth;
+    scrollbar-gutter: stable;
+  }
+
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    touch-action: manipulation;
+  }
+
+  [id] {
+    scroll-margin-top: 5rem;
   }
 }
 
@@ -54,5 +73,54 @@
       linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px);
     background-size: 32px 32px;
   }
-  
+
+  .thinking-stage {
+    background:
+      radial-gradient(circle at 50% 28%, hsl(var(--research-bright) / 0.12), transparent 42%),
+      linear-gradient(180deg, hsl(var(--research-soft) / 0.55), transparent 78%);
+  }
+
+  .dialog-backdrop {
+    animation: dialog-backdrop-in 160ms ease-out both;
+  }
+
+  .dialog-panel {
+    transform-origin: center;
+    animation: dialog-panel-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes dialog-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dialog-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

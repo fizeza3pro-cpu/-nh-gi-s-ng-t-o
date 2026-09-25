@@ -74,7 +74,7 @@ export default function History() {
         )}
 
         {!responses && !error && (
-          <p className="py-16 text-center text-sm text-muted-foreground">Đang tải lịch sử...</p>
+          <p className="py-16 text-center text-sm text-muted-foreground">Đang tải lịch sử…</p>
         )}
 
         {responses?.length === 0 && (

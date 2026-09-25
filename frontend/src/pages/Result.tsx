@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowRight, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Table, TableViewport } from "@/components/ui/table";
 import { api, readCachedResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { IdeaStatus, ScoreResponse } from "@/lib/types";
@@ -62,7 +63,7 @@ export default function Result() {
       <div className="container max-w-xl py-24 text-center">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-muted-foreground">Đang tải kết quả...</p>
+          <p className="text-muted-foreground">Đang tải kết quả…</p>
         </div>
       </div>
     );
@@ -190,17 +191,17 @@ export default function Result() {
             />
             <Metric
               label="Độ linh hoạt"
-              vi="Danh mục bạn đã nghĩ ra"
+              vi="Số nhóm công dụng khác nhau"
               value={scoring.flexibility}
             />
             <Metric
               label="Độ độc đáo"
-              vi={`Điểm độc đáo về các ý tưởng của bạn Trung bình ${avgOriginality} / 2`}
+              vi={`Mức độ mới lạ của ý tưởng · Trung bình ${avgOriginality}/2`}
               value={scoring.originality}
             />
             <Metric
               label="Độ chi tiết"
-              vi={`Điểm số thể hiện độ mạch lạc của ý tưởng; Trung bình ${avgElaboration} / 5`}
+              vi={`Mức độ rõ ràng của mô tả · Trung bình ${avgElaboration}/5`}
               value={scoring.elaboration}
             />
           </div>
@@ -234,7 +235,7 @@ export default function Result() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-                Tầng 1 · Chuẩn hoá ngữ nghĩa
+                Cách hệ thống hiểu câu trả lời
               </p>
               <h2 className="mt-3 font-serif text-2xl">
                 Chi tiết ý tưởng của bạn
@@ -242,14 +243,54 @@ export default function Result() {
             </div>
           </div>
 
-          <div className="mt-8 overflow-hidden rounded-xl border border-border">
-            <table className="w-full text-sm">
+          <ul className="mt-8 grid gap-3 md:hidden">
+            {mapping.ideas.map((idea, idx) => {
+              const dimmed = idea.status !== "VALID";
+              return (
+                <li
+                  key={`${idea.line_index}-${idx}`}
+                  className={cn(
+                    "rounded-xl border border-border bg-card p-4",
+                    dimmed && "bg-muted/20 text-muted-foreground",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-xs text-muted-foreground">
+                      Ý tưởng {(idx + 1).toString().padStart(2, "0")}
+                    </span>
+                    <Badge variant={STATUS_VARIANT[idea.status]}>
+                      {STATUS_LABEL[idea.status]}
+                    </Badge>
+                  </div>
+                  <p className="mt-3 break-words text-sm leading-6">
+                    {idea.original || <span className="italic">(trống)</span>}
+                  </p>
+                  {idea.normalized && idea.normalized !== idea.original ? (
+                    <p className="mt-3 border-l-2 border-border pl-3 text-xs leading-5 text-muted-foreground">
+                      Hệ thống hiểu: {idea.normalized}
+                    </p>
+                  ) : null}
+                  {idea.reason ? (
+                    <p className="mt-2 text-xs italic leading-5 text-muted-foreground">
+                      {idea.reason}
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+
+          <TableViewport className="mt-8 hidden md:block">
+            <Table className="min-w-[820px]">
+              <caption className="sr-only">
+                Cách hệ thống hiểu và phân loại từng ý tưởng của bạn
+              </caption>
               <thead className="border-b border-border bg-muted/40 text-left text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 <tr>
                   <th className="w-12 px-4 py-3 font-medium">#</th>
                   <th className="px-4 py-3 font-medium">Câu gốc</th>
                   <th className="px-4 py-3 font-medium">Diễn giải</th>
-                  <th className="px-4 py-3 font-medium">Mã</th>
+                  <th className="px-4 py-3 font-medium">Nhóm ý tưởng</th>
                   <th className="px-4 py-3 font-medium">Trạng thái</th>
                 </tr>
               </thead>
@@ -291,8 +332,8 @@ export default function Result() {
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+            </Table>
+          </TableViewport>
         </div>
       </section>
 
@@ -304,8 +345,8 @@ export default function Result() {
         <div className="container flex flex-col items-center gap-5 py-16 text-center">
           <h2 className="font-serif text-3xl">Thử với một đồ vật khác?</h2>
           <p className="max-w-md text-muted-foreground">
-            Mỗi đồ vật mở ra một bộ danh mục khác. Điểm linh hoạt chỉ thật sự
-            nói lên điều gì khi bạn thử qua nhiều đồ vật.
+            Mỗi đồ vật gợi ra những hướng liên tưởng khác nhau. Thử thêm một đồ
+            vật để khám phá cách bạn chuyển đổi góc nhìn.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Button asChild size="lg">
@@ -384,23 +425,23 @@ function PerIdeaSection({ resp }: { resp: ScoreResponse }) {
     <section className="border-b border-border/80">
       <div className="container py-12">
         <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-          Tầng 2 · Chấm điểm
+          Đánh giá từng ý tưởng
         </p>
         <h2 className="mt-3 font-serif text-2xl">Điểm chi tiết từng ý</h2>
 
         <ul className="mt-8 grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-2">
           {items.map((it, idx) => (
             <li key={idx} className="bg-card p-6">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <p className="font-mono text-xs text-muted-foreground">
-                    {(idx + 1).toString().padStart(2, "0")} · {it.code}
+                    Ý tưởng {(idx + 1).toString().padStart(2, "0")}
                   </p>
                   <p className="mt-1 font-serif text-lg leading-snug">
                     {it.normalized}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-3">
+                <div className="flex shrink-0 flex-wrap items-center gap-3">
                   <ScorePill label="Độc đáo" value={it.originality} max={2} />
                   <ScorePill label="Chi tiết" value={it.elaboration} max={5} />
                 </div>

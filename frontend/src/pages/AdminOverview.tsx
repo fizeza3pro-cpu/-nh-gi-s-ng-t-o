@@ -171,7 +171,7 @@ export default function AdminOverview() {
     <div className="mx-auto max-w-6xl px-5 py-8 sm:px-6 lg:py-10">
       <header className="mb-8 grid gap-4 border-b border-stone-300 pb-7 lg:grid-cols-[1fr_auto] lg:items-end">
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#8B5E34]">
+          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-research">
             Sổ theo dõi nghiên cứu · AUT
           </p>
           <h1 className="mt-3 font-serif text-3xl tracking-tight text-stone-900 sm:text-4xl">
@@ -193,7 +193,7 @@ export default function AdminOverview() {
           </button>
           <Link
             to="/admin/codebooks"
-            className="inline-flex items-center gap-2 text-sm font-medium text-[#8B5E34] hover:text-stone-900"
+            className="inline-flex items-center gap-2 text-sm font-medium text-research hover:text-stone-900"
           >
             Mở sổ mã động <ArrowRight className="h-4 w-4" />
           </Link>
@@ -251,7 +251,7 @@ export default function AdminOverview() {
             <AreaSparkline
               values={stats.daily_stats.map((day) => day.count)}
               labels={stats.daily_stats.map((day) => formatDay(day.date))}
-              color="#8B5E34"
+              color="hsl(var(--research))"
             />
           </div>
         </Panel>
@@ -291,7 +291,7 @@ export default function AdminOverview() {
                   return (
                     <tr key={item.item_id} className="hover:bg-stone-50/70">
                       <td className="px-3 py-4">
-                        <Link to={`/admin/codebooks/${item.item_id}`} className="font-serif text-lg text-stone-900 hover:text-[#8B5E34]">
+                        <Link to={`/admin/codebooks/${item.item_id}`} className="font-serif text-lg text-stone-900 hover:text-research">
                           {item.item_name}
                         </Link>
                         <p className="mt-0.5 text-[11px] text-stone-400">{item.response_count} lượt trả lời</p>
@@ -305,7 +305,7 @@ export default function AdminOverview() {
                       </td>
                       <td className="w-48 px-3 py-4">
                         <div className="h-1.5 overflow-hidden bg-stone-200">
-                          <div className="h-full bg-[#8B5E34] transition-all" style={{ width: `${progress}%` }} />
+                          <div className="h-full bg-research transition-[width]" style={{ width: `${progress}%` }} />
                         </div>
                         <p className="mt-1.5 text-[11px] text-stone-500">
                           {item.qualifying_participant_count}/{item.scoring_min_participants} người · {item.qualifying_idea_count}/{item.scoring_min_ideas} ý
@@ -352,7 +352,7 @@ export default function AdminOverview() {
                         {hasScore ? `${response.fluency} · ${response.flexibility} · ${response.originality} · ${response.elaboration}` : "Chưa tính điểm"}
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <Link to={`/result/${response.response_id}`} className="inline-flex items-center gap-1 text-xs font-medium text-[#8B5E34] hover:text-stone-900">
+                        <Link to={`/result/${response.response_id}`} className="inline-flex items-center gap-1 text-xs font-medium text-research hover:text-stone-900">
                           Xem <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                       </td>

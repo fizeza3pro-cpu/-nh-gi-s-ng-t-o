@@ -39,6 +39,12 @@ export default {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
         },
+        research: {
+          DEFAULT: "hsl(var(--research))",
+          foreground: "hsl(var(--research-foreground))",
+          soft: "hsl(var(--research-soft))",
+          bright: "hsl(var(--research-bright))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

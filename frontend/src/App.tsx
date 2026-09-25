@@ -12,20 +12,28 @@ import AdminCodebooks from "@/pages/AdminCodebooks";
 import Login from "./components/auth/Login";
 import AdminRoute from "./components/auth/AdminRoute";
 
+function PublicLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <a
+        href="#main-content"
+        className="fixed left-4 top-4 z-[70] -translate-y-24 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-transform focus:translate-y-0"
+      >
+        Đi tới nội dung chính
+      </a>
+      <SiteHeader />
+      <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
+        {children}
+      </main>
+      <SiteFooter />
+    </div>
+  );
+}
+
 export default function App() {
-  function PublicLayout({ children }: { children: React.ReactNode }) {
-    return (
-      <div className="flex min-h-screen flex-col">
-        <SiteHeader />
-        <main className="flex-1">{children}</main>
-        <SiteFooter />
-      </div>
-    );
-  }
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <main className="flex-1">
-        <Routes>
+      <Routes>
           {/* public router */}
           <Route
             path="/"
@@ -73,8 +81,7 @@ export default function App() {
             <Route path="/admin/codebooks" element={<AdminCodebooks />} />
             <Route path="/admin/codebooks/:itemId" element={<AdminCodebooks />} />
           </Route>
-        </Routes>
-      </main>
+      </Routes>
     </div>
   );
 }
