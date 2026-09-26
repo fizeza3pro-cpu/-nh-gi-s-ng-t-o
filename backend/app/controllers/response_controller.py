@@ -24,9 +24,14 @@ from app.pipeline.codebook_service import (
     list_curator_codes,
     originality_for_response,
     persist_mapping,
+    refresh_final_frequency_scores,
     refresh_item_scoring_state,
 )
-from app.pipeline.dynamic_mapping import run_code_curator, run_idea_extraction
+from app.pipeline.dynamic_mapping import (
+    normalize_code_name,
+    run_code_curator,
+    run_idea_extraction,
+)
 from app.pipeline.scoring import run_scoring
 from app.schemas.schemas import (
     CuratorDecision,
@@ -66,6 +71,29 @@ def _client() -> OpenAI:
     )
 
 
+def _embedding_client() -> OpenAI | None:
+    """Tạo client Cloudflare riêng cho embedding; local chỉ dùng khi cấu hình rõ."""
+    if settings.embedding_provider == "local":
+        return None
+    if not settings.cloudflare_api_token or not settings.cloudflare_account_id:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Semantic embedding cần CLOUDFLARE_API_TOKEN và "
+                "CLOUDFLARE_ACCOUNT_ID."
+            ),
+        )
+    return OpenAI(
+        base_url=(
+            "https://api.cloudflare.com/client/v4/accounts/"
+            f"{settings.cloudflare_account_id}/ai/v1"
+        ),
+        api_key=settings.cloudflare_api_token,
+        max_retries=0,
+        timeout=settings.embedding_timeout_seconds,
+    )
+
+
 def _mock_mapping(
     item: Item, raw: str, existing_codes: list[dict]
 ) -> tuple[IdeaExtractionResult, CuratorResult]:
@@ -100,9 +128,21 @@ def _mock_mapping(
                     idea_index=index,
                     decision="MATCH_EXISTING",
                     existing_code_id=existing["id"],
+                    code_relation="SAME_CATEGORY",
                     target_object_confirmed=True,
                     target_object_role="Dùng đúng đồ vật mục tiêu.",
                     functional_signature=extraction.ideas[index].functional_signature,
+                    existing_code_evaluations=[
+                        {
+                            "code_id": existing["id"],
+                            "relation": "SAME_CATEGORY",
+                            "goal_match": True,
+                            "role_match": True,
+                            "mechanism_match": True,
+                            "excluded_by": "",
+                            "verdict": "MATCH",
+                        }
+                    ],
                     confidence=0.99,
                     reason="[MOCK] Khớp code đã có.",
                 )
@@ -128,6 +168,7 @@ def _mock_mapping(
                         "paraphrase_stable": True,
                         "counterexample_passed": True,
                     },
+                    reviewed_by_challenger=True,
                     confidence=0.95,
                     reason="[MOCK] Công dụng hợp lệ chưa có trong codebook.",
                 )
@@ -172,10 +213,45 @@ def _needs_curator_retry(curator: CuratorResult, extraction: IdeaExtractionResul
 
 def _prefer_confident(first: CuratorResult, second: CuratorResult) -> CuratorResult:
     """Ưu tiên quyết định đã qua policy; confidence chỉ dùng phá thế hoà để kiểm toán."""
-    rank = {"CREATE_NEW": 4, "MATCH_EXISTING": 4, "INVALID": 3, "UNCERTAIN": 1, "OUT_OF_CODEBOOK": 0}
+    rank = {
+        "CREATE_NEW": 4,
+        "EXPAND_EXISTING": 4,
+        "MATCH_EXISTING": 4,
+        "INVALID": 3,
+        "UNCERTAIN": 1,
+        "OUT_OF_CODEBOOK": 0,
+    }
     selected = {decision.idea_index: decision for decision in first.decisions}
     for decision in second.decisions:
         previous = selected.get(decision.idea_index)
+        if (
+            previous is not None
+            and rank[previous.decision] == 4
+            and rank[decision.decision] == 4
+        ):
+            previous_target = (
+                normalize_code_name(previous.code_name or "")
+                if previous.decision == "CREATE_NEW"
+                else previous.existing_code_id or ""
+            )
+            current_target = (
+                normalize_code_name(decision.code_name or "")
+                if decision.decision == "CREATE_NEW"
+                else decision.existing_code_id or ""
+            )
+            if previous.decision != decision.decision or previous_target != current_target:
+                selected[decision.idea_index] = previous.model_copy(
+                    update={
+                        "decision": "UNCERTAIN",
+                        "code_relation": "UNCERTAIN",
+                        "existing_code_id": None,
+                        "reason": (
+                            "Hai lượt Curator đưa ra quyết định đã qua policy nhưng không cùng "
+                            "category; backend không chọn theo confidence."
+                        ),
+                    }
+                )
+                continue
         if previous is None or (rank[decision.decision], decision.confidence) > (
             rank[previous.decision],
             previous.confidence,
@@ -297,6 +373,7 @@ def reprocess_item_mappings(item_id: str) -> int:
 
         item = Item(id=item_row.id, name=item_row.name, description=item_row.description)
         client = None if settings.mock_mode else _client()
+        embedding_client = None if settings.mock_mode else _embedding_client()
         for row in rows:
             existing_codes = list_curator_codes(db, item_id)
             if settings.mock_mode:
@@ -305,14 +382,14 @@ def reprocess_item_mappings(item_id: str) -> int:
                 curator_meta = {"mock": True, "stage": "code_curator"}
             else:
                 extraction, extraction_meta = run_idea_extraction(
-                    item, row.raw_input, client
+                    item, row.raw_input, client, embedding_client
                 )
                 curator, curator_meta = run_code_curator(
-                    item, extraction, existing_codes, client
+                    item, extraction, existing_codes, client, embedding_client
                 )
                 if _needs_curator_retry(curator, extraction):
                     second_curator, second_meta = run_code_curator(
-                        item, extraction, existing_codes, client
+                        item, extraction, existing_codes, client, embedding_client
                     )
                     curator = _prefer_confident(curator, second_curator)
                     curator_meta = {
@@ -392,15 +469,22 @@ def retry_pending_item_mappings(item_id: str, limit: int = 1) -> int:
             .limit(limit)
         ).all()
         client = _client()
+        embedding_client = _embedding_client()
         for row in rows:
             retry_count = int(row.mapping_meta.get("pending_retry_count", 0))
             if retry_count >= 2:
                 continue
             item_row = row.item
             item = Item(id=item_row.id, name=item_row.name, description=item_row.description)
-            extraction, extraction_meta = run_idea_extraction(item, row.raw_input, client)
+            extraction, extraction_meta = run_idea_extraction(
+                item, row.raw_input, client, embedding_client
+            )
             curator, curator_meta = run_code_curator(
-                item, extraction, list_curator_codes(db, item_id), client
+                item,
+                extraction,
+                list_curator_codes(db, item_id),
+                client,
+                embedding_client,
             )
             db.execute(delete(ResponseIdea).where(ResponseIdea.response_id == row.id))
             mapping, has_uncertain = persist_mapping(
@@ -417,6 +501,8 @@ def retry_pending_item_mappings(item_id: str, limit: int = 1) -> int:
                 changed = refresh_item_scoring_state(db, item_row)
                 became_ready = became_ready or changed
                 if item_is_ready_for_scoring(db, item_row):
+                    db.flush()
+                    refresh_final_frequency_scores(db, item_id)
                     _score_row(db, row, client)
                 resolved += 1
         if became_ready:
@@ -494,11 +580,16 @@ def create_response(
         client = None
     else:
         client = _client()
-        extraction, mapping_meta = run_idea_extraction(item, req.responses, client)
-        curator, curator_meta = run_code_curator(item, extraction, existing_codes, client)
+        embedding_client = _embedding_client()
+        extraction, mapping_meta = run_idea_extraction(
+            item, req.responses, client, embedding_client
+        )
+        curator, curator_meta = run_code_curator(
+            item, extraction, existing_codes, client, embedding_client
+        )
         if _needs_curator_retry(curator, extraction):
             second_curator, second_meta = run_code_curator(
-                item, extraction, existing_codes, client
+                item, extraction, existing_codes, client, embedding_client
             )
             curator = _prefer_confident(curator, second_curator)
             curator_meta = {"runs": [curator_meta, second_meta], "strategy": "prefer_confident"}
@@ -507,7 +598,10 @@ def create_response(
         db, item=item_row, response=row, extraction=extraction, curator=curator
     )
     row.mapping = mapping.model_dump()
-    row.mapping_meta = {"idea_extraction": mapping_meta, "code_curator": curator_meta}
+    row.mapping_meta = {
+        "idea_extraction": mapping_meta,
+        "code_curator": curator_meta,
+    }
     row.scoring_status = (
         ResponseScoringStatus.PENDING_REVIEW
         if has_uncertain
@@ -515,13 +609,26 @@ def create_response(
     )
     became_ready = refresh_item_scoring_state(db, item_row)
     if item_is_ready_for_scoring(db, item_row):
+        db.flush()
+        refresh_final_frequency_scores(db, item_row.id)
         if became_ready:
             reprocess_item_scores_in_session(db, item_row.id)
         else:
             _score_row(db, row, client)
 
+    retry_previous_pending = bool(
+        db.scalar(
+            select(ResponseModel.id).where(
+                ResponseModel.item_id == item_row.id,
+                ResponseModel.id != row.id,
+                ResponseModel.scoring_status == ResponseScoringStatus.PENDING_REVIEW,
+            ).limit(1)
+        )
+    )
     db.commit()
     db.refresh(row)
+    if background_tasks is not None and retry_previous_pending and not settings.mock_mode:
+        background_tasks.add_task(retry_pending_item_mappings, item_row.id, 1)
     return _to_response(row)
 
 

@@ -237,8 +237,21 @@ class IdeaExtractionResult(BaseModel):
 class CuratorDecision(BaseModel):
     idea_index: int = Field(ge=0)
     decision: Literal[
-        "MATCH_EXISTING", "OUT_OF_CODEBOOK", "CREATE_NEW", "INVALID", "UNCERTAIN"
+        "MATCH_EXISTING",
+        "OUT_OF_CODEBOOK",
+        "CREATE_NEW",
+        "EXPAND_EXISTING",
+        "INVALID",
+        "UNCERTAIN",
     ]
+    code_relation: Literal[
+        "SAME_CATEGORY",
+        "IDEA_NARROWER_THAN_CODE",
+        "IDEA_BROADER_THAN_CODE",
+        "DIFFERENT",
+        "UNCERTAIN",
+        "NOT_APPLICABLE",
+    ] = "NOT_APPLICABLE"
     existing_code_id: str | None = None
     code_name: str | None = None
     code_description: str = ""
@@ -254,6 +267,10 @@ class CuratorDecision(BaseModel):
     nearest_code_ids: list[str] = Field(default_factory=list)
     policy_gates: dict[str, bool] = Field(default_factory=dict)
     challenge_reason: str = ""
+    absorbed_code_ids: list[str] = Field(default_factory=list)
+    reviewed_by_challenger: bool = False
+    embedding: list[float] = Field(default_factory=list, exclude=True)
+    embedding_model: str = Field(default="", exclude=True)
 
     @field_validator("code_description", "target_object_role", "reason", mode="before")
     @classmethod
@@ -382,6 +399,8 @@ class AdminCodebookCode(BaseModel):
     inclusion_rules: list[str] = Field(default_factory=list)
     exclusion_rules: list[str] = Field(default_factory=list)
     positive_examples: list[str] = Field(default_factory=list)
+    embedding_model: str = ""
+    scope_history: list[dict] = Field(default_factory=list)
 
 
 class AdminCodeOption(BaseModel):
@@ -432,6 +451,8 @@ class AdminCuratorAudit(BaseModel):
     item_name: str
     match_existing_count: int
     create_new_count: int
+    expand_existing_count: int
+    expand_existing_count: int
     invalid_count: int
     guarded_count: int
     total_count: int

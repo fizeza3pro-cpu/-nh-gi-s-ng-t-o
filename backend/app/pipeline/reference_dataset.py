@@ -7,7 +7,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from app.pipeline.code_retrieval import cosine, local_embedding, normalize_text
+from openai import OpenAI
+
+from app.config import settings
+from app.pipeline.code_retrieval import cosine, normalize_text
+from app.pipeline.embedding import embed_texts, embedding_model
 
 
 ReferenceStage = Literal["extraction", "curator", "challenger"]
@@ -19,6 +23,7 @@ _REFERENCE_FILES = (
     "code_creation_cases.json",
     "rejection_cases.json",
 )
+_CASE_VECTOR_CACHE: dict[str, dict[str, list[float]]] = {}
 
 
 def _flatten_text(value: Any) -> str:
@@ -70,23 +75,31 @@ def select_reference_cases(
     item_name: str,
     query_texts: list[str],
     limit: int = 2,
+    embedding_client: OpenAI | None = None,
 ) -> list[dict[str, Any]]:
-    """Lấy vài án lệ gần nhất bằng đúng vector băm đang dùng cho codebook.
+    """Lấy vài án lệ gần nhất bằng cùng model embedding dùng cho codebook.
 
     Dataset chỉ cung cấp cách áp dụng quy tắc. ID/code trong ví dụ không bao giờ
     được dùng làm ID thật khi lưu mapping.
     """
     if limit <= 0:
         return []
-    queries = [local_embedding(text) for text in query_texts if text.strip()]
-    if not queries:
-        queries = [local_embedding(item_name)]
+    query_values = [text for text in query_texts if text.strip()] or [item_name]
+    stage_cases = [case for case in load_reference_cases() if case["stage"] == stage]
+    model = embedding_model(embedding_client)
+    cache = _CASE_VECTOR_CACHE.setdefault(model, {})
+    missing_cases = [case for case in stage_cases if str(case["id"]) not in cache]
+    batch = embed_texts(
+        [*query_values, *[_flatten_text(case) for case in missing_cases]],
+        embedding_client,
+    )
+    queries = batch.vectors[: len(query_values)]
+    for case, vector in zip(missing_cases, batch.vectors[len(query_values) :]):
+        cache[str(case["id"])] = vector
     normalized_item = normalize_text(item_name)
     ranked: list[tuple[float, str, dict[str, Any]]] = []
-    for case in load_reference_cases():
-        if case["stage"] != stage:
-            continue
-        case_vector = local_embedding(_flatten_text(case))
+    for case in stage_cases:
+        case_vector = cache[str(case["id"])]
         semantic_score = max((cosine(query, case_vector) for query in queries), default=0.0)
         same_item_bonus = (
             0.08
@@ -104,16 +117,26 @@ def reference_cases_json(
     item_name: str,
     query_texts: list[str],
     limit: int,
+    embedding_client: OpenAI | None = None,
 ) -> str:
-    """Tuần tự hoá các case đã chọn để chèn trực tiếp vào prompt."""
+    """Nén án lệ liên quan vào một ngân sách ký tự cố định cho prompt."""
     cases = select_reference_cases(
         stage,
         item_name=item_name,
         query_texts=query_texts,
         limit=limit,
+        embedding_client=embedding_client,
     )
-    # `stage` đã được chọn trước và không cung cấp thêm căn cứ cho model.
-    prompt_cases = [
-        {key: value for key, value in case.items() if key != "stage"} for case in cases
-    ]
+    prompt_cases: list[dict[str, Any]] = []
+    for case in cases:
+        compact = {
+            "input": case["input"],
+            "expected": case["expected"],
+            "principle": case["principle"],
+        }
+        candidate = [*prompt_cases, compact]
+        encoded = json.dumps(candidate, ensure_ascii=False, separators=(",", ":"))
+        if prompt_cases and len(encoded) > settings.reference_cases_max_chars:
+            break
+        prompt_cases = candidate
     return json.dumps(prompt_cases, ensure_ascii=False, separators=(",", ":"))

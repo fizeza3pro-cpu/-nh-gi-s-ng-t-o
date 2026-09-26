@@ -2,8 +2,6 @@ import type {
   AdminDashboardStats,
   AdminCuratorAudit,
   AdminExtractionAudit,
-  AdminCodePatch,
-  AdminCodeOption,
   AdminCodebookOverview,
   AdminCodebookSummary,
   AdminParticipantDetail,
@@ -233,11 +231,6 @@ export const api = {
     }).then(handle<AdminCodebookSummary>);
   },
 
-  adminCodeOptions: (itemId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/code-options`, {
-      headers: authHeaders(),
-    }).then(handle<AdminCodeOption[]>),
-
   adminExtractionAudit: (itemId: string) =>
     fetch(`${BASE}/admin/items/${itemId}/extraction-audit`, {
       headers: authHeaders(),
@@ -248,37 +241,6 @@ export const api = {
       headers: authHeaders(),
     }).then(handle<AdminCuratorAudit>),
 
-  adminUpdateCode: (itemId: string, codeId: string, patch: AdminCodePatch) =>
-    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}`, {
-      method: "PATCH",
-      headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(patch),
-    }).then(handle<AdminCodebookSummary>),
-
-  adminMergeCode: (itemId: string, codeId: string, targetCodeId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}/merge`, {
-      method: "POST",
-      headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ target_code_id: targetCodeId }),
-    }).then(handle<AdminCodebookSummary>),
-
-  adminDeleteCode: (itemId: string, codeId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then(handle<AdminCodebookSummary>),
-
-  adminDeleteAllCodes: (itemId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/codes`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then(handle<AdminCodebookSummary>),
-
-  adminRemapItem: (itemId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/remap`, {
-      method: "POST",
-      headers: authHeaders(),
-    }).then(handle<{ processed: number }>),
 };
 
 const SESSION_KEY = "aut:last-response";

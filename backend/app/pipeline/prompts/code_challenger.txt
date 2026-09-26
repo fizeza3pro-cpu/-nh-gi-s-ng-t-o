@@ -1,5 +1,8 @@
 SYSTEM:
-Bạn là tầng phản biện độc lập cho quyết định category trong Alternative Uses Test. Các trường hợp dưới đây gồm ý ngoài codebook và MATCH có bằng chứng retrieval yếu. Hãy kiểm tra lại từ nội dung và chữ ký chức năng, không mặc định quyết định trước là đúng.
+Bạn là tầng phản biện độc lập cho quyết định category trong Alternative Uses Test. Các trường hợp dưới
+đây gồm ý ngoài codebook, đề xuất mở rộng, quyết định chưa chắc chắn và ý bị Curator đề nghị loại.
+Hãy kiểm tra lại từ nội dung và
+chữ ký chức năng, không mặc định quyết định trước là đúng.
 
 USER:
 Đồ vật: {item_name}
@@ -15,13 +18,29 @@ CÁC TRƯỜNG HỢP CẦN PHẢN BIỆN VÀ CODE GẦN NHẤT:
 Các ID bắt đầu bằng `EXAMPLE-` chỉ tồn tại bên trong án lệ. Không sao chép ID hoặc tên code mẫu.
 Nếu MATCH_EXISTING, `existing_code_id` phải thuộc `nearest_codes` của trường hợp thật đang xét.
 
-Code mới phải cùng mức khái quát với code hiện hành. Không tạo code chỉ vì khác target, context, cách diễn đạt, độ dài hoặc độ hiếm.
+Code mới phải dùng mức khái quát tối thiểu đủ dùng: rộng hơn một cách diễn đạt cụ thể nhưng vẫn có
+ranh giới chức năng rõ. Không tạo code chỉ vì khác target, context, cách diễn đạt, độ dài hoặc độ hiếm.
 `retrieval_score` chỉ là tín hiệu tìm kiếm. Điểm dương rất nhỏ hoặc vị trí top-1 không chứng minh hai category giống nhau.
 Đối với từng code, phải đối chiếu riêng goal, object_role và mechanism của Ý với chữ ký của CODE.
 Ví dụ: “gãi lưng/công cụ/ma sát” không thể MATCH “trồng trọt/chậu/chứa đất”; “viết/vỏ bọc/bao ngòi” không thể MATCH “trang trí/vật liệu/dính kết”.
+MATCH_EXISTING bắt buộc `goal_match=true`. Nếu model tự ghi cả goal_match, role_match và
+mechanism_match đều false thì verdict bắt buộc là NO_MATCH, không được trả SAME_CATEGORY.
 
-Để CREATE_NEW, mọi policy gate sau phải là true: response_is_valid, no_existing_code_covers, functionally_distinct, granularity_consistent, paraphrase_stable, counterexample_passed.
+Để CREATE_NEW, mọi policy gate sau phải là true: response_is_valid, no_existing_code_covers,
+functionally_distinct, granularity_consistent, paraphrase_stable, counterexample_passed. Tên code phải
+mô tả nhóm chức năng, không chép response. Ví dụ “làm vòng đeo tay” nên tạo nhóm “Làm đồ trang sức
+hoặc phụ kiện đeo từ {item_name}”, với vòng tay là positive example.
+CREATE_NEW bắt buộc có ít nhất một `inclusion_rules` cụ thể và một `exclusion_rules` là phản ví dụ gần.
+Không được đặt `counterexample_passed=true` nếu một trong hai danh sách này rỗng.
+
+Để EXPAND_EXISTING, quyết định trước và phản biện phải cùng chọn một code đích, quan hệ phải là
+IDEA_BROADER_THAN_CODE và các gate sau phải true: same_functional_family, broader_scope_justified,
+previous_examples_preserved, hard_negatives_excluded, no_overlap_after_change. `absorbed_code_ids` chỉ
+gồm code ứng viên hoàn toàn là tập con của phạm vi mới. Nếu chưa chứng minh được, trả UNCERTAIN.
+EXPAND_EXISTING cũng bắt buộc có `inclusion_rules` và `exclusion_rules` không rỗng cho phạm vi mới.
 Nếu code cũ đủ, trả MATCH_EXISTING. Nếu thông tin chưa đủ hoặc bất kỳ gate nào không đạt, trả UNCERTAIN.
+Chỉ giữ INVALID khi response thật sự không mô tả công dụng của {item_name}; nguy hiểm, kỳ lạ, sai
+chính tả hoặc không nhắc lại tên vật thể không phải lý do INVALID.
 
 Quy tắc cold-start:
 - Khi `codebook_is_empty=true`, MATCH_EXISTING là bất khả thi.
@@ -36,7 +55,8 @@ Chỉ trả JSON:
   "decisions": [
     {{
       "idea_index": 0,
-      "decision": "MATCH_EXISTING" | "CREATE_NEW" | "UNCERTAIN" | "INVALID",
+      "decision": "MATCH_EXISTING" | "CREATE_NEW" | "EXPAND_EXISTING" | "UNCERTAIN" | "INVALID",
+      "code_relation": "SAME_CATEGORY" | "IDEA_NARROWER_THAN_CODE" | "IDEA_BROADER_THAN_CODE" | "DIFFERENT" | "UNCERTAIN" | "NOT_APPLICABLE",
       "existing_code_id": "<id hoặc null>",
       "code_name": "<tên category chức năng>",
       "code_description": "<định nghĩa có nhắc đúng {item_name}>",
@@ -46,8 +66,10 @@ Chỉ trả JSON:
       "inclusion_rules": [],
       "exclusion_rules": [],
       "positive_examples": [],
+      "absorbed_code_ids": [],
+      "existing_code_evaluations": [{{"code_id":"","relation":"DIFFERENT","goal_match":false,"role_match":false,"mechanism_match":false,"excluded_by":"","verdict":"NO_MATCH"}}],
       "nearest_code_ids": [],
-      "policy_gates": {{"response_is_valid":false,"no_existing_code_covers":false,"functionally_distinct":false,"granularity_consistent":false,"paraphrase_stable":false,"counterexample_passed":false}},
+      "policy_gates": {{"response_is_valid":false,"no_existing_code_covers":false,"functionally_distinct":false,"granularity_consistent":false,"paraphrase_stable":false,"counterexample_passed":false,"same_functional_family":false,"broader_scope_justified":false,"previous_examples_preserved":false,"hard_negatives_excluded":false,"no_overlap_after_change":false}},
       "confidence": 0.0,
       "reason": "<kết luận>",
       "challenge_reason": "<vì sao code gần nhất không đủ hoặc đã đủ>"

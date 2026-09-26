@@ -8,9 +8,6 @@ from app.controllers import admin_controller
 from app.core.deps import require_admin
 from app.db import get_db
 from app.schemas.schemas import (
-    AdminCodeMerge,
-    AdminCodeOption,
-    AdminCodePatch,
     AdminCodebookOverview,
     AdminCodebookSummary,
     AdminCuratorAudit,
@@ -76,11 +73,6 @@ def codebook(
     )
 
 
-@router.get("/items/{item_id}/code-options", response_model=list[AdminCodeOption])
-def code_options(item_id: str, db: Session = Depends(get_db)) -> list[AdminCodeOption]:
-    return admin_controller.list_code_options(db, item_id)
-
-
 @router.get("/items/{item_id}/extraction-audit", response_model=AdminExtractionAudit)
 def extraction_audit(
     item_id: str, db: Session = Depends(get_db)
@@ -93,38 +85,3 @@ def curator_audit(
     item_id: str, db: Session = Depends(get_db)
 ) -> AdminCuratorAudit:
     return admin_controller.get_curator_audit(db, item_id)
-
-
-@router.patch("/items/{item_id}/codes/{code_id}", response_model=AdminCodebookSummary)
-def update_code(
-    item_id: str,
-    code_id: str,
-    patch: AdminCodePatch,
-    db: Session = Depends(get_db),
-) -> AdminCodebookSummary:
-    return admin_controller.patch_code(db, item_id, code_id, patch)
-
-
-@router.post("/items/{item_id}/codes/{code_id}/merge", response_model=AdminCodebookSummary)
-def merge_code(
-    item_id: str,
-    code_id: str,
-    payload: AdminCodeMerge,
-    db: Session = Depends(get_db),
-) -> AdminCodebookSummary:
-    return admin_controller.merge_code(db, item_id, code_id, payload.target_code_id)
-
-
-@router.delete("/items/{item_id}/codes/{code_id}", response_model=AdminCodebookSummary)
-def delete_code(item_id: str, code_id: str, db: Session = Depends(get_db)) -> AdminCodebookSummary:
-    return admin_controller.delete_code(db, item_id, code_id)
-
-
-@router.delete("/items/{item_id}/codes", response_model=AdminCodebookSummary)
-def delete_all_codes(item_id: str, db: Session = Depends(get_db)) -> AdminCodebookSummary:
-    return admin_controller.delete_all_codes(db, item_id)
-
-
-@router.post("/items/{item_id}/remap")
-def remap(item_id: str, db: Session = Depends(get_db)) -> dict:
-    return {"processed": admin_controller.remap_item(item_id)}

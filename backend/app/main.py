@@ -27,5 +27,11 @@ def health() -> dict:
         "status": "ok",
         "provider": settings.llm_provider,
         "model": settings.active_llm_model,
+        "embedding_provider": settings.embedding_provider,
+        "embedding_model": (
+            settings.cloudflare_embedding_model
+            if settings.embedding_provider == "cloudflare"
+            else "local-hash-v1"
+        ),
         "reference_cases_enabled": settings.reference_cases_enabled,
     }

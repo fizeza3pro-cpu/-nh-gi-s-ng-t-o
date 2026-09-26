@@ -19,10 +19,12 @@ type View = "CODES" | "DECISIONS" | "EXCLUDED";
 const decisionLabel: Record<string, string> = {
   MATCH_EXISTING: "Khớp mã đang có",
   CREATE_NEW: "Tạo mã trực tiếp",
+  EXPAND_EXISTING: "Mở rộng phạm vi mã",
   INVALID: "Không hợp lệ",
   UNCERTAIN: "Chưa đủ căn cứ",
   OUT_OF_CODEBOOK: "Ngoài sổ mã",
   POLICY_REJECTED: "Không qua cổng tạo mã",
+  SCOPE_REJECTED: "Không qua cổng phạm vi",
   CURATOR_OBJECT_GUARD: "Sai đồ vật",
   MISSING_DECISION: "Thiếu quyết định",
 };
@@ -34,6 +36,36 @@ const gateLabel: Record<string, string> = {
   granularity_consistent: "Cùng mức khái quát",
   paraphrase_stable: "Ổn định khi diễn đạt lại",
   counterexample_passed: "Qua phản ví dụ",
+  same_functional_family: "Cùng họ chức năng",
+  broader_scope_justified: "Phạm vi rộng có căn cứ",
+  previous_examples_preserved: "Giữ được ví dụ cũ",
+  hard_negatives_excluded: "Không kéo nhầm phản ví dụ",
+  no_overlap_after_change: "Không chồng lấn sau đổi",
+};
+
+const createGateKeys = new Set([
+  "response_is_valid",
+  "no_existing_code_covers",
+  "functionally_distinct",
+  "granularity_consistent",
+  "paraphrase_stable",
+  "counterexample_passed",
+]);
+
+const expandGateKeys = new Set([
+  "same_functional_family",
+  "broader_scope_justified",
+  "previous_examples_preserved",
+  "hard_negatives_excluded",
+  "no_overlap_after_change",
+]);
+
+const relationLabel: Record<string, string> = {
+  SAME_CATEGORY: "Cùng phạm vi",
+  IDEA_NARROWER_THAN_CODE: "Ý cụ thể hơn mã",
+  IDEA_BROADER_THAN_CODE: "Ý rộng hơn mã",
+  DIFFERENT: "Khác chức năng",
+  UNCERTAIN: "Chưa rõ quan hệ",
 };
 
 function Signature({ value }: { value: FunctionalSignature }) {
@@ -93,6 +125,19 @@ function CodeCard({ code }: { code: AdminCodebookCode }) {
             <RuleList title="Được bao gồm" rows={code.inclusion_rules} tone="text-emerald-700" />
             <RuleList title="Không bao gồm" rows={code.exclusion_rules} tone="text-rose-700" />
             <RuleList title="Ví dụ đã dùng" rows={code.positive_examples} tone="text-stone-700" />
+            {code.scope_history.length > 0 && (
+              <div className="border-t border-stone-200 pt-4">
+                <p className="font-medium text-amber-800">Lịch sử phạm vi</p>
+                <ol className="mt-2 space-y-2 text-stone-600">
+                  {[...code.scope_history].reverse().map((entry, index) => (
+                    <li key={`${entry.changed_at ?? "scope"}-${index}`} className="border-l-2 border-amber-200 pl-3">
+                      <p>{entry.previous?.name ?? "Phạm vi cũ"} → {entry.current?.name ?? code.name}</p>
+                      {entry.reason ? <p className="mt-0.5 text-stone-400">{entry.reason}</p> : null}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -109,16 +154,30 @@ function RuleList({ title, rows, tone }: { title: string; rows: string[]; tone: 
   );
 }
 
-function DecisionEvidence({ reason, value }: { reason: string; value: Record<string, unknown> }) {
+function DecisionEvidence({ decision, reason, value }: { decision: string; reason: string; value: Record<string, unknown> }) {
   const rawGates = value.policy_gates;
-  const gates = rawGates && typeof rawGates === "object" && !Array.isArray(rawGates)
+  const allGates = rawGates && typeof rawGates === "object" && !Array.isArray(rawGates)
     ? Object.entries(rawGates as Record<string, unknown>)
     : [];
+  const relevantGateKeys = decision === "CREATE_NEW" || decision === "POLICY_REJECTED"
+    ? createGateKeys
+    : decision === "EXPAND_EXISTING" || decision === "SCOPE_REJECTED"
+      ? expandGateKeys
+      : null;
+  const gates = relevantGateKeys
+    ? allGates.filter(([gate]) => relevantGateKeys.has(gate))
+    : [];
   const challengeReason = typeof value.challenge_reason === "string" ? value.challenge_reason : "";
+  const codeRelation = typeof value.code_relation === "string" ? value.code_relation : "";
 
   return (
     <div>
       <p className="text-xs leading-5 text-stone-600">{reason}</p>
+      {codeRelation && codeRelation !== "NOT_APPLICABLE" ? (
+        <p className="mt-2 text-[11px] text-stone-500">
+          Quan hệ: <span className="font-medium text-stone-700">{relationLabel[codeRelation] ?? codeRelation}</span>
+        </p>
+      ) : null}
       {gates.length > 0 && (
         <div className="mt-3 flex max-w-sm flex-wrap gap-1.5">
           {gates.map(([gate, passed]) => (
@@ -239,7 +298,7 @@ export default function AdminCodebooks() {
                       <p className="text-base font-medium leading-6 text-stone-900">{decision.original}</p>
                       <p className="mt-1 text-xs leading-5 text-stone-400">{decision.normalized}</p>
                     </div>
-                    <Badge variant={decision.decision === "CREATE_NEW" ? "success" : decision.decision === "MATCH_EXISTING" ? "outline" : decision.decision === "INVALID" ? "destructive" : "warning"}>{decisionLabel[decision.decision] ?? decision.decision}</Badge>
+                    <Badge variant={decision.decision === "CREATE_NEW" || decision.decision === "EXPAND_EXISTING" ? "success" : decision.decision === "MATCH_EXISTING" ? "outline" : decision.decision === "INVALID" ? "destructive" : "warning"}>{decisionLabel[decision.decision] ?? decision.decision}</Badge>
                     <div className="md:text-right">
                       <p className="text-[10px] uppercase tracking-[0.14em] text-stone-400">Category</p>
                       <p className="mt-1 font-mono text-xs text-stone-700">{decision.code_name ?? "Chưa gán mã"}</p>
@@ -252,7 +311,7 @@ export default function AdminCodebooks() {
                     </div>
                     <div className="rounded-lg border border-stone-200 bg-white p-4">
                       <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-stone-400">Căn cứ quyết định</p>
-                      <DecisionEvidence reason={decision.reason} value={decision.mapping_evidence} />
+                      <DecisionEvidence decision={decision.decision} reason={decision.reason} value={decision.mapping_evidence} />
                     </div>
                   </div>
                 </article>

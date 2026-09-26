@@ -165,11 +165,31 @@ Sau khi đổi provider, cần lưu `backend/.env` và khởi động lại back
 Trên Render, đổi `LLM_PROVIDER` trong **Environment** rồi redeploy; chỉ thêm API key/token không
 tự chuyển provider.
 
+### Semantic embedding cho truy xuất code
+
+Curator dùng Cloudflare embedding độc lập với model chat, kể cả khi `LLM_PROVIDER` là Groq hoặc
+BytePlus. Vì vậy môi trường chạy thật vẫn cần `CLOUDFLARE_API_TOKEN` và
+`CLOUDFLARE_ACCOUNT_ID`:
+
+```
+EMBEDDING_PROVIDER=cloudflare
+CLOUDFLARE_EMBEDDING_MODEL=@cf/qwen/qwen3-embedding-0.6b
+EMBEDDING_BATCH_SIZE=64
+EMBEDDING_TIMEOUT_SECONDS=20
+CODE_CANDIDATE_LIMIT=8
+CODEBOOK_FULL_SCAN_LIMIT=20
+```
+
+Embedding chỉ xếp hạng candidate và án lệ; backend vẫn yêu cầu quan hệ có cấu trúc cùng phản biện
+độc lập trước khi gắn/tạo/mở rộng code. `EMBEDDING_PROVIDER=local` chỉ dành cho mock, test hoặc
+đối chứng vì vector băm không hiểu ngữ nghĩa tiếng Việt.
+
 ### Bật hoặc tắt dataset tham khảo
 
 ```
 REFERENCE_CASES_ENABLED=true
 REFERENCE_CASES_LIMIT=2
+REFERENCE_CASES_MAX_CHARS=2200
 ```
 
 Dataset nằm tại `backend/app/pipeline/reference_cases/`. Đây là các án lệ provisional giúp AI áp

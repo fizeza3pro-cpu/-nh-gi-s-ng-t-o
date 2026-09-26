@@ -77,7 +77,7 @@ def test_extraction_prompt_contains_retrieved_reference_cases():
     prompt = client.chat.completions.requests[0]["messages"][0]["content"]
     assert result.ideas[0].status == "VALID"
     assert "VÍ DỤ THAM KHẢO ĐÃ ĐƯỢC GÁN NHÃN" in prompt
-    assert "EX-VALID-HEAT-01" in prompt
+    assert "Câu ngắn vẫn hợp lệ" in prompt
     assert meta["provider"] in {"byteplus", "groq", "cloudflare"}
 
 

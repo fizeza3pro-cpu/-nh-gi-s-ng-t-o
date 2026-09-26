@@ -78,6 +78,48 @@
       "decision": "UNCERTAIN"
     },
     "principle": "Không đủ thông tin để xác định cơ chế kẹp hay chống đỡ; không được đoán theo confidence."
+  },
+  {
+    "id": "CU-NARROWER-JEWELRY-01",
+    "stage": "curator",
+    "item": "Vỏ đạn",
+    "input": {
+      "response": "Làm vòng đeo tay",
+      "candidate_codes": [
+        {
+          "id": "EXAMPLE-JEWELRY",
+          "name": "Làm đồ trang sức hoặc phụ kiện đeo từ vỏ đạn",
+          "definition": "Gia công vỏ đạn thành vật trang trí được đeo trên cơ thể"
+        }
+      ]
+    },
+    "expected": {
+      "decision": "MATCH_EXISTING",
+      "code_relation": "IDEA_NARROWER_THAN_CODE",
+      "existing_code_id": "EXAMPLE-JEWELRY"
+    },
+    "principle": "Vòng tay là một trường hợp cụ thể của đồ trang sức; chi tiết sản phẩm không tạo category mới."
+  },
+  {
+    "id": "CU-BROADER-JEWELRY-01",
+    "stage": "curator",
+    "item": "Vỏ đạn",
+    "input": {
+      "response": "Làm đồ trang sức",
+      "candidate_codes": [
+        {
+          "id": "EXAMPLE-BRACELET",
+          "name": "Làm vòng đeo tay từ vỏ đạn",
+          "definition": "Gia công vỏ đạn thành vòng đeo ở cổ tay"
+        }
+      ]
+    },
+    "expected": {
+      "decision": "EXPAND_EXISTING",
+      "code_relation": "IDEA_BROADER_THAN_CODE",
+      "existing_code_id": "EXAMPLE-BRACELET"
+    },
+    "principle": "Ý mới cùng họ chức năng nhưng bao quát nhiều sản phẩm đeo hơn nên phải mở rộng code hẹp, không tạo code chồng lấn."
   }
 ]
 

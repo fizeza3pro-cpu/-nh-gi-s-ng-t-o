@@ -241,11 +241,15 @@ export interface AdminCodebookCode {
   inclusion_rules: string[];
   exclusion_rules: string[];
   positive_examples: string[];
-}
-
-export interface AdminCodeOption {
-  id: string;
-  name: string;
+  embedding_model: string;
+  scope_history: Array<{
+    changed_at?: string;
+    change?: string;
+    reason?: string;
+    previous?: { name?: string };
+    current?: { name?: string };
+    absorbed_code_ids?: string[];
+  }>;
 }
 
 export interface AdminExtractionExcludedIdea {
@@ -279,9 +283,11 @@ export interface AdminCuratorDecisionIdea {
   decision:
     | "MATCH_EXISTING"
     | "CREATE_NEW"
+    | "EXPAND_EXISTING"
     | "OUT_OF_CODEBOOK"
     | "UNCERTAIN"
     | "POLICY_REJECTED"
+    | "SCOPE_REJECTED"
     | "INVALID"
     | "CURATOR_OBJECT_GUARD"
     | "MISSING_DECISION";
@@ -299,6 +305,7 @@ export interface AdminCuratorAudit {
   item_name: string;
   match_existing_count: number;
   create_new_count: number;
+  expand_existing_count: number;
   invalid_count: number;
   guarded_count: number;
   total_count: number;
@@ -328,11 +335,4 @@ export interface AdminCodebookSummary extends AdminCodebookOverview {
   code_total: number;
   code_page_count: number;
   codes: AdminCodebookCode[];
-}
-
-export interface AdminCodePatch {
-  name?: string;
-  description?: string;
-  validation_status?: "ACCEPTED" | "UNCERTAIN" | "REJECTED";
-  admin_locked?: boolean;
 }

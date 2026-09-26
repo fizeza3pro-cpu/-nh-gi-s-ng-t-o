@@ -98,6 +98,30 @@
       ]
     },
     "principle": "Công dụng thông thường vẫn VALID; độ phổ biến chỉ liên quan Originality, không phải adequacy."
+  },
+  {
+    "id": "EX-VALID-IMPLICIT-DANGEROUS-01",
+    "stage": "extraction",
+    "item": "Vỏ đạn",
+    "input": {
+      "responses": ["Nhồi thuốc súng vào để bắn"]
+    },
+    "expected": {
+      "ideas": [
+        {
+          "line_index": 0,
+          "status": "VALID",
+          "uses_target_object": true,
+          "object_used": "Vỏ đạn",
+          "functional_signature": {
+            "goal": "chứa liều phóng để khai hỏa",
+            "object_role": "vỏ chứa và định vị thuốc súng",
+            "mechanism": "giữ thuốc súng và chịu áp lực khi bắn"
+          }
+        }
+      ]
+    },
+    "principle": "Tên vỏ đạn được hiểu ngầm từ đề AUT; tính nguy hiểm không làm một công dụng có nghĩa thành INVALID."
   }
 ]
 

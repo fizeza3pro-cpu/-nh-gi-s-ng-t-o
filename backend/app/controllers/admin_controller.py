@@ -482,10 +482,12 @@ def get_curator_audit(
     curator_decisions = [
         "MATCH_EXISTING",
         "CREATE_NEW",
+        "EXPAND_EXISTING",
         "INVALID",
         "UNCERTAIN",
         "OUT_OF_CODEBOOK",
         "POLICY_REJECTED",
+        "SCOPE_REJECTED",
         "CURATOR_OBJECT_GUARD",
         "MISSING_DECISION",
     ]
@@ -532,18 +534,22 @@ def get_curator_audit(
     ]
     match_count = counts.get("MATCH_EXISTING", 0)
     create_count = counts.get("CREATE_NEW", 0)
+    expand_count = counts.get("EXPAND_EXISTING", 0)
     invalid_count = counts.get("INVALID", 0)
     guarded_count = counts.get("CURATOR_OBJECT_GUARD", 0) + counts.get(
         "MISSING_DECISION", 0
     ) + counts.get("UNCERTAIN", 0) + counts.get("OUT_OF_CODEBOOK", 0) + counts.get(
         "POLICY_REJECTED", 0
+    ) + counts.get(
+        "SCOPE_REJECTED", 0
     )
-    total_count = match_count + create_count + invalid_count + guarded_count
+    total_count = match_count + create_count + expand_count + invalid_count + guarded_count
     return AdminCuratorAudit(
         item_id=item.id,
         item_name=item.name,
         match_existing_count=match_count,
         create_new_count=create_count,
+        expand_existing_count=expand_count,
         invalid_count=invalid_count,
         guarded_count=guarded_count,
         total_count=total_count,
@@ -722,6 +728,8 @@ def get_codebook(
                 inclusion_rules=row.inclusion_rules or [],
                 exclusion_rules=row.exclusion_rules or [],
                 positive_examples=row.positive_examples or [],
+                embedding_model=row.embedding_model,
+                scope_history=row.scope_history or [],
             )
         )
     return AdminCodebookSummary(

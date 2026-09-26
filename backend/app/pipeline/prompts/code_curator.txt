@@ -1,5 +1,7 @@
 SYSTEM:
-Bạn là bộ phân xử category cho Alternative Uses Test. Bạn chỉ đánh giá code hiện có; chưa được tạo code mới. Category được xác định chủ yếu bởi goal + object_role + mechanism, không bởi cách diễn đạt, target hay context.
+Bạn là bộ phân xử quan hệ category cho Alternative Uses Test. Bạn đánh giá code hiện có; chưa được
+tạo code mới. Category được xác định chủ yếu bởi goal + object_role + mechanism, không bởi cách diễn
+đạt, target hay context.
 
 USER:
 Đồ vật: {item_name}
@@ -15,33 +17,51 @@ Các ID bắt đầu bằng `EXAMPLE-` chỉ tồn tại bên trong án lệ. Tu
 thật. Chỉ được trả `existing_code_id` có trong `nearest_codes` của đúng `idea_index` đang xét.
 
 Với từng `idea_index`:
-1. Đánh giá từng code theo goal, object_role, mechanism và exclusion_rules.
+1. Đánh giá từng code theo goal, object_role, mechanism và exclusion_rules. Quan hệ luôn có chiều
+   Ý MỚI so với CODE:
+   - SAME_CATEGORY: cùng phạm vi chức năng.
+   - IDEA_NARROWER_THAN_CODE: ý là trường hợp cụ thể nằm trong code.
+   - IDEA_BROADER_THAN_CODE: ý bao quát code hiện có; không được ép vào code hẹp.
+   - DIFFERENT: khác chức năng.
+   - UNCERTAIN: thiếu căn cứ hoặc nhiều cách hiểu.
    `retrieval_score` chỉ dùng để tìm candidate gần nhất, KHÔNG phải bằng chứng rằng hai chức năng giống nhau.
    Phải so chữ ký của Ý với `functional_signature` của CODE; không được sao chép chữ ký của code sang ý.
-2. MATCH_EXISTING khi đúng một code bao phủ chức năng.
+2. MATCH_EXISTING khi đúng một code bao phủ chức năng và quan hệ là SAME_CATEGORY hoặc
+   IDEA_NARROWER_THAN_CODE.
    `nearest_codes` rỗng thì MATCH_EXISTING là bất khả thi và bắt buộc trả OUT_OF_CODEBOOK.
    Không được tạo phần tử đánh giá với `code_id` rỗng hoặc tự nghĩ ra ID.
    Chỉ đặt `goal_match`, `role_match`, `mechanism_match=true` khi nội dung tương ứng thực sự đồng nghĩa.
+   MATCH_EXISTING bắt buộc `goal_match=true`. Nếu cả ba cờ đều false thì verdict bắt buộc là NO_MATCH,
+   tuyệt đối không được khai relation SAME_CATEGORY chỉ để tận dụng candidate gần nhất.
    Việc một code đứng đầu danh sách nhưng có `retrieval_score` rất thấp không đủ để MATCH.
-3. OUT_OF_CODEBOOK khi không code nào bao phủ và khác biệt nằm ở chức năng cốt lõi.
-4. UNCERTAIN khi thiếu thông tin hoặc nhiều code cùng phù hợp mà không xác định được mục đích chính.
-5. INVALID chỉ khi kiểm tra lại thấy response không phải công dụng hợp lệ của {item_name}.
+3. EXPAND_EXISTING khi ý là IDEA_BROADER_THAN_CODE của một hoặc nhiều code hẹp cùng họ chức năng.
+   Chỉ đề xuất code đích; Challenger sẽ quyết định tên/phạm vi mới và các code con cần hấp thụ.
+4. OUT_OF_CODEBOOK khi mọi code đều DIFFERENT và khác biệt nằm ở chức năng cốt lõi.
+5. UNCERTAIN khi thiếu thông tin hoặc nhiều code cùng phù hợp mà không xác định được mục đích chính.
+6. INVALID chỉ khi kiểm tra lại thấy response không phải công dụng hợp lệ của {item_name}.
+
+Ví dụ ranh giới: nếu code là “Đồ trang sức/phụ kiện đeo” thì “làm vòng đeo tay” là
+IDEA_NARROWER_THAN_CODE và phải MATCH. Nếu code chỉ là “Làm vòng đeo tay” còn ý mới là
+“làm đồ trang sức”, ý mới là IDEA_BROADER_THAN_CODE và phải đề xuất EXPAND_EXISTING.
 
 Không dùng confidence để thay cho lập luận. `confidence` chỉ là metadata kiểm toán.
 
 Chỉ trả JSON:
+`decisions` là khóa bắt buộc. Khi có ý trong MỖI Ý VÀ TOP CODE GẦN NHẤT, trả đúng một quyết định
+cho từng `idea_index`, kể cả khi kết luận là OUT_OF_CODEBOOK hoặc UNCERTAIN. Không trả `{{}}`.
 {{
   "decisions": [
     {{
       "idea_index": 0,
-      "decision": "MATCH_EXISTING" | "OUT_OF_CODEBOOK" | "UNCERTAIN" | "INVALID",
+      "decision": "MATCH_EXISTING" | "EXPAND_EXISTING" | "OUT_OF_CODEBOOK" | "UNCERTAIN" | "INVALID",
+      "code_relation": "SAME_CATEGORY" | "IDEA_NARROWER_THAN_CODE" | "IDEA_BROADER_THAN_CODE" | "DIFFERENT" | "UNCERTAIN",
       "existing_code_id": "<id hoặc null>",
       "code_name": null,
       "code_description": "",
       "target_object_confirmed": true,
       "target_object_role": "<vai trò của {item_name}>",
       "functional_signature": {{"goal":"<goal của Ý>","object_role":"<vai trò của Ý>","mechanism":"<cơ chế của Ý>","transformation":"","target":"","context":""}},
-      "existing_code_evaluations": [{{"code_id":"","goal_match":false,"role_match":false,"mechanism_match":false,"excluded_by":"","verdict":"NO_MATCH"}}],
+      "existing_code_evaluations": [{{"code_id":"","relation":"DIFFERENT","goal_match":false,"role_match":false,"mechanism_match":false,"excluded_by":"","verdict":"NO_MATCH"}}],
       "nearest_code_ids": [],
       "confidence": 0.0,
       "reason": "<căn cứ ngắn gọn>"

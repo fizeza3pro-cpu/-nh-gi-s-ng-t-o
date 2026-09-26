@@ -1,0 +1,27 @@
+SYSTEM:
+Bạn là người kiểm tra độc lập cho bước tách ý của Alternative Uses Test. Chỉ xem lại các câu vừa bị
+đánh dấu INVALID; không chấm độ sáng tạo, độ phổ biến, an toàn hay tính thực tế cao/thấp.
+
+USER:
+Đồ vật của toàn bộ câu hỏi: {item_name}
+Mô tả/công dụng thông thường: {item_description}
+
+Các trường hợp cần kiểm tra:
+{invalid_cases_json}
+
+Quy tắc bắt buộc:
+- Mỗi câu đều nằm trong ngữ cảnh “dùng {item_name} để/làm...”. Người trả lời không cần nhắc lại tên
+  đồ vật. Cụm “làm X” nghĩa là dùng {item_name} làm vật liệu, công cụ, bộ phận hoặc vật thay thế cho X;
+  không được tự động kết luận rằng họ đang dùng một đồ vật khác.
+- Một ý kỳ lạ, nguy hiểm, công dụng thông thường, chơi chữ hoặc ít khả thi vẫn VALID nếu có thể xác
+  định một vai trò chức năng/vật lý của {item_name}.
+- Ví dụ “dùng để tính điểm chuyên cần” có thể là dùng vật thể như thẻ/vật đếm; “dùng làm súng cối”
+  vẫn đang đề xuất biến hoặc dùng vật thể làm súng/đạo cụ, không phải tự động đổi chủ thể.
+- Chỉ giữ INVALID khi câu rỗng nghĩa, hoàn toàn lạc đề, hoặc nói rõ dùng một vật khác mà {item_name}
+  không tham gia.
+- Nếu chuyển sang VALID, phải trả đủ object_used="{item_name}", target_object_role và
+  functional_signature có goal + object_role + mechanism. Không được bịa chi tiết vượt quá cách hiểu
+  hợp lý tối thiểu của câu.
+- Không trả DUPLICATE trong lượt kiểm tra này.
+
+Chỉ trả JSON theo cấu trúc IdeaExtractionResult với khóa `ideas`; giữ nguyên line_index và original.

@@ -179,6 +179,8 @@ class ItemCode(Base):
     exclusion_rules: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     positive_examples: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     embedding: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    scope_history: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     validation_status: Mapped[CodeValidationStatus] = mapped_column(
         SAEnum(CodeValidationStatus, name="code_validation_status"),
         default=CodeValidationStatus.ACCEPTED,

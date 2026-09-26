@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # --- BytePlus ModelArk ---
     byteplus_api_key: str = ""
     byteplus_base_url: str = "https://ark.ap-southeast.bytepluses.com/api/v3"
-    byteplus_model: str = "deepseek-v4-flash-260731"
+    byteplus_model: str = "deepseek-v4-pro-ga-260813"
     byteplus_code_curator_model: str | None = None
 
     # --- Groq ---
@@ -41,14 +41,23 @@ class Settings(BaseSettings):
     cloudflare_code_curator_model: str | None = None
     cloudflare_max_tokens: int = Field(default=4096, ge=256, le=8192)
 
+    # --- Semantic embedding ---
+    # Embedding chạy độc lập với model chat để không chiếm context của Curator.
+    embedding_provider: Literal["cloudflare", "local"] = "cloudflare"
+    cloudflare_embedding_model: str = "@cf/qwen/qwen3-embedding-0.6b"
+    embedding_batch_size: int = Field(default=64, ge=1, le=100)
+    embedding_timeout_seconds: float = Field(default=20.0, ge=1.0, le=60.0)
+
     # --- Pipeline ---
     mapping_temperature: float = 0.1
     scoring_temperature: float = 0.4
     scoring_runs: int = 1
     code_curator_temperature: float = 0.1
-    code_match_review_threshold: float = Field(default=0.10, ge=0.0, le=1.0)
+    code_candidate_limit: int = Field(default=8, ge=1, le=20)
+    codebook_full_scan_limit: int = Field(default=20, ge=1, le=100)
     reference_cases_enabled: bool = True
     reference_cases_limit: int = Field(default=2, ge=0, le=8)
+    reference_cases_max_chars: int = Field(default=2200, ge=400, le=8000)
     scoring_min_participants: int = 24
     scoring_min_ideas: int = 150
     cors_origins: str = "http://localhost:5173"

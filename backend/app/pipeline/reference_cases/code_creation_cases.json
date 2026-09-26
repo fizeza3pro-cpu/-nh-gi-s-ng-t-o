@@ -81,6 +81,34 @@
       }
     },
     "principle": "Cộng hưởng âm là cơ chế có thể nhận diện qua nhiều cách diễn đạt và không được code chứa hay dẫn chất lỏng bao phủ."
+  },
+  {
+    "id": "CH-EXPAND-JEWELRY-01",
+    "stage": "challenger",
+    "item": "Vỏ đạn",
+    "input": {
+      "response": "Làm đồ trang sức",
+      "adjudicator_decision": "EXPAND_EXISTING",
+      "nearest_codes": [
+        {"id": "EXAMPLE-BRACELET", "name": "Làm vòng đeo tay từ vỏ đạn"},
+        {"id": "EXAMPLE-DISPLAY", "name": "Làm vật trưng bày từ vỏ đạn"}
+      ]
+    },
+    "expected": {
+      "decision": "EXPAND_EXISTING",
+      "code_relation": "IDEA_BROADER_THAN_CODE",
+      "existing_code_id": "EXAMPLE-BRACELET",
+      "code_name": "Làm đồ trang sức hoặc phụ kiện đeo từ vỏ đạn",
+      "absorbed_code_ids": [],
+      "passed_scope_gates": [
+        "same_functional_family",
+        "broader_scope_justified",
+        "previous_examples_preserved",
+        "hard_negatives_excluded",
+        "no_overlap_after_change"
+      ]
+    },
+    "principle": "Mở rộng code vòng tay thành nhóm trang sức vẫn giữ ví dụ cũ và loại đồ trưng bày không đeo; không tạo code rộng song song."
   }
 ]
 

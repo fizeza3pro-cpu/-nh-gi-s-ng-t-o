@@ -370,10 +370,10 @@ def test_admin_cannot_mutate_append_only_codebook(client):
 
     assert client.patch(
         f"/api/admin/items/dua/codes/{code_id}", json={"name": "Tên mới"}
-    ).status_code == 409
-    assert client.delete(f"/api/admin/items/dua/codes/{code_id}").status_code == 409
-    assert client.delete("/api/admin/items/dua/codes").status_code == 409
-    assert client.post("/api/admin/items/dua/remap").status_code == 409
+    ).status_code == 404
+    assert client.delete(f"/api/admin/items/dua/codes/{code_id}").status_code == 404
+    assert client.delete("/api/admin/items/dua/codes").status_code == 404
+    assert client.post("/api/admin/items/dua/remap").status_code == 404
 
 
 def test_admin_codebook_is_paginated_and_filtered_in_backend(client):

@@ -1,5 +1,10 @@
 # Kế hoạch chuyển từ codebook tĩnh sang codebook động
 
+> **Lưu ý (25/09/2026):** các phần về admin gộp/tách mã và codebook version trong tài liệu lịch
+> sử này đã được thay thế bởi [quy-trinh-sinh-code-tu-dong.md](./quy-trinh-sinh-code-tu-dong.md).
+> Thiết kế hiện hành dùng một codebook live, AI tự tạo/mở rộng/gộp theo cổng bằng chứng; admin chỉ
+> quan sát và kiểm toán.
+
 ## Quy ước theo dõi thay đổi
 
 - Từ ngày 13/09/2026, mọi thay đổi code phải được ghi thêm vào phần **Nhật ký thay đổi** cuối file,

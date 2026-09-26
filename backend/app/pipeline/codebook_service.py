@@ -1,8 +1,9 @@
 """Nghiệp vụ codebook động và tính Originality từ dữ liệu realtime có lưu căn cứ."""
 
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import distinct, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -16,9 +17,17 @@ from app.models.models import (
     ResponseIdea,
     ResponseScoringStatus,
 )
-from app.pipeline.code_retrieval import functional_key, local_embedding, signature_text
+from app.pipeline.code_retrieval import functional_key, signature_text
+from app.pipeline.embedding import local_embedding
 from app.pipeline.dynamic_mapping import normalize_code_name
-from app.schemas.schemas import CuratorResult, IdeaExtractionResult, MappedIdea, MappingResult, PerIdeaScore
+from app.schemas.schemas import (
+    CuratorResult,
+    IdeaExtractionResult,
+    MappedIdea,
+    MappingResult,
+    PerIdeaScore,
+    ScoringResult,
+)
 
 
 def list_curator_codes(db: Session, item_id: str) -> list[dict]:
@@ -43,6 +52,8 @@ def list_curator_codes(db: Session, item_id: str) -> list[dict]:
             "exclusion_rules": row.exclusion_rules or [],
             "positive_examples": row.positive_examples or [],
             "embedding": row.embedding or [],
+            "embedding_model": row.embedding_model,
+            "scope_history": row.scope_history or [],
         }
         for row in rows
         if _code_mentions_target(item, row)
@@ -73,7 +84,7 @@ def _curator_is_grounded(item: Item, decision, code_row: ItemCode | None = None)
     """Curator phải xác nhận lại vật thể; code mới còn phải gọi đúng tên vật thể."""
     if not decision.target_object_confirmed or not decision.target_object_role.strip():
         return False
-    if decision.decision == "CREATE_NEW":
+    if decision.decision in {"CREATE_NEW", "EXPAND_EXISTING"}:
         return _mentions_target(
             f"{decision.code_name or ''} {decision.code_description}", item.name
         )
@@ -96,6 +107,8 @@ def _find_or_create_code(
     inclusion_rules: list[str],
     exclusion_rules: list[str],
     positive_examples: list[str],
+    embedding: list[float] | None = None,
+    embedding_model: str = "",
 ) -> ItemCode:
     normalized_name = normalize_code_name(name) or f"code-{uuid.uuid4().hex[:8]}"
     key = functional_key(signature)
@@ -109,15 +122,27 @@ def _find_or_create_code(
         ).with_for_update()
     )
     if existing:
+        if (
+            existing.maturity_status == CodeMaturityStatus.MERGED
+            and existing.merged_into_id
+        ):
+            merged_target = db.get(ItemCode, existing.merged_into_id)
+            if (
+                merged_target is not None
+                and merged_target.validation_status == CodeValidationStatus.ACCEPTED
+                and merged_target.maturity_status == CodeMaturityStatus.ACTIVE
+            ):
+                return merged_target
         if not existing.functional_key and key:
             existing.functional_key = key
             existing.functional_signature = signature
             existing.inclusion_rules = inclusion_rules
             existing.exclusion_rules = exclusion_rules
             existing.positive_examples = positive_examples
-            existing.embedding = local_embedding(
+            existing.embedding = embedding or local_embedding(
                 f"{existing.name} {existing.description} {signature_text(signature)}"
             )
+            existing.embedding_model = embedding_model or "local-hash-v1"
         # Nếu AI gặp lại đúng tên của code legacy, chỉ lúc này code mới được "khám phá lại"
         # từ dữ liệu thật và tham gia codebook động; bản thân seed cũ không tự tạo tần suất.
         if (
@@ -132,16 +157,39 @@ def _find_or_create_code(
             existing.confidence = confidence
             existing.relevance_reason = reason
         elif (
-            existing.validation_status == CodeValidationStatus.UNCERTAIN
+            existing.validation_status
+            in {CodeValidationStatus.UNCERTAIN, CodeValidationStatus.REJECTED}
             and validation_status == CodeValidationStatus.ACCEPTED
             and not existing.admin_locked
         ):
             existing.validation_status = CodeValidationStatus.ACCEPTED
+            existing.maturity_status = CodeMaturityStatus.ACTIVE
             existing.confidence = confidence
             existing.relevance_reason = reason
+            existing.rejection_reason = ""
+            existing.description = description.strip()
+            existing.functional_key = key
+            existing.functional_signature = signature
+            existing.inclusion_rules = inclusion_rules
+            existing.exclusion_rules = exclusion_rules
+            existing.positive_examples = positive_examples
+            existing.source_response_id = source_response_id
         if not existing.admin_locked and confidence > existing.confidence:
             existing.confidence = confidence
             existing.relevance_reason = reason
+        if embedding:
+            existing.embedding = embedding
+            existing.embedding_model = embedding_model
+        if not existing.admin_locked:
+            existing.inclusion_rules = _unique_texts(
+                existing.inclusion_rules or [], inclusion_rules
+            )
+            existing.exclusion_rules = _unique_texts(
+                existing.exclusion_rules or [], exclusion_rules
+            )
+            existing.positive_examples = _unique_texts(
+                existing.positive_examples or [], positive_examples
+            )
         return existing
 
     row = ItemCode(
@@ -160,11 +208,218 @@ def _find_or_create_code(
         inclusion_rules=inclusion_rules,
         exclusion_rules=exclusion_rules,
         positive_examples=positive_examples,
-        embedding=local_embedding(f"{name} {description} {signature_text(signature)}"),
+        embedding=embedding
+        or local_embedding(f"{name} {description} {signature_text(signature)}"),
+        embedding_model=embedding_model or "local-hash-v1",
+        scope_history=[],
     )
     db.add(row)
     db.flush()
     return row
+
+
+def _all_gates_pass(decision, required: set[str]) -> bool:
+    """Cổng quyết định chỉ đạt khi đủ khóa và từng giá trị đều đúng."""
+    return required.issubset(decision.policy_gates) and all(
+        decision.policy_gates.get(gate, False) for gate in required
+    )
+
+
+def _has_complete_boundaries(decision) -> bool:
+    """Không tin gate tự khai nếu category thiếu biên bao gồm hoặc loại trừ."""
+    def specific(rule: str, *, inclusion: bool) -> bool:
+        normalized = normalize_code_name(rule)
+        tokens = normalized.split()
+        if len(tokens) < 4:
+            return False
+        if inclusion and normalized.startswith("co co che "):
+            return False
+        if not inclusion and normalized.startswith("khong dung de ") and len(tokens) <= 6:
+            return False
+        return True
+
+    return (
+        any(
+            specific(rule, inclusion=True) for rule in decision.inclusion_rules
+        )
+        and any(
+            specific(rule, inclusion=False) for rule in decision.exclusion_rules
+        )
+        and any(example.strip() for example in decision.positive_examples)
+    )
+
+
+def _relation_for_code(decision, code_id: str) -> str:
+    """Đọc quan hệ cặp ý-code từ bằng chứng có cấu trúc của Curator/Challenger."""
+    evaluation = next(
+        (
+            row
+            for row in decision.existing_code_evaluations
+            if str(row.get("code_id")) == code_id
+        ),
+        {},
+    )
+    return str(evaluation.get("relation") or "")
+
+
+def _unique_texts(*groups: list[str]) -> list[str]:
+    """Gộp bằng chứng theo thứ tự mà không nhân bản cùng một chuỗi."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in (item.strip() for group in groups for item in group if item.strip()):
+        key = normalize_code_name(value)
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result
+
+
+def _expand_existing_code(
+    db: Session,
+    *,
+    item: Item,
+    response: Response,
+    decision,
+    allowed_codes: dict[str, ItemCode],
+) -> tuple[ItemCode | None, set[str], str]:
+    """Mở rộng một code tại chỗ và gộp các code con đã được hai tầng xác nhận."""
+    target = allowed_codes.get(decision.existing_code_id or "")
+    if (
+        target is None
+        or target.validation_status != CodeValidationStatus.ACCEPTED
+        or target.maturity_status != CodeMaturityStatus.ACTIVE
+    ):
+        return None, set(), "Code đích mở rộng không còn hoạt động."
+    required_gates = {
+        "same_functional_family",
+        "broader_scope_justified",
+        "previous_examples_preserved",
+        "hard_negatives_excluded",
+        "no_overlap_after_change",
+    }
+    if (
+        decision.code_relation != "IDEA_BROADER_THAN_CODE"
+        or not decision.reviewed_by_challenger
+        or not _all_gates_pass(decision, required_gates)
+        or not _has_complete_boundaries(decision)
+        or _relation_for_code(decision, target.id) != "IDEA_BROADER_THAN_CODE"
+    ):
+        return None, set(), "Chưa đủ đồng thuận và cổng phạm vi để mở rộng code."
+
+    absorbed: list[ItemCode] = []
+    for code_id in decision.absorbed_code_ids:
+        code = allowed_codes.get(code_id)
+        if (
+            code is None
+            or code.id == target.id
+            or code.validation_status != CodeValidationStatus.ACCEPTED
+            or code.maturity_status != CodeMaturityStatus.ACTIVE
+            or _relation_for_code(decision, code.id) != "IDEA_BROADER_THAN_CODE"
+        ):
+            return None, set(), "Danh sách code con cần hấp thụ chưa có đủ bằng chứng."
+        absorbed.append(code)
+
+    new_name = (decision.code_name or "").strip()[:255]
+    new_description = decision.code_description.strip()
+    normalized_name = normalize_code_name(new_name)
+    if not new_name or not normalized_name:
+        return None, set(), "Tên code mở rộng bị trống."
+    duplicate = db.scalar(
+        select(ItemCode).where(
+            ItemCode.item_id == item.id,
+            ItemCode.normalized_name == normalized_name,
+            ItemCode.id != target.id,
+        )
+    )
+    absorbed_ids = {code.id for code in absorbed}
+    if duplicate is not None and duplicate.id not in absorbed_ids:
+        return None, set(), "Tên code mở rộng đang chồng với một code không được hấp thụ."
+    if duplicate is not None:
+        duplicate.normalized_name = (
+            f"{duplicate.normalized_name}-merged-{duplicate.id[:8]}"
+        )[:255]
+        db.flush()
+
+    previous = {
+        "name": target.name,
+        "description": target.description,
+        "functional_signature": target.functional_signature or {},
+        "inclusion_rules": target.inclusion_rules or [],
+        "exclusion_rules": target.exclusion_rules or [],
+    }
+    changed_code_ids = {target.id, *absorbed_ids}
+    target.name = new_name
+    target.normalized_name = normalized_name
+    target.description = new_description
+    target.functional_signature = decision.functional_signature.model_dump()
+    target.functional_key = functional_key(target.functional_signature)
+    target.inclusion_rules = decision.inclusion_rules
+    target.exclusion_rules = decision.exclusion_rules
+    target.positive_examples = _unique_texts(
+        target.positive_examples or [],
+        decision.positive_examples,
+        *[code.positive_examples or [] for code in absorbed],
+    )
+    target.embedding = decision.embedding or local_embedding(
+        f"{target.name} {target.description} {signature_text(target.functional_signature)}"
+    )
+    target.embedding_model = decision.embedding_model or "local-hash-v1"
+    target.confidence = decision.confidence
+    target.relevance_reason = decision.reason
+    target.scope_history = [
+        *(target.scope_history or []),
+        {
+            "changed_at": datetime.now(timezone.utc).isoformat(),
+            "source_response_id": response.id,
+            "change": "AUTO_SCOPE_EXPANSION",
+            "previous": previous,
+            "current": {
+                "name": target.name,
+                "description": target.description,
+                "functional_signature": target.functional_signature,
+                "inclusion_rules": target.inclusion_rules,
+                "exclusion_rules": target.exclusion_rules,
+            },
+            "absorbed_code_ids": sorted(absorbed_ids),
+            "reason": decision.reason,
+        },
+    ]
+    for code in absorbed:
+        db.execute(
+            update(ResponseIdea).where(ResponseIdea.code_id == code.id).values(code_id=target.id)
+        )
+        code.maturity_status = CodeMaturityStatus.MERGED
+        code.merged_into_id = target.id
+        code.relevance_reason = f"Được AI hấp thụ vào code rộng hơn: {target.name}."
+    db.flush()
+    return target, changed_code_ids, ""
+
+
+def synchronize_response_mappings(db: Session, item_id: str) -> None:
+    """Đồng bộ JSON hiển thị từ ResponseIdea sau khi code tự mở rộng hoặc gộp."""
+    rows = db.scalars(select(Response).where(Response.item_id == item_id)).all()
+    for row in rows:
+        ideas = db.scalars(
+            select(ResponseIdea)
+            .where(ResponseIdea.response_id == row.id)
+            .order_by(ResponseIdea.line_index, ResponseIdea.created_at, ResponseIdea.id)
+        ).all()
+        row.mapping = MappingResult(
+            ideas=[
+                MappedIdea(
+                    original=idea.original,
+                    normalized=idea.normalized,
+                    code=idea.code.name if idea.code else None,
+                    status=idea.mapping_status,
+                    is_valid=idea.mapping_status == "VALID" and idea.code is not None,
+                    reason=idea.reason,
+                    line_index=idea.line_index,
+                    functional_signature=idea.functional_signature or {},
+                    curator_decision=idea.curator_decision,
+                )
+                for idea in ideas
+            ]
+        ).model_dump()
 
 
 def persist_mapping(
@@ -183,6 +438,7 @@ def persist_mapping(
     }
     mapped: list[MappedIdea] = []
     has_uncertain = False
+    scope_changed = False
 
     for index, idea in enumerate(extraction.ideas):
         status = idea.status
@@ -224,15 +480,28 @@ def persist_mapping(
                     "nearest_code_ids": decision.nearest_code_ids,
                     "policy_gates": decision.policy_gates,
                     "challenge_reason": decision.challenge_reason,
+                    "code_relation": decision.code_relation,
+                    "reviewed_by_challenger": decision.reviewed_by_challenger,
+                    "absorbed_code_ids": decision.absorbed_code_ids,
                 }
                 if decision.decision == "MATCH_EXISTING":
                     code_row = allowed_codes.get(decision.existing_code_id or "")
-                    if code_row is None or code_row.maturity_status != CodeMaturityStatus.ACTIVE:
+                    relation = _relation_for_code(
+                        decision, decision.existing_code_id or ""
+                    )
+                    if (
+                        code_row is None
+                        or code_row.validation_status != CodeValidationStatus.ACCEPTED
+                        or code_row.maturity_status != CodeMaturityStatus.ACTIVE
+                        or decision.code_relation
+                        not in {"SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE"}
+                        or relation not in {"SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE"}
+                    ):
                         has_uncertain = True
                         code_row = None
-                        reason = "Curator tham chiếu code không hợp lệ hoặc đã ngừng sử dụng."
+                        reason = "Quan hệ ngữ nghĩa chưa đủ điều kiện để gắn code hiện có."
                     elif not _curator_is_grounded(item, decision, code_row):
-                        status = "INVALID"
+                        has_uncertain = True
                         decision_name = "CURATOR_OBJECT_GUARD"
                         code_row = None
                         reason = f"Curator không xác nhận được vai trò của {item.name}."
@@ -246,20 +515,24 @@ def persist_mapping(
                         "paraphrase_stable",
                         "counterexample_passed",
                     }
-                    gates_pass = required_gates.issubset(decision.policy_gates) and all(
-                        decision.policy_gates.get(gate, False) for gate in required_gates
-                    )
+                    gates_pass = _all_gates_pass(decision, required_gates)
+                    boundaries_complete = _has_complete_boundaries(decision)
                     core_signature_complete = all(
                         getattr(category_signature, field).strip()
                         for field in ("goal", "object_role", "mechanism")
                     )
                     if not grounded:
-                        status = "INVALID"
+                        has_uncertain = True
                         decision_name = "CURATOR_OBJECT_GUARD"
                         reason = (
                             f"Code Curator không chứng minh được code dùng đúng {item.name}."
                         )
-                    elif gates_pass and core_signature_complete:
+                    elif (
+                        gates_pass
+                        and boundaries_complete
+                        and core_signature_complete
+                        and decision.reviewed_by_challenger
+                    ):
                         code_row = _find_or_create_code(
                             db,
                             item_id=item.id,
@@ -273,13 +546,42 @@ def persist_mapping(
                             inclusion_rules=decision.inclusion_rules,
                             exclusion_rules=decision.exclusion_rules,
                             positive_examples=decision.positive_examples,
+                            embedding=decision.embedding,
+                            embedding_model=decision.embedding_model,
                         )
                         allowed_codes[code_row.id] = code_row
                     else:
                         has_uncertain = True
                         decision_name = "POLICY_REJECTED"
                         code_row = None
-                        reason = "Chưa đủ các cổng bằng chứng bắt buộc để tạo mã mới."
+                        reason = (
+                            "Category thiếu quy tắc bao gồm hoặc loại trừ cụ thể."
+                            if not boundaries_complete
+                            else "Chưa đủ các cổng bằng chứng bắt buộc để tạo mã mới."
+                        )
+                elif decision.decision == "EXPAND_EXISTING":
+                    if not _curator_is_grounded(item, decision):
+                        has_uncertain = True
+                        decision_name = "CURATOR_OBJECT_GUARD"
+                        reason = f"Chưa xác nhận được phạm vi mới sử dụng đúng {item.name}."
+                    else:
+                        code_row, changed_ids, expansion_error = _expand_existing_code(
+                            db,
+                            item=item,
+                            response=response,
+                            decision=decision,
+                            allowed_codes=allowed_codes,
+                        )
+                        if code_row is None:
+                            has_uncertain = True
+                            decision_name = "SCOPE_REJECTED"
+                            reason = expansion_error
+                        else:
+                            scope_changed = True
+                            for changed_id in changed_ids:
+                                if changed_id != code_row.id:
+                                    allowed_codes.pop(changed_id, None)
+                            allowed_codes[code_row.id] = code_row
                 elif decision.decision in {"OUT_OF_CODEBOOK", "UNCERTAIN"}:
                     has_uncertain = True
                     code_row = None
@@ -316,6 +618,8 @@ def persist_mapping(
         )
 
     db.flush()
+    if scope_changed:
+        synchronize_response_mappings(db, item.id)
     return MappingResult(ideas=mapped), has_uncertain
 
 
@@ -490,3 +794,58 @@ def originality_for_response(
         for idea in valid_ideas
     ]
     return fluency, len(flexibility_codes), flexibility_codes, per_idea, basis
+
+
+def refresh_final_frequency_scores(db: Session, item_id: str) -> int:
+    """Tính lại phần phụ thuộc tần suất, giữ nguyên Elaboration đã chấm bằng LLM."""
+    rows = db.scalars(
+        select(Response).where(
+            Response.item_id == item_id,
+            Response.scoring_status == ResponseScoringStatus.FINAL,
+        )
+    ).all()
+    refreshed = 0
+    refreshed_at = datetime.now(timezone.utc)
+    for row in rows:
+        if not row.scoring:
+            continue
+        previous = ScoringResult.model_validate(row.scoring)
+        fluency, flexibility, codes, current_scores, basis = originality_for_response(db, row)
+        previous_by_idea = {
+            (score.original, score.normalized): score for score in previous.per_idea_scores
+        }
+        merged_scores = []
+        for score in current_scores:
+            old = previous_by_idea.get((score.original, score.normalized))
+            merged_scores.append(
+                score.model_copy(
+                    update={
+                        "elaboration": old.elaboration if old else 1,
+                        "meaningful_word_count": old.meaningful_word_count if old else 0,
+                        "elaboration_details": old.elaboration_details if old else {},
+                        "note": old.note if old else "",
+                    }
+                )
+            )
+        scoring = ScoringResult(
+            fluency=fluency,
+            flexibility=flexibility,
+            flexibility_codes=codes,
+            originality=sum(score.originality for score in merged_scores),
+            elaboration=sum(score.elaboration for score in merged_scores),
+            per_idea_scores=merged_scores,
+            summary_vi=previous.summary_vi,
+        )
+        row.scoring = scoring.model_dump()
+        row.fluency = scoring.fluency
+        row.flexibility = scoring.flexibility
+        row.originality = scoring.originality
+        row.elaboration = scoring.elaboration
+        row.scored_at = refreshed_at
+        row.scoring_meta = {
+            **(row.scoring_meta or {}),
+            "frequency_basis": basis,
+            "frequency_refreshed_at": refreshed_at.isoformat(),
+        }
+        refreshed += 1
+    return refreshed
