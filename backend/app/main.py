@@ -1,10 +1,28 @@
+from contextlib import asynccontextmanager
+import threading
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import admin, auth, items, participants, responses
+from app.controllers.response_worker import start_workers
 
-app = FastAPI(title="AUT tiếng Việt — API")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Worker đọc hàng đợi DB; restart không làm mất bài đã xác nhận."""
+    stop = threading.Event()
+    workers = start_workers(stop) if settings.async_processing_enabled or settings.survey_session_required else []
+    try:
+        yield
+    finally:
+        stop.set()
+        for worker in workers:
+            worker.join(timeout=2)
+
+
+app = FastAPI(title="AUT tiếng Việt — API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -4,6 +4,9 @@ import type {
   AdminExtractionAudit,
   AdminCodebookOverview,
   AdminCodebookSummary,
+  AdminMappingReviewList,
+  AdminMappingReviewResolution,
+  AdminMappingReviewResult,
   AdminParticipantDetail,
   AdminParticipantSummary,
   AuthTokenResponse,
@@ -40,7 +43,7 @@ export function getParticipantId(): string | null {
 }
 
 export function hasParticipantProfile(): boolean {
-  return getParticipantIdentity() !== null;
+  return Boolean(getParticipantIdentity()?.access_token);
 }
 
 export function getParticipantIdentity(): ParticipantIdentity | null {
@@ -71,9 +74,11 @@ function rememberParticipant<T extends { id: string }>(participant: T): T {
 
 function participantHeaders(extra?: Record<string, string>): Record<string, string> {
   const participantId = getParticipantId();
+  const token = getParticipantIdentity()?.access_token;
   return {
     ...extra,
     ...(participantId ? { "X-Participant-Id": participantId } : {}),
+    ...(token ? { "X-Participant-Token": token } : {}),
   };
 }
 
@@ -128,6 +133,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
+        access_token: getParticipantIdentity()?.access_token,
         ...(participantId ? { participant_id: participantId } : {}),
       }),
     }).then(handle<ParticipantIdentifyResult>);
@@ -135,7 +141,7 @@ export const api = {
     return result;
   },
 
-  createParticipant: async (email: string, profile: ParticipantProfile) => {
+  createParticipant: async (email: string, profile: ParticipantProfile, recoveryToken?: string) => {
     const participantId = getParticipantId();
     const participant = await fetch(`${BASE}/participants`, {
       method: "POST",
@@ -143,17 +149,33 @@ export const api = {
       body: JSON.stringify({
         email,
         ...profile,
+        access_token: recoveryToken || getParticipantIdentity()?.access_token,
         ...(participantId ? { participant_id: participantId } : {}),
       }),
     }).then(handle<ParticipantIdentity>);
     return rememberParticipant(participant);
   },
 
-  score: (itemId: string, responses: string[]) =>
+  adminIssueParticipantToken: (participantId: string) => fetch(`${BASE}/admin/participants/${participantId}/access-token`, {
+    method: "POST", headers: authHeaders(),
+  }).then(handle<ParticipantIdentity>),
+
+  startSurveySession: (itemId: string) => fetch(`${BASE}/survey-sessions`, {
+    method: "POST", headers: participantHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ item_id: itemId, consent: true }),
+  }).then(handle<{ id: string; started_at: string; deadline_at: string; server_now: string }>),
+
+  score: (itemId: string, responses: string[], requestId: string, sessionId?: string) =>
     fetch(`${BASE}/score`, {
       method: "POST",
       headers: participantHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ item_id: itemId, responses }),
+      body: JSON.stringify({
+        item_id: itemId,
+        responses,
+        request_id: requestId,
+        survey_session_id: sessionId,
+        wait_for_completion: false,
+      }),
     }).then(handle<ScoreResponse>),
 
   listResponses: () =>
@@ -162,7 +184,16 @@ export const api = {
     ),
 
   getResponse: (id: string) =>
-    fetch(`${BASE}/responses/${id}`).then(handle<ScoreResponse>),
+    fetch(`${BASE}/responses/${id}`, { headers: participantHeaders() }).then(handle<ScoreResponse>),
+
+  adminGetResponse: (id: string) =>
+    fetch(`${BASE}/admin/responses/${id}`, { headers: authHeaders() }).then(handle<ScoreResponse>),
+
+  adminRetryResponse: (id: string) =>
+    fetch(`${BASE}/admin/responses/${id}/retry`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handle<{ response_id: string; processing_state: string }>),
 
   participantResponses: () =>
     fetch(`${BASE}/participants/me/responses`, { headers: participantHeaders() }).then(
@@ -175,8 +206,8 @@ export const api = {
       handle<AdminDashboardStats>,
     ),
 
-  adminDownloadResponsesCsv: async () => {
-    const response = await fetch(`${BASE}/admin/exports/responses.csv`, {
+  adminDownloadResponsesCsv: async (format: "csv" | "json" = "csv") => {
+    const response = await fetch(`${BASE}/admin/exports/${format === "json" ? "analysis.json" : "responses.csv"}`, {
       headers: authHeaders(),
     });
     if (!response.ok) {
@@ -193,12 +224,16 @@ export const api = {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `aut-ket-qua-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `aut-ket-qua-${new Date().toISOString().slice(0, 10)}.${format}`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
   },
+
+  adminPipelineAudits: (itemId: string) => fetch(`${BASE}/admin/items/${itemId}/pipeline-audits`, {
+    headers: authHeaders(),
+  }).then(handle<Array<{ id: string; event: string; created_at: string; payload: Record<string, unknown> }>>),
 
   adminListParticipants: () =>
     fetch(`${BASE}/admin/participants`, { headers: authHeaders() }).then(
@@ -241,6 +276,22 @@ export const api = {
       headers: authHeaders(),
     }).then(handle<AdminCuratorAudit>),
 
+  adminMappingReviews: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/mapping-reviews?review_status=PENDING`, {
+      headers: authHeaders(),
+    }).then(handle<AdminMappingReviewList>),
+
+  adminResolveMappingReview: (
+    itemId: string,
+    ideaId: string,
+    payload: AdminMappingReviewResolution,
+  ) =>
+    fetch(`${BASE}/admin/items/${itemId}/mapping-reviews/${ideaId}/resolve`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    }).then(handle<AdminMappingReviewResult>),
+
 };
 
 const SESSION_KEY = "aut:last-response";
@@ -249,7 +300,7 @@ export function cacheResponse(resp: ScoreResponse) {
   try {
     sessionStorage.setItem(
       `${SESSION_KEY}:${resp.response_id}`,
-      JSON.stringify(resp),
+      JSON.stringify({ participantId: getParticipantId(), response: resp }),
     );
   } catch {
     /* ignore */
@@ -259,7 +310,11 @@ export function cacheResponse(resp: ScoreResponse) {
 export function readCachedResponse(id: string): ScoreResponse | null {
   try {
     const raw = sessionStorage.getItem(`${SESSION_KEY}:${id}`);
-    return raw ? (JSON.parse(raw) as ScoreResponse) : null;
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as { participantId?: string; response?: ScoreResponse };
+    return cached.participantId && cached.participantId === getParticipantId()
+      ? cached.response ?? null
+      : null;
   } catch {
     return null;
   }

@@ -34,6 +34,7 @@ import {
   hasParticipantProfile,
 } from "@/lib/api";
 import type { Item, ParticipantIdentity } from "@/lib/types";
+import { readDraft, saveDraft, clearDraft } from "@/lib/survey-draft";
 import { formatMmSs } from "@/lib/utils";
 
 const IDEA_LIMIT = 10;
@@ -73,24 +74,28 @@ const ANALYSIS_STEPS = [
 export default function Test() {
   const { itemId } = useParams<{ itemId: string }>();
   const navigate = useNavigate();
+  const [draft] = useState(() => itemId ? readDraft(itemId) : null);
   const [item, setItem] = useState<Item | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [ideas, setIdeas] = useState<string[]>(() => Array(IDEA_LIMIT).fill(""));
+  const [ideas, setIdeas] = useState<string[]>(() => draft?.ideas ?? Array(IDEA_LIMIT).fill(""));
+  const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [profileReady, setProfileReady] = useState(hasParticipantProfile);
   const [participant, setParticipant] = useState<ParticipantIdentity | null>(
     getParticipantIdentity,
   );
-  const [phase, setPhase] = useState<TestPhase>("READY");
+  const [phase, setPhase] = useState<TestPhase>(draft ? "ACTIVE" : "READY");
   const [secondsLeft, setSecondsLeft] = useState(TEST_DURATION_SECONDS);
   const [guideOpen, setGuideOpen] = useState(
     () => localStorage.getItem(GUIDE_STORAGE_KEY) !== "true",
   );
   const inputs = useRef<Array<HTMLTextAreaElement | null>>([]);
-  const deadlineRef = useRef<number | null>(null);
+  const deadlineRef = useRef<number | null>(draft?.deadline ?? null);
+  const sessionIdRef = useRef<string | null>(draft?.sessionId ?? null);
   const completedIdeasRef = useRef<string[]>([]);
   const submittedRef = useRef(false);
+  const requestIdRef = useRef<string | null>(draft?.requestId ?? null);
 
   useEffect(() => {
     if (!itemId) return;
@@ -106,6 +111,14 @@ export default function Test() {
     completedIdeasRef.current = completedIdeas;
   }, [completedIdeas]);
 
+  useEffect(() => {
+    if (itemId && sessionIdRef.current && deadlineRef.current && requestIdRef.current) {
+      if (!saveDraft(itemId, { ideas, deadline: deadlineRef.current, sessionId: sessionIdRef.current, requestId: requestIdRef.current })) {
+        setSubmitError("Trình duyệt không lưu được bản nháp. Hãy giữ trang này mở cho đến khi gửi bài.");
+      }
+    }
+  }, [ideas, itemId, phase]);
+
   const submitAnswers = useCallback(async () => {
     const answers = completedIdeasRef.current;
     if (!itemId || answers.length === 0 || submittedRef.current) return;
@@ -114,8 +127,10 @@ export default function Test() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const response = await api.score(itemId, answers);
+      requestIdRef.current ??= crypto.randomUUID();
+      const response = await api.score(itemId, answers, requestIdRef.current, sessionIdRef.current ?? undefined);
       cacheResponse(response);
+      clearDraft(itemId);
       navigate(`/result/${response.response_id}`, { state: { response } });
     } catch (error) {
       const message = (error as Error).message;
@@ -140,7 +155,6 @@ export default function Test() {
       );
       setSecondsLeft(remaining);
       if (remaining === 0) {
-        deadlineRef.current = null;
         setPhase("EXPIRED");
         if (completedIdeasRef.current.length > 0) void submitAnswers();
       }
@@ -165,20 +179,32 @@ export default function Test() {
     setGuideOpen(false);
   }, []);
 
-  const startTest = () => {
+  const startTest = async () => {
+    if (!itemId || starting) return;
+    setStarting(true);
+    try {
+    const session = await api.startSurveySession(itemId);
     void loadAiThinkingAnimation();
-    deadlineRef.current = Date.now() + TEST_DURATION_SECONDS * 1000;
+    deadlineRef.current = Date.now() + (Date.parse(session.deadline_at) - Date.parse(session.server_now));
+    sessionIdRef.current = session.id;
+    requestIdRef.current = crypto.randomUUID();
     setSecondsLeft(TEST_DURATION_SECONDS);
     setSubmitError(null);
     setPhase("ACTIVE");
     window.setTimeout(() => inputs.current[0]?.focus({ preventScroll: true }), 120);
+    } catch (error) { setSubmitError((error as Error).message); }
+    finally { setStarting(false); }
   };
 
   const resetTest = () => {
+    if (itemId) clearDraft(itemId);
+    sessionIdRef.current = null;
+    deadlineRef.current = null;
     setIdeas(Array(IDEA_LIMIT).fill(""));
     setSecondsLeft(TEST_DURATION_SECONDS);
     setSubmitError(null);
     submittedRef.current = false;
+    requestIdRef.current = null;
     setPhase("READY");
   };
 
@@ -199,7 +225,7 @@ export default function Test() {
     if (
       phase === "ACTIVE" &&
       completedIdeas.length > 0 &&
-      !window.confirm("Rời bài làm? Các ý tưởng chưa gửi sẽ bị mất.")
+      !window.confirm("Rời bài làm? Đồng hồ vẫn tiếp tục chạy; bản nháp chỉ được giữ trên trình duyệt này.")
     ) {
       event.preventDefault();
     }
@@ -295,6 +321,9 @@ export default function Test() {
           itemName={item?.name}
           participantName={participant?.full_name}
           onStart={startTest}
+          starting={starting}
+          error={submitError}
+          recoveryToken={participant?.access_token}
           onOpenGuide={() => setGuideOpen(true)}
         />
       ) : (
@@ -424,13 +453,20 @@ function ReadyPanel({
   itemName,
   participantName,
   onStart,
+  starting,
+  error,
+  recoveryToken,
   onOpenGuide,
 }: {
   itemName?: string;
   participantName?: string | null;
   onStart: () => void;
+  starting: boolean;
+  error: string | null;
+  recoveryToken?: string | null;
   onOpenGuide: () => void;
 }) {
+  const [consent, setConsent] = useState(false);
   return (
     <section className="container py-10 md:py-16">
       <div className="mx-auto grid max-w-5xl overflow-hidden rounded-2xl border border-border bg-card lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
@@ -439,14 +475,19 @@ function ReadyPanel({
             <Clock3 className="h-4 w-4" aria-hidden="true" /> Đồng hồ chưa chạy
           </p>
           <h2 className="mt-4 max-w-2xl text-balance font-serif text-3xl leading-tight sm:text-4xl">
-            Khi sẵn sàng, bạn có 3 phút để nghĩ ra tối đa 10 công dụng cho {itemName ?? "đồ vật này"}.
+            Bạn có 3 phút để chọn và viết tối đa 10 công dụng sáng tạo nhất cho {itemName ?? "đồ vật này"}.
           </h2>
           <p className="mt-4 max-w-xl text-pretty text-sm leading-6 text-muted-foreground">
             Không có đáp án duy nhất. Hãy viết rõ đồ vật được dùng vào việc gì; ý tưởng lạ nhưng có thể hiểu được thường có giá trị hơn một từ rời rạc.
           </p>
 
+          <label className="mt-6 flex items-start gap-3 text-sm text-muted-foreground">
+            <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1" />
+            <span>Tôi đồng ý tham gia nghiên cứu. Câu trả lời được gửi đến dịch vụ AI để phân loại; tôi có thể liên hệ nhóm nghiên cứu để yêu cầu rút dữ liệu.</span>
+          </label>
+          {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button size="lg" onClick={onStart} className="sm:min-w-52">
+            <Button size="lg" onClick={onStart} disabled={!consent || starting} className="sm:min-w-52">
               <Play className="h-4 w-4" aria-hidden="true" /> Bắt đầu 3 phút
             </Button>
             <Button size="lg" variant="outline" onClick={onOpenGuide}>
@@ -456,6 +497,7 @@ function ReadyPanel({
           {participantName ? (
             <p className="mt-6 text-xs text-muted-foreground">Bài làm của {participantName}</p>
           ) : null}
+          {recoveryToken ? <details className="mt-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Mã khôi phục hồ sơ — giữ riêng để dùng trên thiết bị khác</summary><p className="mt-2 break-all font-mono">{recoveryToken}</p></details> : null}
         </div>
 
         <div className="border-t border-border bg-muted/25 p-6 sm:p-9 lg:border-l lg:border-t-0">
@@ -571,7 +613,7 @@ function AnalysisOverlay() {
             AI đang phân tích bài làm
           </h2>
           <p id="analysis-description" className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-            Các ý tưởng đang được đọc, đối chiếu và tổng hợp. Vui lòng giữ nguyên trang này.
+            Bài đã được lưu. Bạn có thể đóng trang; hệ thống vẫn tiếp tục xử lý và lưu kết quả vào lịch sử.
           </p>
         </div>
 

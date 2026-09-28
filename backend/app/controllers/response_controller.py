@@ -1,23 +1,27 @@
 """Nghiệp vụ nộp bài, xây codebook động và đọc kết quả theo UUID khó đoán."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from time import monotonic, sleep
 
 from fastapi import BackgroundTasks, HTTPException
 from openai import OpenAI
 from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
 from app.db import SessionLocal
 from app.models.models import (
     CodeValidationStatus,
     Item as ItemModel,
+    ItemCalibrationStatus,
     ItemCode,
     Participant as ParticipantModel,
     Response as ResponseModel,
     ResponseIdea,
     ResponseScoringStatus,
+    SurveySession,
 )
 from app.pipeline.codebook_service import (
     item_is_ready_for_scoring,
@@ -68,6 +72,7 @@ def _client() -> OpenAI:
         api_key=settings.active_llm_api_key,
         # Tự quản lý retry trong chat_json để tôn trọng Retry-After và tránh retry lồng nhau.
         max_retries=0,
+        timeout=settings.llm_timeout_seconds,
     )
 
 
@@ -160,6 +165,10 @@ def _mock_mapping(
                     inclusion_rules=[f"Dùng {item.name} theo chức năng {line[:80]}"],
                     exclusion_rules=["Không bao gồm mục đích hoặc cơ chế khác"],
                     positive_examples=[line],
+                    scope_variants=[
+                        f"[MOCK] Biến thể cách diễn đạt thứ nhất của: {line[:80]}",
+                        f"[MOCK] Biến thể cách diễn đạt thứ hai của: {line[:80]}",
+                    ],
                     policy_gates={
                         "response_is_valid": True,
                         "no_existing_code_covers": True,
@@ -198,17 +207,21 @@ def _mock_scoring(
 
 
 def _needs_curator_retry(curator: CuratorResult, extraction: IdeaExtractionResult) -> bool:
-    expected = sum(
-        idea.status == "VALID" and idea.uses_target_object for idea in extraction.ideas
-    )
-    return len(curator.decisions) < expected or any(
-        decision.decision in {"OUT_OF_CODEBOOK", "UNCERTAIN"}
-        or (
-            decision.decision != "INVALID"
-            and (not decision.target_object_confirmed or not decision.target_object_role.strip())
-        )
-        for decision in curator.decisions
-    )
+    """Chỉ retry khi thật sự thiếu dòng; UNCERTAIN là kết quả hợp lệ để admin xử lý."""
+    return bool(_missing_curator_indices(curator, extraction))
+
+
+def _missing_curator_indices(
+    curator: CuratorResult, extraction: IdeaExtractionResult
+) -> set[int]:
+    """Các ý hợp lệ chưa có quyết định, dùng để retry đúng phần bị thiếu."""
+    expected = {
+        index
+        for index, idea in enumerate(extraction.ideas)
+        if idea.status == "VALID" and idea.uses_target_object
+    }
+    returned = {decision.idea_index for decision in curator.decisions}
+    return expected - returned
 
 
 def _prefer_confident(first: CuratorResult, second: CuratorResult) -> CuratorResult:
@@ -387,15 +400,6 @@ def reprocess_item_mappings(item_id: str) -> int:
                 curator, curator_meta = run_code_curator(
                     item, extraction, existing_codes, client, embedding_client
                 )
-                if _needs_curator_retry(curator, extraction):
-                    second_curator, second_meta = run_code_curator(
-                        item, extraction, existing_codes, client, embedding_client
-                    )
-                    curator = _prefer_confident(curator, second_curator)
-                    curator_meta = {
-                        "runs": [curator_meta, second_meta],
-                        "strategy": "prefer_confident",
-                    }
 
             db.execute(delete(ResponseIdea).where(ResponseIdea.response_id == row.id))
             mapping, has_uncertain = persist_mapping(
@@ -404,6 +408,7 @@ def reprocess_item_mappings(item_id: str) -> int:
                 response=row,
                 extraction=extraction,
                 curator=curator,
+                code_snapshots=existing_codes,
             )
             row.mapping = mapping.model_dump()
             row.mapping_meta = {
@@ -479,16 +484,22 @@ def retry_pending_item_mappings(item_id: str, limit: int = 1) -> int:
             extraction, extraction_meta = run_idea_extraction(
                 item, row.raw_input, client, embedding_client
             )
+            existing_codes = list_curator_codes(db, item_id)
             curator, curator_meta = run_code_curator(
                 item,
                 extraction,
-                list_curator_codes(db, item_id),
+                existing_codes,
                 client,
                 embedding_client,
             )
             db.execute(delete(ResponseIdea).where(ResponseIdea.response_id == row.id))
             mapping, has_uncertain = persist_mapping(
-                db, item=item_row, response=row, extraction=extraction, curator=curator
+                db,
+                item=item_row,
+                response=row,
+                extraction=extraction,
+                curator=curator,
+                code_snapshots=existing_codes,
             )
             row.mapping = mapping.model_dump()
             row.mapping_meta = {
@@ -523,7 +534,7 @@ def _status_message(status: ResponseScoringStatus) -> str:
         ResponseScoringStatus.PROVISIONAL: (
             "Điểm tạm thời đang chờ bộ dữ liệu nghiên cứu được chốt."
         ),
-        ResponseScoringStatus.FINAL: "Điểm đã được chốt sau khi đồ vật đạt ngưỡng dữ liệu nghiên cứu.",
+        ResponseScoringStatus.FINAL: "Điểm theo mẫu dữ liệu hiện tại; có thể cập nhật khi mẫu hoặc phân loại thay đổi.",
         ResponseScoringStatus.EXCLUDED: "Lượt này bị loại khỏi dữ liệu theo quyết định quản trị.",
     }[status]
 
@@ -534,10 +545,147 @@ def _to_response(row: ResponseModel) -> ScoreResponse:
         item=Item(id=row.item.id, name=row.item.name, description=row.item.description),
         raw_input=row.raw_input,
         mapping=MappingResult.model_validate(row.mapping),
-        scoring=ScoringResult.model_validate(row.scoring) if row.scoring else None,
+        scoring=ScoringResult.model_validate(row.scoring) if row.scoring and not row.item.scores_dirty else None,
+        scores_stale=bool(row.scoring and row.item.scores_dirty),
         scoring_status=row.scoring_status.value,
-        status_message=_status_message(row.scoring_status),
+        processing_state=row.processing_state,
+        resolution_pending=(row.scoring_status == ResponseScoringStatus.PENDING_REVIEW and row.resolution_attempts < settings.resolver_max_attempts and row.processing_state != "FAILED"),
+        status_message=(
+            "Hệ thống đang cập nhật điểm theo mẫu dữ liệu mới."
+            if row.scoring and row.item.scores_dirty
+            else
+            "Bài đã được lưu; hệ thống đang chấm. Bạn có thể đóng trang và xem lại trong lịch sử."
+            if row.processing_state in {"QUEUED", "RUNNING", "SCORING"}
+            else "Bài đã lưu nhưng xử lý chưa thành công. Vui lòng liên hệ quản trị viên để thử lại."
+            if row.processing_state == "FAILED"
+            else "AI chưa đủ căn cứ phân loại một số ý sau các lượt đối chiếu. Bài được giữ nguyên; các ý này chưa bị tính là 0."
+            if row.scoring_status == ResponseScoringStatus.PENDING_REVIEW and row.resolution_attempts >= settings.resolver_max_attempts
+            else _status_message(row.scoring_status)
+        ),
     )
+
+
+def _same_submission(row: ResponseModel, req: ScoreRequest) -> bool:
+    """Hai cách chia ô có thể có cùng raw nối dòng nhưng vẫn là hai payload khác."""
+    return row.item_id == req.item_id and (
+        row.input_lines == req.responses if row.input_lines else row.raw_input == req.raw_input
+    )
+
+
+def _enqueue_response(db: Session, req: ScoreRequest, participant: ParticipantModel) -> ScoreResponse:
+    """Commit bài thô trước LLM để đóng trang vẫn giữ được lịch sử."""
+    item = db.scalar(select(ItemModel).where(ItemModel.id == req.item_id).with_for_update())
+    if item is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
+    raw = "\n".join(req.responses).strip()
+    request_id = str(req.request_id) if req.request_id else str(uuid.uuid4())
+    if req.request_id:
+        existing = db.scalar(
+            select(ResponseModel).where(
+                ResponseModel.participant_id == participant.id,
+                ResponseModel.request_id == request_id,
+            )
+        )
+        if existing is not None:
+            if not _same_submission(existing, req):
+                raise HTTPException(status_code=409, detail="Mã gửi bài đã được dùng cho nội dung khác.")
+            return _to_response(existing)
+    session = None
+    if req.survey_session_id:
+        session = db.scalar(select(SurveySession).where(SurveySession.id == str(req.survey_session_id)).with_for_update())
+        if session is None or session.participant_id != participant.id or session.item_id != req.item_id:
+            raise HTTPException(status_code=403, detail="Phiên làm bài không hợp lệ.")
+        already = db.scalar(select(ResponseModel).where(ResponseModel.survey_session_id == session.id))
+        if already:
+            if not _same_submission(already, req):
+                raise HTTPException(status_code=409, detail="Phiên này đã nộp nội dung khác.")
+            return _to_response(already)
+        deadline = session.deadline_at
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > deadline + timedelta(seconds=settings.survey_grace_seconds):
+            raise HTTPException(status_code=409, detail="Đã quá thời gian nhận bài của phiên. Bản nháp vẫn còn trên thiết bị.")
+        session.submitted_at = datetime.now(timezone.utc)
+    elif settings.survey_session_required:
+        raise HTTPException(status_code=400, detail="Cần bắt đầu phiên 3 phút trước khi nộp bài.")
+    row = ResponseModel(
+        id=str(uuid.uuid4()),
+        participant_id=participant.id,
+        item_id=item.id,
+        request_id=request_id,
+        raw_input=raw,
+        input_lines=req.responses,
+        data_source=settings.survey_data_source,
+        survey_session_id=session.id if session else None,
+        mapping={"ideas": []},
+        scoring={},
+        processing_state="QUEUED",
+        scoring_status=ResponseScoringStatus.COLLECTING,
+    )
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if not req.request_id:
+            raise
+        existing = db.scalar(
+            select(ResponseModel).where(
+                ResponseModel.participant_id == participant.id,
+                ResponseModel.request_id == request_id,
+            )
+        )
+        if existing is None:
+            raise
+        if not _same_submission(existing, req):
+            raise HTTPException(status_code=409, detail="Mã gửi bài đã được dùng cho nội dung khác.")
+        return _to_response(existing)
+    db.refresh(row)
+    return _to_response(row)
+
+
+def _response_is_ready_for_browser(row: ResponseModel) -> bool:
+    """Chỉ kết thúc submit khi mapping và phần chấm đang cần thiết đã hoàn tất."""
+    if row.processing_state == "FAILED":
+        return True
+    if row.processing_state != "DONE":
+        return False
+    needs_scoring = (
+        row.scoring_status == ResponseScoringStatus.COLLECTING
+        and row.item.calibration_status == ItemCalibrationStatus.ACTIVE
+        and not row.scoring
+    )
+    return not needs_scoring
+
+
+def _wait_for_response_completion(
+    db: Session,
+    response_id: str,
+    participant_id: str,
+) -> ScoreResponse:
+    """Giữ một POST chờ kết quả; worker vẫn độc lập nếu trình duyệt đóng kết nối."""
+    deadline = monotonic() + settings.submit_wait_seconds
+    polling_session = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+    latest: ScoreResponse | None = None
+
+    while True:
+        with polling_session() as poll_db:
+            row = poll_db.scalar(
+                select(ResponseModel).where(
+                    ResponseModel.id == response_id,
+                    ResponseModel.participant_id == participant_id,
+                )
+            )
+            if row is None:
+                raise HTTPException(status_code=404, detail="Không tìm thấy kết quả.")
+            latest = _to_response(row)
+            if _response_is_ready_for_browser(row):
+                return latest
+
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return latest
+        sleep(min(settings.submit_wait_poll_seconds, remaining))
 
 
 def create_response(
@@ -546,6 +694,11 @@ def create_response(
     participant: ParticipantModel,
     background_tasks: BackgroundTasks | None = None,
 ) -> ScoreResponse:
+    if settings.async_processing_enabled or settings.survey_session_required:
+        queued = _enqueue_response(db, req, participant)
+        if not req.wait_for_completion:
+            return queued
+        return _wait_for_response_completion(db, queued.response_id, participant.id)
     # Khóa theo đồ vật trong suốt chu trình mã hóa để hai lượt gửi đồng thời
     # không thể cùng tạo hai code cho một chức năng mới.
     item_row = db.scalar(
@@ -587,15 +740,14 @@ def create_response(
         curator, curator_meta = run_code_curator(
             item, extraction, existing_codes, client, embedding_client
         )
-        if _needs_curator_retry(curator, extraction):
-            second_curator, second_meta = run_code_curator(
-                item, extraction, existing_codes, client, embedding_client
-            )
-            curator = _prefer_confident(curator, second_curator)
-            curator_meta = {"runs": [curator_meta, second_meta], "strategy": "prefer_confident"}
 
     mapping, has_uncertain = persist_mapping(
-        db, item=item_row, response=row, extraction=extraction, curator=curator
+        db,
+        item=item_row,
+        response=row,
+        extraction=extraction,
+        curator=curator,
+        code_snapshots=existing_codes,
     )
     row.mapping = mapping.model_dump()
     row.mapping_meta = {
@@ -632,9 +784,9 @@ def create_response(
     return _to_response(row)
 
 
-def get_response_detail(db: Session, response_id: str) -> ScoreResponse:
+def get_response_detail(db: Session, response_id: str, participant_id: str) -> ScoreResponse:
     row = db.get(ResponseModel, response_id)
-    if row is None:
+    if row is None or row.participant_id != participant_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy kết quả.")
     return _to_response(row)
 
@@ -653,6 +805,7 @@ def list_responses(db: Session) -> list[ResponseSummary]:
             originality=row.originality,
             elaboration=row.elaboration,
             scoring_status=row.scoring_status.value,
+            processing_state=row.processing_state,
         )
         for row in rows
     ]
@@ -676,6 +829,7 @@ def list_participant_responses(db: Session, participant_id: str) -> list[Respons
             originality=row.originality,
             elaboration=row.elaboration,
             scoring_status=row.scoring_status.value,
+            processing_state=row.processing_state,
         )
         for row in rows
     ]

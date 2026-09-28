@@ -4,7 +4,7 @@ import { ArrowRight, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableViewport } from "@/components/ui/table";
-import { api, readCachedResponse } from "@/lib/api";
+import { api, cacheResponse, readCachedResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { IdeaStatus, ScoreResponse } from "@/lib/types";
 
@@ -24,11 +24,13 @@ const STATUS_VARIANT: Record<IdeaStatus, "success" | "secondary" | "warning"> =
 export default function Result() {
   const { responseId } = useParams<{ responseId: string }>();
   const location = useLocation();
+  const adminView = location.pathname.startsWith("/admin/responses/");
+  const fetchResponse = adminView ? api.adminGetResponse : api.getResponse;
   const navigatedResponse = (
     location.state as { response?: ScoreResponse } | null
   )?.response;
   const initialResponse =
-    navigatedResponse ?? (responseId ? readCachedResponse(responseId) : null);
+    navigatedResponse ?? (responseId && !adminView ? readCachedResponse(responseId) : null);
   const [resp, setResp] = useState<ScoreResponse | null>(initialResponse);
   const [loading, setLoading] = useState(!initialResponse);
 
@@ -37,26 +39,40 @@ export default function Result() {
       setLoading(false);
       return;
     }
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = 1000;
+    let failures = 0;
 
-    const immediate = navigatedResponse ?? readCachedResponse(responseId);
+    const immediate = navigatedResponse ?? (adminView ? null : readCachedResponse(responseId));
     if (immediate) {
       setResp(immediate);
       setLoading(false);
-      return;
     }
-    setLoading(true);
-    // Cache miss (mở từ lịch sử hoặc reload) → lấy từ backend.
-    api
-      .getResponse(responseId)
+    if (!immediate) setLoading(true);
+    const poll = () => fetchResponse(responseId)
       .then((data) => {
-        setResp(data);
-        setLoading(false);
+        if (active) {
+          failures = 0;
+          setResp(data);
+          setLoading(false);
+          if (!adminView) cacheResponse(data);
+          if (["QUEUED", "RUNNING", "SCORING"].includes(data.processing_state) || data.resolution_pending || data.scores_stale) {
+            delay = Math.min(delay * 1.4, 10000);
+            timer = setTimeout(poll, delay);
+          }
+        }
       })
       .catch(() => {
-        setResp(null);
-        setLoading(false);
+        if (active) {
+          setLoading(false);
+          delay = Math.min(delay * 2, 30000);
+          if (++failures < 6) timer = setTimeout(poll, delay);
+        }
       });
-  }, [navigatedResponse, responseId]);
+    void poll();
+    return () => { active = false; if (timer) clearTimeout(timer); };
+  }, [adminView, fetchResponse, navigatedResponse, responseId]);
 
   if (loading) {
     return (
@@ -84,6 +100,7 @@ export default function Result() {
   }
 
   const { item, mapping, scoring } = resp;
+  const processing = ["QUEUED", "RUNNING", "SCORING"].includes(resp.processing_state);
   const validCount = mapping.ideas.filter((i) => i.status === "VALID").length;
   const totalIdeas = mapping.ideas.length;
   if (!scoring) {
@@ -95,7 +112,7 @@ export default function Result() {
               Dữ liệu đã được ghi nhận · {item.name}
             </p>
             <h1 className="mt-4 max-w-3xl font-serif text-4xl font-medium tracking-tight md:text-6xl">
-              Câu trả lời của bạn đã được đóng góp vào bộ dữ liệu.
+              {processing ? "Bài đã được lưu và đang chấm." : "Câu trả lời của bạn đã được đóng góp vào bộ dữ liệu."}
             </h1>
             <p
               aria-live="polite"
@@ -106,21 +123,25 @@ export default function Result() {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Badge
                 variant={
-                  resp.scoring_status === "PENDING_REVIEW"
+                  resp.scoring_status === "PENDING_REVIEW" || resp.processing_state === "FAILED"
                     ? "warning"
                     : "secondary"
                 }
               >
-                {resp.scoring_status === "PENDING_REVIEW"
-                  ? "AI đang đối chiếu lại"
+                {processing
+                  ? "Đang xử lý"
+                  : resp.processing_state === "FAILED"
+                  ? "Cần xử lý lại"
+                  : resp.scoring_status === "PENDING_REVIEW"
+                  ? (resp.resolution_pending ? "AI đang đối chiếu lại" : "Chưa đủ căn cứ phân loại")
                   : "Giai đoạn thu thập"}
               </Badge>
               <span className="text-xs text-muted-foreground">
                 {validCount}/{totalIdeas} ý đã được nhận diện
               </span>
-              {resp.scoring_status === "PENDING_REVIEW" && (
+              {resp.scoring_status === "PENDING_REVIEW" && !processing && (
                 <span className="text-xs text-muted-foreground">
-                  Trang này tự cập nhật sau khi quản trị viên xử lý.
+                  Tải lại trang hoặc mở lại từ lịch sử để xem quyết định mới.
                 </span>
               )}
             </div>
@@ -131,7 +152,7 @@ export default function Result() {
             <div className="border-l-2 border-foreground/20 pl-6">
               <p className="font-serif text-2xl">Câu trả lời đã được lưu</p>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                Bạn có muốn làm lại hay thử 1 đồ vật khác?
+                Bạn có thể đóng trang và mở lại kết quả này từ lịch sử khảo sát.
               </p>
             </div>
             <div className="mt-10 flex flex-wrap gap-3">

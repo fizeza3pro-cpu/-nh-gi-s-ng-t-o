@@ -32,6 +32,7 @@ CHỈ trả về JSON đúng schema sau, không thêm văn bản nào khác:
   "elaboration_analysis": [
     {{
       "original": "<chép lại ORIGINAL>",
+      "idea_id": "<giữ đúng idea_id đầu vào>",
       "normalized": "<tên công dụng>",
       "code": "<Code>",
       "facets": {{

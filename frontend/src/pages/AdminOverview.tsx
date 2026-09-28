@@ -112,12 +112,12 @@ export default function AdminOverview() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  async function downloadScores() {
+  async function downloadScores(format: "csv" | "json" = "csv") {
     if (exporting) return;
     setExporting(true);
     setError(null);
     try {
-      await api.adminDownloadResponsesCsv();
+      await api.adminDownloadResponsesCsv(format);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thể xuất dữ liệu.");
     } finally {
@@ -184,12 +184,16 @@ export default function AdminOverview() {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
           <button
             type="button"
-            onClick={downloadScores}
+            onClick={() => downloadScores()}
             disabled={exporting}
             className="inline-flex items-center gap-2 border border-stone-300 bg-white px-3.5 py-2 text-sm font-medium text-stone-800 hover:border-stone-500 disabled:cursor-wait disabled:opacity-60"
           >
             <Download className="h-4 w-4" />
             {exporting ? "Đang xuất…" : "Xuất dữ liệu CSV"}
+          </button>
+          <button type="button" onClick={() => downloadScores("json")} disabled={exporting}
+            className="inline-flex items-center gap-2 border border-stone-300 bg-white px-3.5 py-2 text-sm font-medium text-stone-800 hover:border-stone-500 disabled:opacity-60">
+            <Download className="h-4 w-4" /> Xuất hồ sơ phân tích JSON
           </button>
           <Link
             to="/admin/codebooks"

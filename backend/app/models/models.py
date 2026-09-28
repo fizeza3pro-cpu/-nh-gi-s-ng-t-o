@@ -97,6 +97,7 @@ class Participant(Base):
     occupation: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ai_usage_group: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     device_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    access_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     responses: Mapped[list["Response"]] = relationship(back_populates="participant")
@@ -117,6 +118,8 @@ class Item(Base):
     )
     scoring_min_participants: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
     scoring_min_ideas: Mapped[int] = mapped_column(Integer, default=150, nullable=False)
+    codebook_epoch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    scores_dirty: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     responses: Mapped[list["Response"]] = relationship(back_populates="item")
     dynamic_codes: Mapped[list["ItemCode"]] = relationship(
         back_populates="item", foreign_keys="ItemCode.item_id"
@@ -136,6 +139,21 @@ class Response(Base):
     item_id: Mapped[str] = mapped_column(String(64), ForeignKey("items.id"), nullable=False, index=True)
 
     raw_input: Mapped[str] = mapped_column(Text, nullable=False)
+    input_lines: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    mapping_checkpoint: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    mapping_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    resolution_next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_epoch: Mapped[int] = mapped_column(Integer, default=-1, nullable=False)
+    protocol: Mapped[str] = mapped_column(String(64), default="AUT_TOP10_180S", nullable=False)
+    data_source: Mapped[str] = mapped_column(String(16), default="PILOT", nullable=False)
+    survey_session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
+    request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    processing_state: Mapped[str] = mapped_column(String(16), default="DONE", nullable=False, index=True)
+    processing_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    processing_claim_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    processing_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_error: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     mapping: Mapped[dict] = mapped_column(JSON, nullable=False)
     scoring: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
@@ -162,6 +180,10 @@ class Response(Base):
         back_populates="response", cascade="all, delete-orphan"
     )
 
+    __table_args__ = (
+        UniqueConstraint("participant_id", "request_id", name="uq_response_participant_request"),
+    )
+
 
 class ItemCode(Base):
     """Danh mục ngữ nghĩa do AI tự xây dựng cho một đồ vật."""
@@ -180,6 +202,14 @@ class ItemCode(Base):
     positive_examples: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     embedding: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    centroid: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    centroid_sum: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    prototype_vectors: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    centroid_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    centroid_model: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    centroid_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    scope_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    drift_flag: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     scope_history: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     validation_status: Mapped[CodeValidationStatus] = mapped_column(
         SAEnum(CodeValidationStatus, name="code_validation_status"),
@@ -229,16 +259,54 @@ class ResponseIdea(Base):
     original: Mapped[str] = mapped_column(Text, nullable=False)
     normalized: Mapped[str] = mapped_column(Text, nullable=False)
     line_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duplicate_of_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    coding_state: Mapped[str] = mapped_column(String(16), default="ASSIGNED", nullable=False)
     functional_signature: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     mapping_evidence: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    embedding: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     mapping_status: Mapped[str] = mapped_column(String(16), nullable=False)
     curator_decision: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     reason: Mapped[str] = mapped_column(Text, default="")
+    review_status: Mapped[str] = mapped_column(
+        String(16), default="NOT_REQUIRED", nullable=False, index=True
+    )
+    review_payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    review_resolution: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    review_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     response: Mapped["Response"] = relationship(back_populates="ideas")
     code: Mapped["ItemCode | None"] = relationship(foreign_keys=[code_id])
 
 
-# Hết phần khai báo ORM.
+class SurveySession(Base):
+    """Phiên 180 giây do máy chủ cấp; một phiên chỉ nộp được một response."""
+
+    __tablename__ = "survey_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    participant_id: Mapped[str] = mapped_column(String(36), ForeignKey("participants.id"), index=True)
+    item_id: Mapped[str] = mapped_column(String(64), ForeignKey("items.id"), index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class PipelineAudit(Base):
+    """Nhật ký quyết định bất biến, không phải phiên bản codebook dùng để chấm."""
+
+    __tablename__ = "pipeline_audits"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    item_id: Mapped[str] = mapped_column(String(64), ForeignKey("items.id"), index=True)
+    response_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("responses.id", ondelete="CASCADE"), nullable=True)
+    event: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

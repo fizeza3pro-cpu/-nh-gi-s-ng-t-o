@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Inbox } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableViewport } from "@/components/ui/table";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import type { AdminParticipantDetail as AdminParticipantDetailType } from "@/lib/types";
 
 const GENDER_LABELS: Record<string, string> = {
@@ -35,6 +36,22 @@ export default function AdminParticipantDetail() {
   const { participantId } = useParams<{ participantId: string }>();
   const [detail, setDetail] = useState<AdminParticipantDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [recoveryToken, setRecoveryToken] = useState("");
+
+  const retryFailed = async (responseId: string) => {
+    if (!participantId) return;
+    setRetrying(responseId);
+    setError(null);
+    try {
+      await api.adminRetryResponse(responseId);
+      setDetail(await api.adminParticipantDetail(participantId));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRetrying(null);
+    }
+  };
 
   useEffect(() => {
     if (!participantId) return;
@@ -87,6 +104,12 @@ export default function AdminParticipantDetail() {
           <p className="mt-1 font-mono text-xs text-muted-foreground">
             Tham gia {fmtDate(detail.participant.created_at)}
           </p>
+          <Button variant="outline" className="mt-4" onClick={async () => {
+            if (!participantId || !window.confirm("Cấp mã khôi phục mới sẽ vô hiệu hóa mã cũ. Tiếp tục?")) return;
+            try { setRecoveryToken((await api.adminIssueParticipantToken(participantId)).access_token || ""); }
+            catch (err) { setError((err as Error).message); }
+          }}>Cấp mã khôi phục hồ sơ</Button>
+          {recoveryToken ? <p className="mt-3 break-all font-mono text-sm">Mã chỉ hiện trong phiên này: {recoveryToken}</p> : null}
         </div>
       )}
 
@@ -143,8 +166,18 @@ export default function AdminParticipantDetail() {
                         {r.elaboration}
                       </td>
                       <td className="px-4 py-3.5 text-right">
+                        {r.processing_state === "FAILED" && (
+                          <button
+                            type="button"
+                            disabled={retrying === r.response_id}
+                            onClick={() => void retryFailed(r.response_id)}
+                            className="mr-3 text-sm font-medium text-amber-800 underline-offset-2 hover:underline disabled:opacity-50"
+                          >
+                            Thử chấm lại
+                          </button>
+                        )}
                         <Link
-                          to={`/result/${r.response_id}`}
+                          to={`/admin/responses/${r.response_id}`}
                           className="inline-flex items-center gap-1 text-sm font-medium text-foreground/80 hover:text-foreground"
                         >
                           Xem <ArrowRight className="h-3.5 w-3.5" />

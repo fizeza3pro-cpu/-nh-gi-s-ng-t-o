@@ -118,7 +118,7 @@ def test_settings_can_switch_between_three_providers_without_changing_code():
     assert groq.active_llm_model == "groq-model"
     assert groq.active_curator_model == "groq-curator"
     assert groq.active_reasoning_effort == "low"
-    assert byteplus.active_reasoning_effort is None
+    assert byteplus.active_reasoning_effort == "minimal"
     assert cloudflare.active_llm_api_key == "cloudflare-token"
     assert cloudflare.active_llm_base_url == (
         "https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1"

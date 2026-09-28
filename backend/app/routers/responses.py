@@ -1,13 +1,19 @@
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
-from app.controllers import response_controller
+from app.controllers import response_controller, survey_controller
 from app.core.deps import get_participant, require_admin
 from app.db import get_db
 from app.models.models import Participant as ParticipantModel
 from app.schemas.schemas import ResponseSummary, ScoreRequest, ScoreResponse
+from app.schemas.schemas import SurveySessionRequest, SurveySessionOut
 
 router = APIRouter(tags=["responses"])
+
+
+@router.post("/api/survey-sessions", response_model=SurveySessionOut)
+def start_session(payload: SurveySessionRequest, db: Session = Depends(get_db), participant: ParticipantModel = Depends(get_participant)):
+    return survey_controller.start_session(db, participant, payload)
 
 
 @router.post("/api/score", response_model=ScoreResponse)
@@ -32,5 +38,6 @@ def responses(
 def response_detail(
     response_id: str,
     db: Session = Depends(get_db),
+    participant: ParticipantModel = Depends(get_participant),
 ) -> ScoreResponse:
-    return response_controller.get_response_detail(db, response_id)
+    return response_controller.get_response_detail(db, response_id, participant.id)

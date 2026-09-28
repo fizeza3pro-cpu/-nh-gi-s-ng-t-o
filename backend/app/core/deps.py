@@ -14,6 +14,8 @@ from app.core.security import decode_access_token
 from app.db import get_db
 from app.models.models import Participant as ParticipantModel
 from app.models.models import User as UserModel
+from app.config import settings
+from app.controllers.participant_controller import token_matches
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -59,6 +61,7 @@ def require_admin(current_user: UserModel = Depends(get_current_user)) -> UserMo
 def get_participant(
     participant_id: str | None = Header(default=None, alias="X-Participant-Id"),
     db: Session = Depends(get_db),
+    participant_token: str | None = Header(default=None, alias="X-Participant-Token"),
 ) -> ParticipantModel:
     """Đọc participant UUID từ header và đảm bảo hồ sơ đã được tạo."""
     if participant_id is None:
@@ -80,4 +83,6 @@ def get_participant(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Không tìm thấy hồ sơ người tham gia. Vui lòng điền lại thông tin.",
         )
+    if settings.participant_token_required and not token_matches(participant, participant_token):
+        raise HTTPException(status_code=401, detail="Cần xác thực hồ sơ người tham gia bằng mã khôi phục hoặc trình duyệt ban đầu.")
     return participant

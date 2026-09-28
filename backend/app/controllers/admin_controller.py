@@ -2,6 +2,7 @@
 
 import csv
 import io
+import uuid
 
 from datetime import datetime, timedelta, timezone
 
@@ -18,22 +19,41 @@ from app.models.models import (
     ItemCalibrationStatus,
     ResponseIdea,
     ResponseScoringStatus,
+    User as UserModel,
 )
+from app.pipeline.centroid import rebuild_confirmed_members
+from app.pipeline.code_retrieval import core_signature_text, functional_key
+from app.pipeline.embedding import embedding_model as active_embedding_model
+from app.pipeline.embedding import local_embedding
 from app.pipeline.codebook_service import (
     item_is_ready_for_scoring,
+    list_curator_codes,
     refresh_item_scoring_state,
+    refresh_final_frequency_scores,
     qualifying_idea_count,
     qualifying_participant_count,
     qualifying_response_count,
 )
+from app.pipeline.cluster_proposals import propose_clusters
 from app.pipeline.dynamic_mapping import normalize_code_name
 from app.controllers.response_controller import (
+    _to_response,
     reprocess_item_mappings,
     reprocess_item_scores_in_session,
 )
 from app.models.models import Participant as ParticipantModel
 from app.models.models import Response as ResponseModel
+
+
+def pipeline_audits(db: Session, item_id: str, limit: int) -> list[dict]:
+    """Nhật ký resolver/audit tự động để quản trị quan sát, không phê duyệt mã."""
+    from app.models.models import PipelineAudit
+    return [{"id": row.id, "event": row.event, "response_id": row.response_id,
+             "created_at": row.created_at.isoformat(), "payload": row.payload}
+            for row in db.scalars(select(PipelineAudit).where(PipelineAudit.item_id == item_id)
+                                 .order_by(PipelineAudit.created_at.desc()).limit(limit)).all()]
 from app.schemas.schemas import (
+    AdminClusterAudit,
     AdminDailyStat,
     AdminAiGroupStats,
     AdminDashboardStats,
@@ -50,10 +70,88 @@ from app.schemas.schemas import (
     AdminParticipantDetail,
     AdminParticipantSummary,
     AdminRecentResponse,
+    AdminMappingReviewIdea,
+    AdminMappingReviewList,
+    AdminMappingReviewResolution,
+    AdminMappingReviewResult,
     AdminScoringStatusCounts,
+    MappedIdea,
+    MappingResult,
     ParticipantOut,
     ResponseSummary,
+    ScoreResponse,
 )
+
+
+def get_cluster_audit(db: Session, item_id: str, *, limit: int = 200) -> AdminClusterAudit:
+    """Gom ý chưa có mã trên dữ liệu đã lưu; không thay mapping/codebook/điểm."""
+    if db.get(ItemModel, item_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
+    criteria = (
+        ResponseModel.item_id == item_id,
+        ResponseModel.processing_state == "DONE",
+        ResponseModel.scoring_status == ResponseScoringStatus.PENDING_REVIEW,
+        ResponseIdea.mapping_status == "VALID",
+        ResponseIdea.code_id.is_(None),
+        ResponseIdea.review_status == "PENDING",
+    )
+    total = int(db.scalar(
+        select(func.count(ResponseIdea.id))
+        .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+        .where(*criteria)
+    ) or 0)
+    rows = db.scalars(
+        select(ResponseIdea)
+        .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+        .where(*criteria)
+        .order_by(ResponseIdea.created_at.desc(), ResponseIdea.id.desc())
+        .limit(limit)
+    ).all()
+    ideas = [{
+        "idea_id": row.id,
+        "response_id": row.response_id,
+        "original": row.original,
+        "normalized": row.normalized,
+        "functional_signature": row.functional_signature or {},
+        "embedding": row.embedding or [],
+        "embedding_model": row.embedding_model or "",
+    } for row in rows]
+    report = propose_clusters(
+        ideas, list_curator_codes(db, item_id),
+        similarity_floor=settings.cluster_proposal_similarity_floor,
+    )
+    return AdminClusterAudit(
+        item_id=item_id,
+        total_pending_ideas=total,
+        sampled_ideas=len(rows),
+        truncated=total > len(rows),
+        similarity_floor=settings.cluster_proposal_similarity_floor,
+        **report,
+    )
+
+
+def get_response_detail(db: Session, response_id: str) -> ScoreResponse:
+    """Admin xem bài qua route riêng, không mượn định danh participant."""
+    row = db.get(ResponseModel, response_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài khảo sát.")
+    return _to_response(row)
+
+
+def retry_failed_response(db: Session, response_id: str) -> dict[str, str]:
+    """Cho phép quản trị vận hành thử lại job đã hết số lần tự động."""
+    row = db.scalar(select(ResponseModel).where(ResponseModel.id == response_id).with_for_update())
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài khảo sát.")
+    if row.processing_state != "FAILED":
+        raise HTTPException(status_code=409, detail="Bài này không ở trạng thái xử lý thất bại.")
+    row.processing_state = "DONE" if (row.mapping or {}).get("ideas") else "QUEUED"
+    row.processing_attempts = 0
+    row.processing_claim_token = None
+    row.processing_lease_until = None
+    row.processing_error = ""
+    db.commit()
+    return {"response_id": row.id, "processing_state": row.processing_state}
 
 
 def _to_summary(row: ResponseModel) -> ResponseSummary:
@@ -67,6 +165,7 @@ def _to_summary(row: ResponseModel) -> ResponseSummary:
         originality=row.originality,
         elaboration=row.elaboration,
         scoring_status=row.scoring_status.value,
+        processing_state=row.processing_state,
     )
 
 
@@ -158,6 +257,11 @@ def _ai_group_stats(db: Session) -> list[AdminAiGroupStats]:
 
 def export_response_scores_csv(db: Session) -> str:
     """Xuất bảng rộng theo lượt để phân tích hai nhóm bằng R, SPSS hoặc Excel."""
+    from app.controllers.analysis_export import prepare_export
+    from app.pipeline.codebook_service import _eligible_query
+    items = prepare_export(db)
+    eligible_ids = {key for item in items for key in db.scalars(_eligible_query(item.id, ResponseModel.id)).all()}
+    exported_at = datetime.now(timezone.utc).isoformat()
     rows = db.execute(
         select(ResponseModel, ParticipantModel, ItemModel)
         .join(ParticipantModel, ResponseModel.participant_id == ParticipantModel.id)
@@ -182,10 +286,15 @@ def export_response_scores_csv(db: Session) -> str:
             "flexibility",
             "originality",
             "elaboration",
+            "data_source", "eligible", "attempt_for_item", "exported_at",
         ]
     )
+    attempts = {}
     for response, participant, item in rows:
-        has_final_score = response.scoring_status == ResponseScoringStatus.FINAL
+        eligible = response.id in eligible_ids
+        has_final_score = response.scoring_status == ResponseScoringStatus.FINAL and eligible
+        key = (participant.id, item.id)
+        attempts[key] = attempts.get(key, 0) + 1
         writer.writerow(
             [
                 participant.id,
@@ -202,8 +311,10 @@ def export_response_scores_csv(db: Session) -> str:
                 response.flexibility if has_final_score else "",
                 response.originality if has_final_score else "",
                 response.elaboration if has_final_score else "",
+                response.data_source, eligible, attempts[key], exported_at,
             ]
         )
+    db.commit()
     return buffer.getvalue()
 
 
@@ -613,6 +724,7 @@ def _codebook_overview(db: Session, item_id: str) -> AdminCodebookOverview:
         item_id=item.id,
         item_name=item.name,
         calibration_status=item.calibration_status.value,
+        codebook_epoch=item.codebook_epoch or 0,
         qualifying_response_count=response_count,
         qualifying_participant_count=participant_count,
         contributing_idea_count=contributing_idea_count,
@@ -729,6 +841,10 @@ def get_codebook(
                 exclusion_rules=row.exclusion_rules or [],
                 positive_examples=row.positive_examples or [],
                 embedding_model=row.embedding_model,
+                centroid_count=row.centroid_count or 0,
+                centroid_revision=row.centroid_revision or 0,
+                scope_revision=row.scope_revision or 0,
+                drift_flag=row.drift_flag,
                 scope_history=row.scope_history or [],
             )
         )
@@ -762,6 +878,374 @@ def list_code_options(db: Session, item_id: str) -> list[AdminCodeOption]:
         .order_by(ItemCode.name, ItemCode.id)
     ).all()
     return [AdminCodeOption(id=row.id, name=row.name) for row in rows]
+
+
+def _llm_diagnostics(mapping_meta: dict) -> dict:
+    """Rút gọn token và thời gian theo stage để admin đọc được, không lộ raw response."""
+    stages: list[dict] = []
+
+    def visit(value) -> None:
+        if isinstance(value, dict):
+            if value.get("stage") and isinstance(value.get("usage"), dict):
+                stages.append(
+                    {
+                        "stage": value.get("stage"),
+                        "model": value.get("model"),
+                        "attempts": int(value.get("attempts") or 0),
+                        "latency_ms": float(value.get("latency_ms") or 0),
+                        "usage": value.get("usage") or {},
+                        "reasoning_effort": value.get("reasoning_effort"),
+                        "failed": bool(value.get("failed")),
+                    }
+                )
+                # attempt_details lặp lại cùng usage nên không đi sâu vào nhánh này.
+                for key, nested in value.items():
+                    if key not in {"usage", "attempt_details", "raw_response"}:
+                        visit(nested)
+                return
+            for nested in value.values():
+                visit(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested)
+
+    visit(mapping_meta or {})
+    usage_keys = (
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "reasoning_tokens",
+        "cached_tokens",
+    )
+    totals = {
+        key: sum(int((stage.get("usage") or {}).get(key) or 0) for stage in stages)
+        for key in usage_keys
+    }
+    return {
+        "stages": stages,
+        "usage": totals,
+        "latency_ms": round(sum(float(stage["latency_ms"]) for stage in stages), 2),
+    }
+
+
+def get_mapping_reviews(
+    db: Session,
+    item_id: str,
+    *,
+    status: str = "PENDING",
+    limit: int = 200,
+) -> AdminMappingReviewList:
+    """Hàng đợi ý chưa có mã, kèm snapshot bằng chứng và chi phí AI."""
+    item = db.get(ItemModel, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
+    criteria = (
+        ResponseModel.item_id == item_id,
+        ResponseIdea.review_status == status,
+    )
+    total_count = int(
+        db.scalar(
+            select(func.count(ResponseIdea.id))
+            .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+            .where(*criteria)
+        )
+        or 0
+    )
+    pending_count = int(
+        db.scalar(
+            select(func.count(ResponseIdea.id))
+            .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+            .where(
+                ResponseModel.item_id == item_id,
+                ResponseIdea.review_status == "PENDING",
+            )
+        )
+        or 0
+    )
+    rows = db.execute(
+        select(ResponseIdea, ResponseModel)
+        .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+        .where(*criteria)
+        .order_by(ResponseIdea.created_at, ResponseIdea.id)
+        .limit(limit)
+    ).all()
+    return AdminMappingReviewList(
+        item_id=item.id,
+        item_name=item.name,
+        pending_count=pending_count,
+        total_count=total_count,
+        code_options=list_code_options(db, item_id),
+        reviews=[
+            AdminMappingReviewIdea(
+                idea_id=idea.id,
+                response_id=response.id,
+                participant_id=response.participant_id,
+                original=idea.original,
+                normalized=idea.normalized,
+                decision=idea.curator_decision,
+                confidence=idea.confidence,
+                reason=idea.reason,
+                review_status=idea.review_status,
+                review_payload=idea.review_payload or {},
+                functional_signature=idea.functional_signature or {},
+                mapping_evidence=idea.mapping_evidence or {},
+                ai_diagnostics=_llm_diagnostics(response.mapping_meta or {}),
+                created_at=idea.created_at,
+            )
+            for idea, response in rows
+        ],
+    )
+
+
+def _mapping_from_ideas(ideas: list[ResponseIdea]) -> dict:
+    """Dựng lại JSON hiển thị từ các hàng chuẩn sau quyết định của admin."""
+    return MappingResult(
+        ideas=[
+            MappedIdea(
+                original=idea.original,
+                normalized=idea.normalized,
+                code=idea.code.name if idea.code else None,
+                status=idea.mapping_status,
+                is_valid=idea.mapping_status == "VALID" and idea.code is not None,
+                reason=idea.reason,
+                line_index=idea.line_index,
+                functional_signature=idea.functional_signature or {},
+                curator_decision=idea.curator_decision,
+            )
+            for idea in sorted(ideas, key=lambda row: (row.line_index, row.id))
+        ]
+    ).model_dump()
+
+
+def _clean_rules(values: list[str] | None) -> list[str]:
+    return list(dict.fromkeys(" ".join(value.split()) for value in values or [] if value.strip()))
+
+
+def _rebuild_code_centroid(db: Session, code: ItemCode) -> None:
+    members = db.execute(
+        select(ResponseIdea.embedding, ResponseIdea.embedding_model)
+        .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+        .where(
+            ResponseIdea.code_id == code.id,
+            ResponseIdea.mapping_status == "VALID",
+            ResponseModel.scoring_status != ResponseScoringStatus.EXCLUDED,
+        )
+    ).all()
+    rebuild_confirmed_members(
+        code,
+        [(embedding or [], model or "") for embedding, model in members],
+        drift_cosine_floor=settings.centroid_drift_cosine_floor,
+    )
+
+
+def resolve_mapping_review(
+    db: Session,
+    item_id: str,
+    idea_id: str,
+    resolution: AdminMappingReviewResolution,
+    admin: UserModel,
+) -> AdminMappingReviewResult:
+    """Áp quyết định con người dưới khóa item và lưu đầy đủ dấu vết kiểm toán."""
+    item = db.scalar(select(ItemModel).where(ItemModel.id == item_id).with_for_update())
+    if item is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
+    idea = db.scalar(
+        select(ResponseIdea).where(ResponseIdea.id == idea_id).with_for_update()
+    )
+    if idea is None or idea.response.item_id != item_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy ý cần phân xử.")
+    if idea.review_status != "PENDING":
+        raise HTTPException(status_code=409, detail="Ý này đã được phân xử trước đó.")
+    response = db.scalar(
+        select(ResponseModel).where(ResponseModel.id == idea.response_id).with_for_update()
+    )
+    if response.scoring_status == ResponseScoringStatus.FINAL:
+        raise HTTPException(status_code=409, detail="Không thay đổi mapping của điểm đã chốt.")
+    if (
+        resolution.expected_codebook_epoch is not None
+        and resolution.expected_codebook_epoch != (item.codebook_epoch or 0)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Sổ mã vừa thay đổi. Hãy tải lại căn cứ trước khi xác nhận.",
+        )
+
+    proposal = dict((idea.review_payload or {}).get("proposal") or {})
+    selected_code: ItemCode | None = None
+    now = datetime.now(timezone.utc)
+    admin_id = getattr(admin, "id", None)
+
+    if resolution.action == "MATCH_EXISTING":
+        selected_code = db.scalar(
+            select(ItemCode)
+            .where(
+                ItemCode.id == resolution.existing_code_id,
+                ItemCode.item_id == item_id,
+                ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
+                ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+            )
+            .with_for_update()
+        )
+        if selected_code is None:
+            raise HTTPException(status_code=409, detail="Mã được chọn không còn hoạt động.")
+        idea.mapping_status = "VALID"
+        idea.curator_decision = "ADMIN_MATCH_EXISTING"
+        idea.reason = resolution.note or "Quản trị viên đã gán vào mã hiện có."
+    elif resolution.action == "CREATE_NEW":
+        signature = (
+            resolution.functional_signature.model_dump()
+            if resolution.functional_signature is not None
+            else proposal.get("functional_signature") or idea.functional_signature or {}
+        )
+        signature_key = functional_key(signature)
+        if not all(part for part in signature_key.split("|")):
+            raise HTTPException(
+                status_code=422,
+                detail="Mã mới phải có đủ mục đích, vai trò của vật và cơ chế.",
+            )
+        name = " ".join((resolution.code_name or proposal.get("code_name") or "").split())
+        description = " ".join(
+            (resolution.code_description or proposal.get("code_description") or "").split()
+        )
+        inclusion_rules = _clean_rules(
+            resolution.inclusion_rules
+            if resolution.inclusion_rules is not None
+            else proposal.get("inclusion_rules")
+        )
+        exclusion_rules = _clean_rules(
+            resolution.exclusion_rules
+            if resolution.exclusion_rules is not None
+            else proposal.get("exclusion_rules")
+        )
+        positive_examples = _clean_rules(
+            resolution.positive_examples
+            if resolution.positive_examples is not None
+            else [*(proposal.get("positive_examples") or []), idea.original]
+        )
+        if len(name) < 2 or not description:
+            raise HTTPException(status_code=422, detail="Cần tên và mô tả cho mã mới.")
+        if not inclusion_rules or not exclusion_rules:
+            raise HTTPException(
+                status_code=422,
+                detail="Cần ít nhất một quy tắc bao gồm và một phản ví dụ loại trừ.",
+            )
+        normalized_name = normalize_code_name(name)
+        collision = db.scalar(
+            select(ItemCode).where(
+                ItemCode.item_id == item_id,
+                ItemCode.maturity_status == CodeMaturityStatus.ACTIVE,
+                or_(
+                    ItemCode.normalized_name == normalized_name,
+                    ItemCode.functional_key == signature_key,
+                ),
+            )
+        )
+        if collision is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f'Mã mới va với “{collision.name}”. Hãy tải lại và dùng thao tác gán mã hiện có.'
+                ),
+            )
+        reviewed_vector = local_embedding(core_signature_text(signature))
+        reviewed_model = active_embedding_model(None)
+        selected_code = ItemCode(
+            id=str(uuid.uuid4()),
+            item_id=item_id,
+            name=name,
+            normalized_name=normalized_name,
+            description=description,
+            functional_key=signature_key,
+            functional_signature=signature,
+            inclusion_rules=inclusion_rules,
+            exclusion_rules=exclusion_rules,
+            positive_examples=positive_examples,
+            embedding=reviewed_vector,
+            embedding_model=reviewed_model,
+            validation_status=CodeValidationStatus.ACCEPTED,
+            maturity_status=CodeMaturityStatus.ACTIVE,
+            confidence=1.0,
+            relevance_reason=resolution.note or "Mã được quản trị viên xác nhận từ hàng đợi phân xử.",
+            source_response_id=response.id,
+            created_by="ADMIN",
+            admin_locked=True,
+            reviewed_by=admin_id,
+            reviewed_at=now,
+            scope_history=[],
+        )
+        db.add(selected_code)
+        item.codebook_epoch = (item.codebook_epoch or 0) + 1
+        idea.functional_signature = signature
+        idea.embedding = reviewed_vector
+        idea.embedding_model = reviewed_model
+        idea.mapping_status = "VALID"
+        idea.curator_decision = "ADMIN_CREATE_NEW"
+        idea.reason = resolution.note or "Quản trị viên đã duyệt tạo mã mới."
+    else:
+        idea.mapping_status = "INVALID"
+        idea.curator_decision = "ADMIN_MARK_INVALID"
+        idea.reason = resolution.note or "Quản trị viên xác định ý không có nghĩa để mã hóa."
+
+    idea.code = selected_code
+    idea.review_status = "RESOLVED"
+    idea.review_resolution = resolution.action
+    idea.review_note = resolution.note
+    idea.reviewed_by = admin_id
+    idea.reviewed_at = now
+    idea.mapping_evidence = {
+        **(idea.mapping_evidence or {}),
+        "admin_resolution": {
+            "action": resolution.action,
+            "reviewed_by": admin_id,
+            "reviewed_at": now.isoformat(),
+            "note": resolution.note,
+            "codebook_epoch": item.codebook_epoch or 0,
+            "code_id": selected_code.id if selected_code else None,
+        },
+    }
+    db.flush()
+    if selected_code is not None:
+        _rebuild_code_centroid(db, selected_code)
+
+    remaining = int(
+        db.scalar(
+            select(func.count(ResponseIdea.id)).where(
+                ResponseIdea.response_id == response.id,
+                ResponseIdea.review_status == "PENDING",
+            )
+        )
+        or 0
+    )
+    response.mapping = _mapping_from_ideas(list(response.ideas))
+    response.scoring = {}
+    response.scoring_meta = {"invalidated_by": "ADMIN_MAPPING_REVIEW"}
+    response.fluency = 0
+    response.flexibility = 0
+    response.originality = 0
+    response.elaboration = 0
+    response.scored_at = None
+    response.scoring_status = (
+        ResponseScoringStatus.PENDING_REVIEW
+        if remaining
+        else ResponseScoringStatus.COLLECTING
+    )
+    response.processing_state = "DONE"
+    response.processing_attempts = 0
+    response.processing_claim_token = None
+    response.processing_lease_until = None
+    response.processing_error = ""
+    refresh_item_scoring_state(db, item)
+    if item_is_ready_for_scoring(db, item):
+        refresh_final_frequency_scores(db, item_id)
+    db.commit()
+    return AdminMappingReviewResult(
+        idea_id=idea.id,
+        response_id=response.id,
+        resolution=resolution.action,
+        code_id=selected_code.id if selected_code else None,
+        code_name=selected_code.name if selected_code else None,
+        scoring_status=response.scoring_status.value,
+    )
 
 
 def remap_item(item_id: str) -> int:

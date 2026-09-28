@@ -33,18 +33,21 @@ def signature_text(signature: FunctionalSignature | dict) -> str:
         if isinstance(signature, FunctionalSignature)
         else FunctionalSignature.model_validate(signature or {}).model_dump()
     )
-    return " ".join(
-        part
-        for part in (
-            data["goal"],
-            data["object_role"],
-            data["mechanism"],
-            data["transformation"],
-            data["target"],
-            data["context"],
-        )
-        if part
+    return " ".join(value for value in data.values() if value)
+
+
+def core_signature_text(signature: FunctionalSignature | dict) -> str:
+    """Văn bản embedding chỉ chứa chức năng cốt lõi, không chứa nhãn hay câu chuẩn hoá."""
+    data = (
+        signature.model_dump()
+        if isinstance(signature, FunctionalSignature)
+        else FunctionalSignature.model_validate(signature or {}).model_dump()
     )
+    return (
+        f"Mục đích: {data['goal']}\n"
+        f"Vai trò của vật: {data['object_role']}\n"
+        f"Cơ chế: {data['mechanism']}"
+    ).strip()
 
 
 def cosine(left: list[float], right: list[float]) -> float:
@@ -110,29 +113,28 @@ def rank_code_candidates(
         return {}
 
     active_model = embedding_model(embedding_client)
-    query_texts = [
-        f"{idea.normalized} {signature_text(idea.functional_signature)}"
-        for _, idea in valid_rows
-    ]
+    query_texts = [core_signature_text(idea.functional_signature) for _, idea in valid_rows]
     stale_codes = [
         code
         for code in codes
         if not code.get("embedding") or code.get("embedding_model") != active_model
     ]
     code_texts = [
-        f"{code.get('name', '')} {code.get('description', '')} "
-        f"{signature_text(code.get('functional_signature') or {})}"
+        core_signature_text(code.get("functional_signature") or {})
+        if functional_key(code.get("functional_signature") or {}).strip("|")
+        else f"{code.get('name', '')} {code.get('description', '')}".strip()
         for code in stale_codes
     ]
     batch = embed_texts([*query_texts, *code_texts], embedding_client)
     query_vectors = batch.vectors[: len(query_texts)]
+    for (_, idea), vector in zip(valid_rows, query_vectors):
+        idea.embedding = vector
+        idea.embedding_model = batch.model
     for code, vector in zip(stale_codes, batch.vectors[len(query_texts) :]):
         code["embedding"] = vector
         code["embedding_model"] = batch.model
 
-    candidate_limit = limit or settings.code_candidate_limit
-    if len(codes) <= settings.codebook_full_scan_limit:
-        candidate_limit = len(codes)
+    candidate_limit = min(limit or settings.code_candidate_limit, len(codes))
 
     ranked: dict[int, list[dict]] = {}
     for (index, idea), query_vector in zip(valid_rows, query_vectors):
@@ -144,12 +146,20 @@ def rank_code_candidates(
             similarities = signature_similarity(query_signature, code_signature)
             structural = similarities["weighted"]
             semantic = max(cosine(query_vector, code_vector), 0.0)
+            if settings.centroid_retrieval_enabled and not code.get("drift_flag"):
+                centroid = code.get("centroid") or []
+                if code.get("centroid_model") == batch.model:
+                    semantic = max(semantic, cosine(query_vector, centroid))
+                    semantic = max([
+                        semantic,
+                        *(cosine(query_vector, prototype) for prototype in code.get("prototype_vectors") or []),
+                    ])
             score = 0.75 * semantic + 0.25 * structural
             # Vector chỉ phục vụ retrieval; không gửi hàng nghìn số thực vào prompt.
             candidate = {
                 key: value
                 for key, value in code.items()
-                if key not in {"embedding", "embedding_model"}
+                if key not in {"embedding", "embedding_model", "centroid", "prototype_vectors", "centroid_model", "drift_flag"}
             }
             candidate.update(
                 retrieval_score=round(score, 6),

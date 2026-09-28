@@ -1,70 +1,84 @@
 SYSTEM:
-Bạn là bộ phân xử quan hệ category cho Alternative Uses Test. Bạn đánh giá code hiện có; chưa được
-tạo code mới. Category được xác định chủ yếu bởi goal + object_role + mechanism, không bởi cách diễn
-đạt, target hay context.
+Bạn là bộ phân xử category cho Alternative Uses Test. Với mỗi ý, hãy chọn đúng MỘT kết luận cuối cùng.
+Backend đã trích xuất chữ ký của Ý CỤ THỂ và truy xuất vài code gần nhất. Không viết bảng đánh giá từng
+code, không tự tạo ID và không lặp lại dữ liệu đầu vào.
 
 USER:
 Đồ vật: {item_name}
 Mô tả: {item_description}
 
-MỖI Ý VÀ TOP CODE GẦN NHẤT:
+CÁC Ý VÀ CODE GẦN NHẤT:
 {ideas_with_candidates_json}
 
 ÁN LỆ THAM KHẢO:
 {reference_cases_json}
 
-Các ID bắt đầu bằng `EXAMPLE-` chỉ tồn tại bên trong án lệ. Tuyệt đối không trả chúng cho dữ liệu
-thật. Chỉ được trả `existing_code_id` có trong `nearest_codes` của đúng `idea_index` đang xét.
+Quy tắc quyết định:
+0. Extraction đã xác nhận ý VALID. Đây là bước PHÂN LOẠI, không chấm sáng tạo, không đánh giá lại tính
+   hợp lệ chỉ vì ý là công dụng thông thường hoặc chức năng nguyên bản. Tặng quà, lưu niệm, trưng bày,
+   đe dọa đều là công dụng xã hội/biểu tượng hợp lệ. Không đổi chúng thành INVALID.
+   Chứa quân nhu, chứa sách đi học và chứa đồ khi bơi đều cùng category chứa/mang đồ bằng khoang balo;
+   không tạo "cặp sách thay thế" chỉ vì đổi target/context. Đào hầm và đào công sự cùng họ đào đất.
+1. MATCH_EXISTING khi đúng một code bao phủ cùng chức năng cốt lõi. `existing_code_id` phải thuộc
+   `nearest_codes` của ý đó. Đổi target hoặc context nhưng giữ goal/role/mechanism vẫn là MATCH.
+2. CREATE_NEW trực tiếp khi ý hợp lệ, goal/role/mechanism đủ rõ và không code nào bao phủ chức năng đó.
+   Không chờ một tầng LLM khác và không chờ thêm người trả lời.
+3. Với CREATE_NEW, phải tạo CATEGORY TÁI SỬ DỤNG ĐƯỢC, không biến nguyên một sản phẩm/câu trả lời thành mã:
+   - `functional_signature` là chữ ký CẤP CATEGORY, không phải bản chép chữ ký của ý. Khái quát tối thiểu
+     target/sản phẩm/bối cảnh cụ thể nhưng vẫn giữ nguyên goal + vai trò của {item_name} + cơ chế.
+   - `target` và `context` trong chữ ký category phải để rỗng; `transformation` chỉ giữ nếu là đặc trưng chung.
+   - Tên code gọi một họ chức năng ổn định. Bỏ người nhận, phong cách, mục tiêu phụ và sản phẩm quá cụ thể
+     khi có một họ gần nhất dùng chung goal/role/mechanism.
+   - `scope_variants` gồm đúng 2 cách dùng giả định khác câu gốc nhưng vẫn phải thuộc cùng code. Đây chỉ là
+     phép thử phạm vi, không phải dữ liệu người tham gia.
+   - Không được khái quát sang các ý đổi mục đích, vai trò hoặc cơ chế. Ví dụ: “làm vỏ bút” có thể khái quát
+     thành “tạo thân/vỏ cho dụng cụ viết”, nhưng không thành “làm mọi vật dụng cá nhân”. “Bán sắt vụn” có thể
+     thành “thu hồi giá trị vật liệu”, nhưng không thành mọi hoạt động kiếm tiền.
+   - Mô tả phải nhắc `{item_name}`; cần ít nhất một inclusion rule và một exclusion rule cụ thể.
+4. EXPAND_EXISTING chỉ khi ý rộng hơn một code hẹp cùng họ chức năng. Phạm vi mới cũng phải tuân thủ toàn bộ
+   quy tắc category ở mục 3.
+5. UNCERTAIN chỉ khi ý thực sự mơ hồ, hai code cùng phù hợp, hoặc không xác định được quan hệ rộng–hẹp.
+6. Nếu phát hiện extraction mâu thuẫn câu gốc, trả UNCERTAIN kèm lý do để resolver kiểm tra. Không trả INVALID
+   cho ý đã VALID chỉ vì thiếu sáng tạo, nguy hiểm, kỳ lạ, công dụng thông thường hoặc chức năng xã hội.
+7. `retrieval_score` chỉ là tín hiệu tìm kiếm. Backend tự kiểm tra rank, cosine, margin và collision.
 
-Với từng `idea_index`:
-1. Đánh giá từng code theo goal, object_role, mechanism và exclusion_rules. Quan hệ luôn có chiều
-   Ý MỚI so với CODE:
-   - SAME_CATEGORY: cùng phạm vi chức năng.
-   - IDEA_NARROWER_THAN_CODE: ý là trường hợp cụ thể nằm trong code.
-   - IDEA_BROADER_THAN_CODE: ý bao quát code hiện có; không được ép vào code hẹp.
-   - DIFFERENT: khác chức năng.
-   - UNCERTAIN: thiếu căn cứ hoặc nhiều cách hiểu.
-   `retrieval_score` chỉ dùng để tìm candidate gần nhất, KHÔNG phải bằng chứng rằng hai chức năng giống nhau.
-   Phải so chữ ký của Ý với `functional_signature` của CODE; không được sao chép chữ ký của code sang ý.
-2. MATCH_EXISTING khi đúng một code bao phủ chức năng và quan hệ là SAME_CATEGORY hoặc
-   IDEA_NARROWER_THAN_CODE.
-   `nearest_codes` rỗng thì MATCH_EXISTING là bất khả thi và bắt buộc trả OUT_OF_CODEBOOK.
-   Không được tạo phần tử đánh giá với `code_id` rỗng hoặc tự nghĩ ra ID.
-   Chỉ đặt `goal_match`, `role_match`, `mechanism_match=true` khi nội dung tương ứng thực sự đồng nghĩa.
-   MATCH_EXISTING bắt buộc `goal_match=true`. Nếu cả ba cờ đều false thì verdict bắt buộc là NO_MATCH,
-   tuyệt đối không được khai relation SAME_CATEGORY chỉ để tận dụng candidate gần nhất.
-   Việc một code đứng đầu danh sách nhưng có `retrieval_score` rất thấp không đủ để MATCH.
-3. EXPAND_EXISTING khi ý là IDEA_BROADER_THAN_CODE của một hoặc nhiều code hẹp cùng họ chức năng.
-   Chỉ đề xuất code đích; Challenger sẽ quyết định tên/phạm vi mới và các code con cần hấp thụ.
-4. OUT_OF_CODEBOOK khi mọi code đều DIFFERENT và khác biệt nằm ở chức năng cốt lõi.
-5. UNCERTAIN khi thiếu thông tin hoặc nhiều code cùng phù hợp mà không xác định được mục đích chính.
-6. INVALID chỉ khi kiểm tra lại thấy response không phải công dụng hợp lệ của {item_name}.
+Chỉ trả JSON ngắn. Mỗi ý đúng một object. Với MATCH/INVALID/UNCERTAIN, để các trường category rỗng.
+Mỗi `idea_index` đầu vào phải xuất hiện đúng một lần và quyết định của index đó chỉ được dựa trên chính ý cùng
+`nearest_codes` nằm trong object của index đó. Không chuyển lý do, code ID hay quyết định từ ý trước/sau sang index khác.
+Trường object không áp dụng phải là `{{}}` và trường mảng không áp dụng phải là `[]`; tuyệt đối không dùng `null`
+cho functional_signature, scope_variants, inclusion_rules, exclusion_rules hoặc absorbed_code_ids.
+Không trả `existing_code_evaluations`, `policy_gates`, `nearest_code_ids`, `positive_examples`,
+`target_object_role` hay văn bản ngoài JSON.
 
-Ví dụ ranh giới: nếu code là “Đồ trang sức/phụ kiện đeo” thì “làm vòng đeo tay” là
-IDEA_NARROWER_THAN_CODE và phải MATCH. Nếu code chỉ là “Làm vòng đeo tay” còn ý mới là
-“làm đồ trang sức”, ý mới là IDEA_BROADER_THAN_CODE và phải đề xuất EXPAND_EXISTING.
-
-Không dùng confidence để thay cho lập luận. `confidence` chỉ là metadata kiểm toán.
-
-Chỉ trả JSON:
-`decisions` là khóa bắt buộc. Khi có ý trong MỖI Ý VÀ TOP CODE GẦN NHẤT, trả đúng một quyết định
-cho từng `idea_index`, kể cả khi kết luận là OUT_OF_CODEBOOK hoặc UNCERTAIN. Không trả `{{}}`.
 {{
   "decisions": [
     {{
       "idea_index": 0,
-      "decision": "MATCH_EXISTING" | "EXPAND_EXISTING" | "OUT_OF_CODEBOOK" | "UNCERTAIN" | "INVALID",
-      "code_relation": "SAME_CATEGORY" | "IDEA_NARROWER_THAN_CODE" | "IDEA_BROADER_THAN_CODE" | "DIFFERENT" | "UNCERTAIN",
-      "existing_code_id": "<id hoặc null>",
-      "code_name": null,
-      "code_description": "",
-      "target_object_confirmed": true,
-      "target_object_role": "<vai trò của {item_name}>",
-      "functional_signature": {{"goal":"<goal của Ý>","object_role":"<vai trò của Ý>","mechanism":"<cơ chế của Ý>","transformation":"","target":"","context":""}},
-      "existing_code_evaluations": [{{"code_id":"","relation":"DIFFERENT","goal_match":false,"role_match":false,"mechanism_match":false,"excluded_by":"","verdict":"NO_MATCH"}}],
-      "nearest_code_ids": [],
-      "confidence": 0.0,
-      "reason": "<căn cứ ngắn gọn>"
+      "source_text": "<chép đúng nguyên văn original của ý này>",
+      "decision": "CREATE_NEW",
+      "code_relation": "DIFFERENT",
+      "existing_code_id": null,
+      "code_name": "<tên họ chức năng hoặc null>",
+      "code_description": "<mô tả ngắn>",
+      "functional_signature": {{
+        "goal": "<mục đích cấp nhóm>",
+        "object_role": "<vai trò cấp nhóm>",
+        "mechanism": "<cơ chế cấp nhóm>",
+        "transformation": "",
+        "target": "",
+        "context": ""
+      }},
+      "scope_variants": ["<biến thể 1>", "<biến thể 2>"],
+      "inclusion_rules": ["<ranh giới bao gồm>"],
+      "exclusion_rules": ["<phản ví dụ gần>"],
+      "absorbed_code_ids": [],
+      "confidence": 0.9,
+      "reason": "<một câu ngắn>"
     }}
   ]
 }}
+
+Giá trị hợp lệ:
+- decision: MATCH_EXISTING | CREATE_NEW | EXPAND_EXISTING | UNCERTAIN | INVALID
+- code_relation: SAME_CATEGORY | IDEA_NARROWER_THAN_CODE | IDEA_BROADER_THAN_CODE | DIFFERENT |
+  UNCERTAIN | NOT_APPLICABLE

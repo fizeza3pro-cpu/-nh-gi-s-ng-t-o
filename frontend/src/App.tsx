@@ -78,6 +78,7 @@ export default function App() {
             <Route path="/admin" element={<AdminOverview />} />
             <Route path="/admin/participants" element={<AdminParticipants />} />
             <Route path="/admin/participants/:participantId" element={<AdminParticipantDetail />} />
+            <Route path="/admin/responses/:responseId" element={<Result />} />
             <Route path="/admin/codebooks" element={<AdminCodebooks />} />
             <Route path="/admin/codebooks/:itemId" element={<AdminCodebooks />} />
           </Route>

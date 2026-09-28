@@ -7,7 +7,7 @@ import unicodedata
 # from google import genai
 from openai import OpenAI
 from app.config import settings
-from app.pipeline.llm import chat_json
+from app.pipeline.llm import aggregate_usage, chat_json, LLMJSONError
 from app.schemas.schemas import Item, PerIdeaScore, ScoringResult
 
 
@@ -53,7 +53,10 @@ def _analyze_once(
         prompt=prompt,
         provider=settings.llm_provider,
         reasoning_effort=settings.active_reasoning_effort,
-        max_tokens=settings.active_max_tokens,
+        max_tokens=settings.max_tokens_for("scoring"),
+        max_retries=settings.llm_max_retries,
+        stage="scoring",
+        include_raw_response=settings.store_raw_llm_response,
     )
     return data, meta
 
@@ -199,13 +202,22 @@ def run_scoring(
 
     n_runs = max(1, runs if runs is not None else settings.scoring_runs)
     valid_ideas_payload = [
-        {"original": p.original, "normalized": p.normalized, "code": p.code}
+        {"idea_id": p.idea_id, "original": p.original, "normalized": p.normalized, "code": p.code}
         for p in per_idea_originality
     ]
 
     run_payloads, metas = [], []
     for _ in range(n_runs):
         data, meta = _analyze_once(item, valid_ideas_payload, client)
+        if all(idea.idea_id for idea in per_idea_originality):
+            rows = data.get("elaboration_analysis", [])
+            by_id = {row.get("idea_id"): row for row in rows if isinstance(row, dict)}
+            expected = {idea.idea_id for idea in per_idea_originality}
+            if len(rows) != len(expected) or set(by_id) != expected:
+                raise LLMJSONError("Elaboration thiếu, trùng hoặc sai idea_id.", metadata=meta)
+            if any(by_id[idea.idea_id].get("original") != idea.original for idea in per_idea_originality):
+                raise LLMJSONError("Elaboration bị lệch câu nguồn.", metadata=meta)
+            data["elaboration_analysis"] = [by_id[idea.idea_id] for idea in per_idea_originality]
         run_payloads.append(data)
         metas.append(meta)
 
@@ -217,6 +229,7 @@ def run_scoring(
         meaningful_word_count = count_meaningful_words(orig.original, item.name)
         per_idea_scores.append(
             PerIdeaScore(
+                idea_id=orig.idea_id,
                 original=orig.original,
                 normalized=orig.normalized,
                 code=orig.code,
@@ -243,6 +256,9 @@ def run_scoring(
         "temperature": settings.scoring_temperature,
         "runs": n_runs,
         "response_ids": [m.get("response_id") for m in metas],
+        "llm_runs": metas,
+        "usage": aggregate_usage(metas),
+        "latency_ms": round(sum(float(m.get("latency_ms") or 0) for m in metas), 2),
         "elaboration_method": {
             "score_formula": "1 + target + mechanism + context + goal",
             "facet_source": "LLM evidence extraction with verbatim grounding",

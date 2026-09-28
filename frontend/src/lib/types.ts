@@ -52,6 +52,8 @@ export interface ScoringResult {
 }
 
 export interface ScoreResponse {
+  resolution_pending?: boolean;
+  scores_stale?: boolean;
   response_id: string;
   item: Item;
   raw_input: string;
@@ -63,6 +65,7 @@ export interface ScoreResponse {
     | "PROVISIONAL"
     | "FINAL"
     | "EXCLUDED";
+  processing_state: "QUEUED" | "RUNNING" | "SCORING" | "DONE" | "FAILED";
   status_message: string;
 }
 
@@ -90,6 +93,7 @@ export interface Participant extends ParticipantProfile {
 }
 
 export interface ParticipantIdentity {
+  access_token?: string | null;
   id: string;
   full_name: string | null;
   email_masked: string | null;
@@ -112,6 +116,7 @@ export interface ResponseSummary {
   originality: number;
   elaboration: number;
   scoring_status: string;
+  processing_state: string;
 }
 
 // --- Auth ---
@@ -242,6 +247,10 @@ export interface AdminCodebookCode {
   exclusion_rules: string[];
   positive_examples: string[];
   embedding_model: string;
+  centroid_count: number;
+  centroid_revision: number;
+  scope_revision: number;
+  drift_flag: boolean;
   scope_history: Array<{
     changed_at?: string;
     change?: string;
@@ -313,10 +322,77 @@ export interface AdminCuratorAudit {
   decisions: AdminCuratorDecisionIdea[];
 }
 
+export interface AdminCodeOption {
+  id: string;
+  name: string;
+}
+
+export interface AdminMappingReviewIdea {
+  idea_id: string;
+  response_id: string;
+  participant_id: string;
+  original: string;
+  normalized: string;
+  decision: string;
+  confidence: number;
+  reason: string;
+  review_status: "PENDING" | "RESOLVED";
+  review_payload: Record<string, unknown>;
+  functional_signature: FunctionalSignature;
+  mapping_evidence: Record<string, unknown>;
+  ai_diagnostics: {
+    stages?: Array<{
+      stage: string;
+      model?: string;
+      attempts: number;
+      latency_ms: number;
+      usage: Record<string, number>;
+      reasoning_effort?: string | null;
+      failed?: boolean;
+    }>;
+    usage?: Record<string, number>;
+    latency_ms?: number;
+  };
+  created_at: string;
+}
+
+export interface AdminMappingReviewList {
+  item_id: string;
+  item_name: string;
+  pending_count: number;
+  total_count: number;
+  reviews: AdminMappingReviewIdea[];
+  code_options: AdminCodeOption[];
+}
+
+export interface AdminMappingReviewResolution {
+  action: "CREATE_NEW" | "MATCH_EXISTING" | "MARK_INVALID";
+  expected_codebook_epoch: number;
+  existing_code_id?: string | null;
+  code_name?: string | null;
+  code_description?: string | null;
+  functional_signature?: FunctionalSignature | null;
+  inclusion_rules?: string[] | null;
+  exclusion_rules?: string[] | null;
+  positive_examples?: string[] | null;
+  note: string;
+}
+
+export interface AdminMappingReviewResult {
+  idea_id: string;
+  response_id: string;
+  review_status: "RESOLVED";
+  resolution: AdminMappingReviewResolution["action"];
+  code_id: string | null;
+  code_name: string | null;
+  scoring_status: string;
+}
+
 export interface AdminCodebookOverview {
   item_id: string;
   item_name: string;
   calibration_status: string;
+  codebook_epoch: number;
   qualifying_response_count: number;
   qualifying_participant_count: number;
   contributing_idea_count: number;

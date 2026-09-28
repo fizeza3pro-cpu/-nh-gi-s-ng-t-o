@@ -114,6 +114,57 @@ def test_chat_json_passes_cloudflare_output_limit():
     assert meta["max_tokens"] == 4096
 
 
+def test_chat_json_records_reasoning_usage_and_latency_without_raw_response():
+    client = FakeClient([
+        {
+            "content": '{"ok": true}',
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 80,
+                "total_tokens": 200,
+                "prompt_tokens_details": {"cached_tokens": 20},
+                "completion_tokens_details": {"reasoning_tokens": 60},
+            },
+        }
+    ])
+
+    _, meta = chat_json(
+        client,
+        model="deepseek-v4-flash-260425",
+        temperature=0.0,
+        prompt="p",
+        provider="byteplus",
+        reasoning_effort="minimal",
+        stage="code_curator",
+    )
+
+    assert meta["stage"] == "code_curator"
+    assert meta["usage"]["reasoning_tokens"] == 60
+    assert meta["usage"]["cached_tokens"] == 20
+    assert meta["latency_ms"] >= 0
+    assert "raw_response" not in meta
+
+
+def test_chat_json_does_not_repeat_a_truncated_output():
+    client = FakeClient([
+        {"content": '{"unfinished":', "finish_reason": "length"},
+        '{"would": "waste tokens"}',
+    ])
+
+    with pytest.raises(LLMJSONError) as captured:
+        chat_json(
+            client,
+            model="deepseek-v4-flash-260425",
+            temperature=0.0,
+            prompt="p",
+            max_tokens=512,
+            max_retries=2,
+        )
+
+    assert client.chat.completions.calls == 1
+    assert captured.value.metadata["attempts"] == 1
+
+
 def test_chat_json_reduces_output_when_context_would_overflow():
     error = RuntimeError(
         "This model's maximum context length is 24000 tokens. However, you "

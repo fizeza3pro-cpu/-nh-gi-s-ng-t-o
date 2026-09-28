@@ -315,7 +315,7 @@ export default function Home() {
                 Chọn món đồ vật mà bạn thích
               </p>
               <h2 className="mt-3 font-serif text-3xl font-medium tracking-tight md:text-4xl">
-                Liệt kê càng nhiều cách dùng càng tốt.
+                Chọn tối đa 10 cách dùng sáng tạo nhất trong 3 phút.
               </h2>
             </div>
           </div>

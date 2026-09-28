@@ -45,7 +45,7 @@
     "principle": "Khác địa điểm hoặc vật được treo chỉ là target/context khi cơ chế chịu lực không đổi."
   },
   {
-    "id": "CU-OUT-CORE-FUNCTION-01",
+    "id": "CU-CREATE-CORE-FUNCTION-01",
     "stage": "curator",
     "item": "Chai nhựa",
     "input": {
@@ -59,9 +59,14 @@
       ]
     },
     "expected": {
-      "decision": "OUT_OF_CODEBOOK"
+      "decision": "CREATE_NEW",
+      "code_relation": "DIFFERENT",
+      "code_name": "Tạo âm thanh bằng chai nhựa",
+      "code_description": "Dùng chai nhựa như buồng cộng hưởng để tạo âm thanh.",
+      "inclusion_rules": ["Chai nhựa trực tiếp tạo hoặc khuếch đại âm thanh nhờ dao động không khí."],
+      "exclusion_rules": ["Không gồm công dụng chỉ dùng khoang chai để chứa vật chất."]
     },
-    "principle": "Tạo cộng hưởng âm là cơ chế và mục đích khác cốt lõi với chứa vật chất. Curator chỉ báo ngoài codebook, chưa tự tạo code."
+    "principle": "Tạo cộng hưởng âm khác chức năng chứa vật chất nên Curator tạo trực tiếp một category có ranh giới rõ."
   },
   {
     "id": "CU-UNCERTAIN-AMBIGUOUS-01",

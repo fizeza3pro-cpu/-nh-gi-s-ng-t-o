@@ -1,0 +1,5 @@
+backend/.env
+backend/.validation.env
+.artifacts/
+.playwright-cli/
+output/playwright/

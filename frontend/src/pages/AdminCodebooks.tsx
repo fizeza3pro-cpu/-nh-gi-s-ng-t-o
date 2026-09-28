@@ -10,11 +10,13 @@ import type {
   AdminCodebookSummary,
   AdminCuratorAudit,
   AdminExtractionAudit,
+  AdminMappingReviewIdea,
+  AdminMappingReviewList,
   FunctionalSignature,
 } from "@/lib/types";
 
 const PAGE_SIZE = 30;
-type View = "CODES" | "DECISIONS" | "EXCLUDED";
+type View = "REVIEWS" | "CODES" | "DECISIONS" | "EXCLUDED" | "PIPELINE";
 
 const decisionLabel: Record<string, string> = {
   MATCH_EXISTING: "Khớp mã đang có",
@@ -120,6 +122,10 @@ function CodeCard({ code }: { code: AdminCodebookCode }) {
             <p className="mb-3 flex items-center gap-2 text-sm font-medium text-stone-900"><Fingerprint className="h-4 w-4 text-research" /> Chữ ký chức năng</p>
             <Signature value={code.functional_signature} />
             <p className="mt-5 text-xs leading-5 text-stone-500">Căn cứ tạo mã: {code.relevance_reason || "Không có mô tả bổ sung."}</p>
+            <p className="mt-2 font-mono text-[11px] text-stone-500">
+              Phạm vi v{code.scope_revision} · centroid v{code.centroid_revision} · {code.centroid_count} ý xác nhận
+            </p>
+            {code.drift_flag && <p className="mt-2 text-xs text-amber-800">Centroid cần kiểm tra độ trôi; chưa dùng để tự quyết định mã.</p>}
           </div>
           <div className="grid gap-4 text-xs leading-5">
             <RuleList title="Được bao gồm" rows={code.inclusion_rules} tone="text-emerald-700" />
@@ -195,13 +201,23 @@ function DecisionEvidence({ decision, reason, value }: { decision: string; reaso
   );
 }
 
+function ReviewCard({ review }: { review: AdminMappingReviewIdea }) {
+  return <article className="border-b border-border p-6">
+    <p className="font-medium">{review.original}</p>
+    <p className="mt-2 text-sm text-muted-foreground">{review.normalized}</p>
+    <p className="mt-3 text-sm">{review.reason}</p>
+    <div className="mt-3"><Signature value={review.functional_signature} /></div>
+    <p className="mt-3 text-xs text-muted-foreground">AI t? ??i chi?u l?i trong ng?n s?ch x? l?. N?u v?n thi?u c?n c?, ? ???c gi? ch?a ph?n lo?i; kh?ng t?nh l? 0.</p>
+  </article>;
+}
+
 function Picker({ items }: { items: AdminCodebookOverview[] }) {
   return (
     <div className="mx-auto max-w-6xl px-5 py-10">
       <header className="border-b border-stone-300 pb-8">
         <p className="flex items-center gap-2 text-sm text-research"><BookOpen className="h-4 w-4" /> Sổ mã chức năng</p>
         <h1 className="mt-3 max-w-3xl font-serif text-4xl leading-tight text-stone-900">Theo dõi cách AI hình thành category cho từng đồ vật</h1>
-        <p className="mt-4 max-w-2xl text-sm leading-6 text-stone-500">Mã mới được kiểm tra và kích hoạt ngay khi người tham gia gửi bài. Trang này chỉ hiển thị căn cứ, không thay đổi các điểm đã tính.</p>
+        <p className="mt-4 max-w-2xl text-sm leading-6 text-stone-500">AI tự gán, tạo và đối soát mã. Các ý chưa đủ căn cứ được giữ nguyên cùng nhật ký xử lý, không cần quản trị viên phê duyệt mã.</p>
       </header>
       <div className="mt-8 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
         {items.map((item) => (
@@ -221,13 +237,16 @@ export default function AdminCodebooks() {
   const { itemId } = useParams<{ itemId?: string }>();
   const [items, setItems] = useState<AdminCodebookOverview[]>([]);
   const [summary, setSummary] = useState<AdminCodebookSummary | null>(null);
+  const [reviews, setReviews] = useState<AdminMappingReviewList | null>(null);
   const [audit, setAudit] = useState<AdminCuratorAudit | null>(null);
   const [excluded, setExcluded] = useState<AdminExtractionAudit | null>(null);
-  const [view, setView] = useState<View>("CODES");
+  const [pipeline, setPipeline] = useState<Awaited<ReturnType<typeof api.adminPipelineAudits>>>([]);
+  const [view, setView] = useState<View>("REVIEWS");
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
     setLoading(true); setError(null);
@@ -235,12 +254,15 @@ export default function AdminCodebooks() {
     Promise.all([
       ...requests,
       itemId ? api.adminCodebook(itemId, page, PAGE_SIZE, "ACCEPTED") : Promise.resolve(null),
+      itemId ? api.adminMappingReviews(itemId) : Promise.resolve(null),
       itemId ? api.adminCuratorAudit(itemId) : Promise.resolve(null),
       itemId ? api.adminExtractionAudit(itemId) : Promise.resolve(null),
-    ]).then(([allItems, codebook, curator, extraction]) => {
-      setItems(allItems); setSummary(codebook); setAudit(curator); setExcluded(extraction);
+      itemId ? api.adminPipelineAudits(itemId) : Promise.resolve([]),
+    ]).then(([allItems, codebook, mappingReviews, curator, extraction, pipelineRows]) => {
+      setItems(allItems); setSummary(codebook); setReviews(mappingReviews); setAudit(curator); setExcluded(extraction);
+      setPipeline(pipelineRows);
     }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false));
-  }, [itemId, page]);
+  }, [itemId, page, refreshVersion]);
 
   const visibleCodes = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("vi");
@@ -254,9 +276,11 @@ export default function AdminCodebooks() {
   if (!summary) return <div className="p-10 text-sm text-stone-500">Không tìm thấy sổ mã.</div>;
 
   const tabs: Array<[View, string, number]> = [
+    ["REVIEWS", "Chưa đủ căn cứ", reviews?.pending_count ?? 0],
     ["CODES", "Mã đang hoạt động", summary.accepted_code_count],
     ["DECISIONS", "Nhật ký phân xử", audit?.total_count ?? 0],
     ["EXCLUDED", "Ý bị loại", excluded?.total_count ?? 0],
+    ["PIPELINE", "Xử lý tự động", pipeline.length],
   ];
 
   return (
@@ -265,7 +289,7 @@ export default function AdminCodebooks() {
         <Button asChild variant="ghost" size="sm" className="-ml-3 text-stone-500 hover:bg-research-soft hover:text-stone-900"><Link to="/admin/codebooks"><ArrowLeft className="h-4 w-4" /> Các đồ vật</Link></Button>
         <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
           <div><p className="flex items-center gap-2 text-sm text-research"><Sparkles className="h-4 w-4" /> AI tạo mã và tính điểm trực tiếp</p><h1 className="mt-2 font-serif text-4xl text-stone-900">{summary.item_name}</h1></div>
-          <div className="flex gap-8"><Stat label="Mã hoạt động" value={summary.accepted_code_count} /><Stat label="Ý đã mã hóa" value={summary.contributing_idea_count} /><Stat label="Lượt gửi" value={summary.qualifying_response_count} /></div>
+          <div className="flex gap-8"><Stat label="Mã hoạt động" value={summary.accepted_code_count} /><Stat label="Ý đã mã hóa" value={summary.contributing_idea_count} /><Stat label="Lượt gửi" value={summary.qualifying_response_count} /><Button variant="outline" onClick={() => setRefreshVersion(value => value + 1)}>Cập nhật</Button></div>
         </div>
       </header>
 
@@ -273,6 +297,24 @@ export default function AdminCodebooks() {
         <div className="flex flex-wrap gap-1 border-b border-stone-300">
           {tabs.map(([value, label, count]) => <button key={value} type="button" onClick={() => setView(value)} className={`rounded-t-md border-b-2 px-4 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-research/25 ${view === value ? "border-research bg-research-soft/60 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800"}`}>{label} <span className="ml-2 font-mono text-xs">{count}</span></button>)}
         </div>
+
+        {view === "PIPELINE" && <section className="mt-6 space-y-3">
+          <p className="text-sm text-stone-500">50 sự kiện gần nhất: quyết định, số lượt gọi, token và thời gian xử lý.</p>
+          {pipeline.map(event => <details key={event.id} className="rounded-lg border border-stone-200 bg-white p-4">
+            <summary className="cursor-pointer text-sm">{event.event} · {new Date(event.created_at).toLocaleString("vi-VN")}</summary>
+            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(event.payload, null, 2)}</pre>
+          </details>)}
+        </section>}
+        {view === "REVIEWS" && (
+          <section className="mt-6 overflow-hidden rounded-xl border border-stone-300 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
+            <div className="border-b border-stone-300 bg-card px-5 py-5 md:px-7">
+              <h2 className="font-serif text-2xl text-stone-900">Ý chưa đủ căn cứ phân loại</h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">Hệ thống tự đối chiếu trong giới hạn thử lại. Ý còn mơ hồ được giữ nguyên và chưa tham gia mẫu tính điểm; không cần quản trị phê duyệt mã.</p>
+            </div>
+            {reviews?.reviews.map((review) => <ReviewCard key={review.idea_id} review={review} />)}
+            {!reviews?.reviews.length ? <p className="px-6 py-14 text-center text-sm text-stone-500">Không còn ý nào chờ phân xử.</p> : null}
+          </section>
+        )}
 
         {view === "CODES" && <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200 bg-card px-5 py-4 md:px-7">

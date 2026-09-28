@@ -15,12 +15,14 @@ class _Msg:
 @dataclass
 class _Choice:
     message: _Msg
+    finish_reason: str | None = None
 
 
 @dataclass
 class _Completion:
     id: str
     choices: list
+    usage: object | None = None
 
 
 class _Completions:
@@ -35,6 +37,18 @@ class _Completions:
         self.calls += 1
         if isinstance(r, Exception):
             raise r
+        if isinstance(r, dict) and "content" in r:
+            usage = r.get("usage")
+            usage_object = (
+                type("FakeUsage", (), {"model_dump": lambda self: usage})()
+                if usage is not None
+                else None
+            )
+            return _Completion(
+                id=f"fake-{self.calls}",
+                choices=[_Choice(_Msg(r["content"]), r.get("finish_reason"))],
+                usage=usage_object,
+            )
         return _Completion(id=f"fake-{self.calls}", choices=[_Choice(_Msg(r))])
 
 

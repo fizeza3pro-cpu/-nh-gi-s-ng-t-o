@@ -35,7 +35,9 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
-- `uv sync` cài phụ thuộc Python (chỉ lâu ở lần đầu).
+- `uv sync` cài phụ thuộc Python (chỉ lâu ở lần đầu). Migration
+  `c3e7a9d0b142` thêm hàng đợi xử lý và metadata centroid; hãy sao lưu DB và
+  kiểm tra migration trước khi chạy `alembic upgrade head` trên dữ liệu thật.
 - Chạy thành công khi thấy dòng:
   ```
   Application startup complete.
@@ -86,11 +88,23 @@ Mở trình duyệt vào **http://localhost:5173**
    que đo độ sâu chậu nước
    ghim cố định búi tóc
    ```
-5. Bấm **"Nộp bài"** → AI chạy pipeline 2 tầng (chuẩn hoá ý → chấm điểm).
-6. Trang kết quả hiện:
+5. Bấm **"Nộp bài"** → backend lưu bài và trả xác nhận ngay. Bạn có thể đóng
+   trang; worker tiếp tục phân loại/chấm và `/history` sẽ hiển thị trạng thái mới.
+6. Khi chấm xong, trang kết quả hiện:
    - Điểm 4 chiều: **Fluency · Flexibility · Originality · Elaboration**
    - **Bảng mapping minh bạch**: AI đã hiểu và phân loại từng ý ra sao
    - Nhận xét tổng thể bằng tiếng Việt
+
+Worker dùng hàng đợi trong PostgreSQL; khi backend restart, bài đã lưu không
+mất và job chưa hoàn tất được nhận lại khi lease hết hạn. `PROCESSING_WORKER_COUNT`
+giới hạn số bài chấm song song; không tự tăng lên khi chưa đo quota API.
+Admin có thể thử lại job thất bại từ trang chi tiết người tham gia.
+API admin `GET /api/admin/items/{item_id}/cluster-audit` gom các ý VALID chưa có mã
+qua nhiều lượt theo embedding cùng model và mục đích chức năng, trả cụm đề xuất,
+độ phân tán và hai mã gần nhất. Đây là chế độ **SHADOW** chỉ đọc: ngưỡng
+`CLUSTER_PROPOSAL_SIMILARITY_FLOOR` chưa được hiệu chuẩn, không tự gắn mã,
+tạo mã hoặc thay đổi điểm. Báo cáo mặc định lấy tối đa 200 ý gần nhất và báo
+`truncated` nếu còn ý ngoài mẫu.
 
 ---
 
@@ -176,12 +190,13 @@ EMBEDDING_PROVIDER=cloudflare
 CLOUDFLARE_EMBEDDING_MODEL=@cf/qwen/qwen3-embedding-0.6b
 EMBEDDING_BATCH_SIZE=64
 EMBEDDING_TIMEOUT_SECONDS=20
-CODE_CANDIDATE_LIMIT=8
+CODE_CANDIDATE_LIMIT=3
 CODEBOOK_FULL_SCAN_LIMIT=20
 ```
 
-Embedding chỉ xếp hạng candidate và án lệ; backend vẫn yêu cầu quan hệ có cấu trúc cùng phản biện
-độc lập trước khi gắn/tạo/mở rộng code. `EMBEDDING_PROVIDER=local` chỉ dành cho mock, test hoặc
+Embedding chỉ xếp hạng candidate và án lệ; Curator quyết định trên top-3, còn backend kiểm tra ngưỡng
+MATCH, ranh giới code mới và collision trước khi ghi. Challenger chỉ xử lý ca mơ hồ hoặc mở rộng phạm vi.
+`EMBEDDING_PROVIDER=local` chỉ dành cho mock, test hoặc
 đối chứng vì vector băm không hiểu ngữ nghĩa tiếng Việt.
 
 ### Bật hoặc tắt dataset tham khảo

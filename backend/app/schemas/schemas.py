@@ -39,6 +39,7 @@ def _normalize_email(value: str) -> str:
 class ParticipantIdentify(BaseModel):
     email: str
     participant_id: UUID | None = None
+    access_token: str | None = None
 
     @field_validator("email")
     @classmethod
@@ -85,6 +86,7 @@ class ParticipantIdentityOut(BaseModel):
     email_masked: str | None
     email_verified_at: datetime | None
     ai_usage_group: str | None
+    access_token: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -122,6 +124,8 @@ class FunctionalSignature(BaseModel):
 
 
 class MappedIdea(BaseModel):
+    idea_id: str = ""
+    coding_state: str = "ASSIGNED"
     original: str
     normalized: str
     code: str | None = None
@@ -146,6 +150,7 @@ class MappingResult(BaseModel):
 
 
 class PerIdeaScore(BaseModel):
+    idea_id: str = ""
     original: str = ""
     normalized: str
     code: str
@@ -168,6 +173,9 @@ class ScoringResult(BaseModel):
 
 class ScoreRequest(BaseModel):
     item_id: str
+    request_id: UUID | None = None
+    survey_session_id: UUID | None = None
+    wait_for_completion: bool = False
     responses: list[str] = Field(default_factory=list, max_length=10)
     raw_input: str = ""
 
@@ -180,6 +188,8 @@ class ScoreRequest(BaseModel):
             raise ValueError("Cần nhập ít nhất một ý tưởng.")
         if len(cleaned) > 10:
             raise ValueError("Mỗi lượt chỉ được gửi tối đa 10 ý tưởng.")
+        if any(len(value) > 320 for value in cleaned):
+            raise ValueError("Mỗi ý tối đa 320 ký tự.")
         self.responses = cleaned
         self.raw_input = "\n".join(cleaned)
         return self
@@ -194,7 +204,10 @@ class ScoreResponse(BaseModel):
     scoring_status: Literal[
         "COLLECTING", "PENDING_REVIEW", "PROVISIONAL", "FINAL", "EXCLUDED"
     ]
+    processing_state: Literal["QUEUED", "RUNNING", "SCORING", "DONE", "FAILED"] = "DONE"
     status_message: str = ""
+    resolution_pending: bool = False
+    scores_stale: bool = False
 
 
 class ResponseSummary(BaseModel):
@@ -207,12 +220,14 @@ class ResponseSummary(BaseModel):
     originality: int
     elaboration: int
     scoring_status: str = "FINAL"
+    processing_state: str = "DONE"
 
 
 class ExtractedIdea(BaseModel):
     """Ý sau tầng tách/chuẩn hoá, trước khi Code Curator quyết định code."""
 
     original: str
+    idea_id: str = ""
     normalized: str
     status: Literal["VALID", "INVALID", "DUPLICATE"]
     uses_target_object: bool = False
@@ -222,6 +237,15 @@ class ExtractedIdea(BaseModel):
     line_index: int = Field(default=0, ge=0, le=9)
     duplicate_of_index: int | None = Field(default=None, ge=0, le=9)
     functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
+    # Đoạn nguyên văn chứng minh từng thành phần; trường rỗng nghĩa là LLM đã suy diễn.
+    functional_evidence: dict[str, str] = Field(default_factory=dict)
+    inferred_signature_fields: list[
+        Literal["goal", "object_role", "mechanism"]
+    ] = Field(default_factory=list)
+    # Backend đưa ca bị loại bằng tiêu chí sai sang resolver tự động.
+    review_required: bool = False
+    embedding: list[float] = Field(default_factory=list, exclude=True)
+    embedding_model: str = Field(default="", exclude=True)
 
     @field_validator("object_used", "target_object_role", "reason", mode="before")
     @classmethod
@@ -236,6 +260,11 @@ class IdeaExtractionResult(BaseModel):
 
 class CuratorDecision(BaseModel):
     idea_index: int = Field(ge=0)
+    source_text: str = ""
+    proposal_group: str = ""
+    # Chỉ backend gắn sau phân xử cặp, không tin giá trị model tự khai.
+    pair_verified: bool = False
+    compared_code_ids: list[str] = Field(default_factory=list)
     decision: Literal[
         "MATCH_EXISTING",
         "OUT_OF_CODEBOOK",
@@ -261,9 +290,14 @@ class CuratorDecision(BaseModel):
     reason: str = ""
     functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
     existing_code_evaluations: list[dict] = Field(default_factory=list)
+    # Backend gắn sau retrieval, không tin trường cùng tên nếu LLM tự sinh.
+    retrieval_candidates: list[dict] = Field(default_factory=list)
     inclusion_rules: list[str] = Field(default_factory=list)
     exclusion_rules: list[str] = Field(default_factory=list)
     positive_examples: list[str] = Field(default_factory=list)
+    # Ví dụ giả định chỉ để kiểm tra category có tái sử dụng được hay đang chép lại một ý đơn lẻ.
+    # Chúng không phải dữ liệu quan sát và không được ghi vào positive_examples của code.
+    scope_variants: list[str] = Field(default_factory=list)
     nearest_code_ids: list[str] = Field(default_factory=list)
     policy_gates: dict[str, bool] = Field(default_factory=dict)
     challenge_reason: str = ""
@@ -278,12 +312,112 @@ class CuratorDecision(BaseModel):
         """Chấp nhận `null` ở các mô tả tuỳ chọn do LLM sinh."""
         return "" if value is None else value
 
+    @field_validator("functional_signature", mode="before")
+    @classmethod
+    def normalize_nullable_signature(cls, value):
+        """`null` ở chữ ký không áp dụng tương đương một chữ ký rỗng, không làm hỏng cả batch."""
+        return {} if value is None else value
+
+    @field_validator(
+        "existing_code_evaluations",
+        "retrieval_candidates",
+        "inclusion_rules",
+        "exclusion_rules",
+        "positive_examples",
+        "scope_variants",
+        "nearest_code_ids",
+        "absorbed_code_ids",
+        mode="before",
+    )
+    @classmethod
+    def normalize_nullable_lists(cls, value):
+        """Provider có thể dùng `null` cho mảng không áp dụng; backend chuẩn hoá thành mảng rỗng."""
+        return [] if value is None else value
+
+    @field_validator("policy_gates", mode="before")
+    @classmethod
+    def normalize_nullable_mapping(cls, value):
+        """Giữ hợp đồng ổn định khi model trả `null` cho object tuỳ chọn."""
+        return {} if value is None else value
+
 
 class CuratorResult(BaseModel):
     decisions: list[CuratorDecision]
 
 
+class SurveySessionRequest(BaseModel):
+    item_id: str
+    consent: bool
+
+
+class SurveySessionOut(BaseModel):
+    id: str
+    started_at: datetime
+    deadline_at: datetime
+    server_now: datetime
+
+
+class PairVerdict(BaseModel):
+    """Quan hệ cặp độc lập, không tái dùng enum quyết định Curator."""
+    source_text: str
+    relation: Literal["SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE", "IDEA_BROADER_THAN_CODE", "DIFFERENT", "UNCERTAIN"]
+    goal_match: bool
+    role_match: bool
+    exclusion_hit: bool
+    evidence: str
+    reason: str
+
+
+class ProposalGroup(BaseModel):
+    idea_indices: list[int] = Field(min_length=1)
+    canonical: CuratorDecision
+
+
+class ReconciliationResult(BaseModel):
+    groups: list[ProposalGroup]
+
+
 # ---------- ADMIN ----------
+class AdminClusterMember(BaseModel):
+    idea_id: str
+    response_id: str
+    original: str
+    normalized: str
+    functional_signature: dict = Field(default_factory=dict)
+
+
+class AdminClusterCodeCandidate(BaseModel):
+    code_id: str
+    name: str
+    retrieval_score: float
+    semantic_similarity: float
+    structural_similarity: float
+    exclusion_rules: list[str] = Field(default_factory=list)
+
+
+class AdminClusterProposal(BaseModel):
+    proposal_id: str
+    embedding_model: str
+    member_count: int
+    members: list[AdminClusterMember]
+    min_pair_similarity: float | None = None
+    max_centroid_distance: float | None = None
+    nearest_codes: list[AdminClusterCodeCandidate] = Field(default_factory=list)
+    top_two_margin: float | None = None
+
+
+class AdminClusterAudit(BaseModel):
+    item_id: str
+    total_pending_ideas: int
+    sampled_ideas: int
+    truncated: bool
+    vectorized_ideas: int
+    missing_vectors: int
+    similarity_floor: float
+    decision_mode: Literal["SHADOW"] = "SHADOW"
+    proposals: list[AdminClusterProposal] = Field(default_factory=list)
+
+
 class AdminItemBreakdown(BaseModel):
     item_id: str
     item_name: str
@@ -400,6 +534,10 @@ class AdminCodebookCode(BaseModel):
     exclusion_rules: list[str] = Field(default_factory=list)
     positive_examples: list[str] = Field(default_factory=list)
     embedding_model: str = ""
+    centroid_count: int = 0
+    centroid_revision: int = 0
+    scope_revision: int = 0
+    drift_flag: bool = False
     scope_history: list[dict] = Field(default_factory=list)
 
 
@@ -452,7 +590,6 @@ class AdminCuratorAudit(BaseModel):
     match_existing_count: int
     create_new_count: int
     expand_existing_count: int
-    expand_existing_count: int
     invalid_count: int
     guarded_count: int
     total_count: int
@@ -460,10 +597,66 @@ class AdminCuratorAudit(BaseModel):
     decisions: list[AdminCuratorDecisionIdea]
 
 
+class AdminMappingReviewIdea(BaseModel):
+    idea_id: str
+    response_id: str
+    participant_id: str
+    original: str
+    normalized: str
+    decision: str
+    confidence: float
+    reason: str
+    review_status: Literal["PENDING", "RESOLVED"]
+    review_payload: dict = Field(default_factory=dict)
+    functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
+    mapping_evidence: dict = Field(default_factory=dict)
+    ai_diagnostics: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
+class AdminMappingReviewList(BaseModel):
+    item_id: str
+    item_name: str
+    pending_count: int
+    total_count: int
+    reviews: list[AdminMappingReviewIdea]
+    code_options: list[AdminCodeOption]
+
+
+class AdminMappingReviewResolution(BaseModel):
+    action: Literal["CREATE_NEW", "MATCH_EXISTING", "MARK_INVALID"]
+    expected_codebook_epoch: int | None = Field(default=None, ge=0)
+    existing_code_id: str | None = None
+    code_name: str | None = Field(default=None, min_length=2, max_length=255)
+    code_description: str | None = Field(default=None, max_length=2000)
+    functional_signature: FunctionalSignature | None = None
+    inclusion_rules: list[str] | None = None
+    exclusion_rules: list[str] | None = None
+    positive_examples: list[str] | None = None
+    note: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_action_fields(self):
+        if self.action == "MATCH_EXISTING" and not self.existing_code_id:
+            raise ValueError("Cần chọn mã hiện có.")
+        return self
+
+
+class AdminMappingReviewResult(BaseModel):
+    idea_id: str
+    response_id: str
+    review_status: Literal["RESOLVED"] = "RESOLVED"
+    resolution: Literal["CREATE_NEW", "MATCH_EXISTING", "MARK_INVALID"]
+    code_id: str | None = None
+    code_name: str | None = None
+    scoring_status: str
+
+
 class AdminCodebookOverview(BaseModel):
     item_id: str
     item_name: str
     calibration_status: str
+    codebook_epoch: int = 0
     qualifying_response_count: int
     qualifying_participant_count: int
     contributing_idea_count: int

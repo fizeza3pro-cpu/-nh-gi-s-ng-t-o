@@ -49,6 +49,7 @@ export default function ParticipantProfileForm({
   onComplete: (participant: ParticipantIdentity) => void;
 }) {
   const [email, setEmail] = useState("");
+  const [recoveryToken, setRecoveryToken] = useState("");
   const [fullName, setFullName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState<ParticipantGender | "">("");
@@ -81,7 +82,7 @@ export default function ParticipantProfileForm({
     setSubmitting(true);
     setError(null);
     try {
-      const participant = await api.createParticipant(email.trim(), profile);
+      const participant = await api.createParticipant(email.trim(), profile, recoveryToken.trim());
       onComplete(participant);
     } catch (err) {
       setError(
@@ -174,6 +175,10 @@ export default function ParticipantProfileForm({
                 />
               </div>
             </div>
+            <details className="mt-4 text-sm text-muted-foreground">
+              <summary className="cursor-pointer">Khôi phục hồ sơ trên thiết bị mới</summary>
+              <Input type="password" aria-label="Mã khôi phục hồ sơ" autoComplete="off" value={recoveryToken} onChange={(event) => setRecoveryToken(event.target.value)} placeholder="Mã khôi phục của bạn" className="mt-3" />
+            </details>
 
             <div className="mt-6 grid gap-6 sm:grid-cols-[140px_1fr]">
               <div className="space-y-2">

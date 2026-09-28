@@ -1,6 +1,7 @@
 import csv
 import io
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,16 +11,19 @@ from sqlalchemy.pool import StaticPool
 
 import app.main as main_mod
 from app.controllers import response_controller
+from app.controllers import response_worker
 from app.db import Base, get_db
 from app.main import app
 from app.models.models import (
     CodeMaturityStatus,
     CodeValidationStatus,
     Item,
+    ItemCalibrationStatus,
     ItemCode,
     Participant,
     Response,
     ResponseIdea,
+    ResponseScoringStatus,
 )
 from app.core.deps import require_admin
 from app.schemas.schemas import CuratorDecision, CuratorResult, ExtractedIdea, IdeaExtractionResult
@@ -71,6 +75,117 @@ def create_participant(client: TestClient, email: str | None = None) -> str:
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+def test_participant_email_does_not_grant_access(client, monkeypatch):
+    """Biết email hoặc UUID không đủ để đọc hoặc sửa hồ sơ."""
+    monkeypatch.setattr(main_mod.settings, "participant_token_required", True)
+    payload = {"email": "secure@example.test", "full_name": "Nguyễn Minh Anh",
+               "age": 20, "gender": "female", "occupation": "Sinh viên", "ai_usage_group": "LOW"}
+    identity = client.post("/api/participants", json=payload).json()
+    assert identity["access_token"]
+    assert client.post("/api/participants/identify", json={"email": payload["email"]}).status_code == 403
+    assert client.post("/api/participants", json={**payload, "full_name": "Người khác"}).status_code == 403
+    headers = {"X-Participant-Id": identity["id"]}
+    assert client.get("/api/participants/me/responses", headers=headers).status_code == 401
+    headers["X-Participant-Token"] = identity["access_token"]
+    assert client.get("/api/participants/me/responses", headers=headers).status_code == 200
+    restored = client.post("/api/participants/identify", json={
+        "email": payload["email"], "access_token": identity["access_token"]})
+    assert restored.status_code == 200
+    assert restored.json()["participant"]["id"] == identity["id"]
+
+
+def test_survey_session_enforces_deadline_and_idempotency(client, monkeypatch):
+    """Một phiên có đồng hồ server và chỉ nhận một nội dung dù đổi request_id."""
+    from app.models.models import SurveySession
+    monkeypatch.setattr(main_mod.settings, "survey_session_required", True)
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    headers = {"X-Participant-Id": create_participant(client)}
+    payload = {"item_id": "dua", "responses": ["làm móc treo"], "wait_for_completion": False}
+    assert client.post("/api/score", headers=headers, json=payload).status_code == 400
+    assert client.post("/api/survey-sessions", headers=headers,
+                       json={"item_id": "dua", "consent": False}).status_code == 400
+    session = client.post("/api/survey-sessions", headers=headers,
+                          json={"item_id": "dua", "consent": True}).json()
+    assert (datetime.fromisoformat(session["deadline_at"]) - datetime.fromisoformat(session["started_at"])).total_seconds() == 180
+    repeated = client.post("/api/survey-sessions", headers=headers,
+                           json={"item_id": "dua", "consent": True}).json()
+    assert repeated["id"] == session["id"]
+    payload["survey_session_id"] = session["id"]
+    first = client.post("/api/score", headers=headers, json=payload)
+    assert first.status_code == 200
+    assert client.post("/api/score", headers=headers, json=payload).json()["response_id"] == first.json()["response_id"]
+    assert client.post("/api/score", headers=headers, json={**payload, "responses": ["ý khác"]}).status_code == 409
+    second = client.post("/api/survey-sessions", headers=headers,
+                         json={"item_id": "dua", "consent": True}).json()
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    db.get(SurveySession, second["id"]).deadline_at = datetime.now(timezone.utc) - timedelta(minutes=2)
+    db.commit()
+    next(database, None)
+    assert client.post("/api/score", headers=headers,
+                       json={**payload, "survey_session_id": second["id"]}).status_code == 409
+    other = {"X-Participant-Id": create_participant(client)}
+    assert client.post("/api/score", headers=other, json=payload).status_code == 403
+
+
+def test_analysis_export_is_private_and_checksummed(client):
+    import hashlib
+    import json
+    participant_id = create_participant(client)
+    client.post("/api/score", headers={"X-Participant-Id": participant_id},
+                json={"item_id": "dua", "responses": ["làm móc treo"]})
+    assert client.get("/api/admin/exports/analysis.json").status_code == 401
+    app.dependency_overrides[require_admin] = lambda: object()
+    response = client.get("/api/admin/exports/analysis.json")
+    assert response.status_code == 200
+    artifact = response.json()
+    serialized = json.dumps(artifact["payload"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert artifact["sha256"] == hashlib.sha256(serialized.encode()).hexdigest()
+    assert participant_id not in serialized
+    assert "Nguyễn Minh Anh" not in serialized
+    assert artifact["payload"]["prompt_hashes"]
+
+
+def test_resolver_retries_automatically_without_admin(client, monkeypatch):
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    monkeypatch.setattr(main_mod.settings, "resolver_retry_seconds", 1)
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    engine = db.get_bind()
+    monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+    original = response_controller._mock_mapping
+    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    headers = {"X-Participant-Id": create_participant(client)}
+    response_id = client.post("/api/score", headers=headers,
+        json={"item_id": "dua", "responses": ["làm móc treo"], "wait_for_completion": False}).json()["response_id"]
+    assert response_worker.run_one_job()
+    db.expire_all()
+    row = db.get(Response, response_id)
+    assert row.scoring_status == ResponseScoringStatus.PENDING_REVIEW
+    old_id = db.scalar(select(ResponseIdea.id).where(ResponseIdea.response_id == response_id))
+    row.resolution_next_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db.commit()
+    monkeypatch.setattr(response_controller, "_mock_mapping", original)
+    assert response_worker.run_one_job()
+    db.expire_all()
+    row = db.get(Response, response_id)
+    assert row.scoring_status == ResponseScoringStatus.COLLECTING
+    assert row.resolution_attempts == 1
+    assert db.scalar(select(ResponseIdea.id).where(ResponseIdea.response_id == response_id)) == old_id
+    assert client.get(f"/api/responses/{response_id}", headers=headers).json()["resolution_pending"] is False
+    next(database, None)
+
+
+def test_idempotency_compares_original_input_cells(client, monkeypatch):
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    headers = {"X-Participant-Id": create_participant(client)}
+    payload = {"item_id": "dua", "responses": ["ý một\ný hai"],
+               "request_id": str(uuid.uuid4()), "wait_for_completion": False}
+    assert client.post("/api/score", headers=headers, json=payload).status_code == 200
+    assert client.post("/api/score", headers=headers,
+                       json={**payload, "responses": ["ý một", "ý hai"]}).status_code == 409
 
 
 def uncertain_mapping(item, _raw, _existing_codes):
@@ -256,7 +371,7 @@ def test_score_requires_participant(client):
     assert response.status_code == 401
 
 
-def test_score_and_public_result_roundtrip(client):
+def test_score_and_participant_result_roundtrip(client):
     participant_id = create_participant(client)
     response = client.post(
         "/api/score",
@@ -268,12 +383,339 @@ def test_score_and_public_result_roundtrip(client):
     assert response.json()["scoring_status"] == "COLLECTING"
     response_id = response.json()["response_id"]
 
-    detail = client.get(f"/api/responses/{response_id}")
+    assert client.get(f"/api/responses/{response_id}").status_code == 401
+    detail = client.get(
+        f"/api/responses/{response_id}", headers={"X-Participant-Id": participant_id}
+    )
     assert detail.status_code == 200
     assert detail.json()["response_id"] == response_id
 
     # Danh sách toàn bộ lượt làm vẫn là dữ liệu quản trị.
     assert client.get("/api/responses").status_code == 401
+
+
+def test_queued_response_survives_navigation_and_reuses_new_code(client, monkeypatch):
+    """Bài được commit trước khi worker chạy; hai bài cùng nghĩa chỉ có một mã."""
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    engine = db.get_bind()
+    item = db.get(Item, "dua")
+    item.scoring_min_participants = 1
+    item.scoring_min_ideas = 1
+    db.commit()
+    next(database, None)
+
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+
+    first_person = create_participant(client)
+    second_person = create_participant(client)
+    first_header = {"X-Participant-Id": first_person}
+    second_header = {"X-Participant-Id": second_person}
+    request_id = str(uuid.uuid4())
+    first = client.post(
+        "/api/score", headers=first_header,
+        json={"item_id": "dua", "responses": ["làm đồ trang trí Noel"], "request_id": request_id},
+    )
+    assert first.status_code == 200
+    first_id = first.json()["response_id"]
+    assert first.json()["processing_state"] == "QUEUED"
+    assert first.json()["mapping"]["ideas"] == []
+    duplicate_submit = client.post(
+        "/api/score", headers=first_header,
+        json={"item_id": "dua", "responses": ["làm đồ trang trí Noel"], "request_id": request_id},
+    )
+    assert duplicate_submit.json()["response_id"] == first_id
+    second = client.post(
+        "/api/score", headers=second_header,
+        json={"item_id": "dua", "responses": ["làm đồ trang trí Noel"]},
+    )
+    second_id = second.json()["response_id"]
+    assert client.get("/api/participants/me/responses", headers=first_header).json()[0]["processing_state"] == "QUEUED"
+    assert client.get(f"/api/responses/{first_id}", headers=second_header).status_code == 404
+
+    for _ in range(4):
+        assert response_worker.run_one_job()
+    first_done = client.get(f"/api/responses/{first_id}", headers=first_header).json()
+    second_done = client.get(f"/api/responses/{second_id}", headers=second_header).json()
+    assert first_done["processing_state"] == second_done["processing_state"] == "DONE"
+    assert first_done["scoring_status"] == second_done["scoring_status"] == "FINAL"
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    assert len(db.scalars(select(ItemCode).where(ItemCode.item_id == "dua")).all()) == 1
+    assert len(db.scalars(select(Response).where(Response.item_id == "dua")).all()) == 2
+    next(database, None)
+
+
+def test_submit_can_wait_on_same_post_without_client_polling(client, monkeypatch):
+    """Frontend được phép giữ POST chờ; bài vẫn phải được commit trước lúc chờ."""
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    participant_id = create_participant(client)
+    observed: dict[str, str] = {}
+
+    def fake_wait(db, response_id: str, current_participant_id: str):
+        row = db.get(Response, response_id)
+        assert row is not None
+        assert row.processing_state == "QUEUED"
+        observed["response_id"] = response_id
+        observed["participant_id"] = current_participant_id
+        return response_controller._to_response(row)
+
+    monkeypatch.setattr(response_controller, "_wait_for_response_completion", fake_wait)
+    submitted = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": participant_id},
+        json={
+            "item_id": "dua",
+            "responses": ["làm đồ trang trí Noel"],
+            "request_id": str(uuid.uuid4()),
+            "wait_for_completion": True,
+        },
+    )
+
+    assert submitted.status_code == 200
+    assert observed == {
+        "response_id": submitted.json()["response_id"],
+        "participant_id": participant_id,
+    }
+
+
+def test_browser_ready_waits_for_scoring_after_mapping():
+    """DONE của mapping chưa phải kết quả cuối nếu item ACTIVE vẫn thiếu scoring."""
+    item = Item(
+        id="dua",
+        name="Đũa",
+        calibration_status=ItemCalibrationStatus.ACTIVE,
+    )
+    row = Response(
+        participant_id=str(uuid.uuid4()),
+        item_id=item.id,
+        item=item,
+        raw_input="làm đồ trang trí",
+        mapping={"ideas": []},
+        scoring={},
+        processing_state="DONE",
+        scoring_status=ResponseScoringStatus.COLLECTING,
+    )
+
+    assert response_controller._response_is_ready_for_browser(row) is False
+    row.scoring_status = ResponseScoringStatus.PENDING_REVIEW
+    assert response_controller._response_is_ready_for_browser(row) is True
+
+
+def test_stale_codebook_epoch_rechecks_before_create(client, monkeypatch):
+    """Quyết định CREATE_NEW từ codebook cũ phải xét lại mã mới xuất hiện."""
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    engine = db.get_bind()
+    next(database, None)
+
+
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+    participant_id = create_participant(client)
+    response = client.post(
+        "/api/score", headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "responses": ["làm đồ trang trí Noel"]},
+    )
+    original_mock = response_controller._mock_mapping
+    injected = False
+
+    def concurrent_create(item, raw, codes):
+        nonlocal injected
+        if not injected and not codes:
+            injected = True
+            with Session(engine) as transaction:
+                item_row = transaction.get(Item, "dua")
+                item_row.codebook_epoch += 1
+                transaction.add(ItemCode(
+                    item_id="dua", name="làm đồ trang trí Noel",
+                    normalized_name="lam do trang tri noel",
+                    description="Dùng đũa làm đồ trang trí Noel.",
+                ))
+                transaction.commit()
+        return original_mock(item, raw, codes)
+
+    monkeypatch.setattr(response_controller, "_mock_mapping", concurrent_create)
+    assert response_worker.run_one_job()
+    detail = client.get(
+        f"/api/responses/{response.json()['response_id']}",
+        headers={"X-Participant-Id": participant_id},
+    ).json()
+    assert detail["processing_state"] == "DONE"
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    row = db.get(Response, response.json()["response_id"])
+    assert row.mapping_meta["stale_rechecks"] == 1
+    assert len(db.scalars(select(ItemCode).where(ItemCode.item_id == "dua")).all()) == 1
+    next(database, None)
+
+
+def test_admin_can_view_and_retry_failed_saved_response(client, monkeypatch):
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    participant_id = create_participant(client)
+    submitted = client.post(
+        "/api/score", headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "responses": ["làm dấu trang"]},
+    ).json()
+    response_id = submitted["response_id"]
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    row = db.get(Response, response_id)
+    row.processing_state = "FAILED"
+    row.processing_attempts = 3
+    db.commit()
+    next(database, None)
+
+    assert client.get(f"/api/admin/responses/{response_id}").status_code == 401
+    app.dependency_overrides[require_admin] = lambda: object()
+    assert client.get(f"/api/admin/responses/{response_id}").json()["processing_state"] == "FAILED"
+    retry = client.post(f"/api/admin/responses/{response_id}/retry")
+    assert retry.status_code == 200
+    assert retry.json()["processing_state"] == "QUEUED"
+    assert client.post(f"/api/admin/responses/{response_id}/retry").status_code == 409
+
+
+def test_expired_worker_lease_reclaims_saved_response(client, monkeypatch):
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    engine = db.get_bind()
+    next(database, None)
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+    participant_id = create_participant(client)
+    submitted = client.post(
+        "/api/score", headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "responses": ["làm giá đỡ"]},
+    ).json()
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    row = db.get(Response, submitted["response_id"])
+    row.processing_state = "RUNNING"
+    row.processing_claim_token = "old-worker"
+    row.processing_attempts = 1
+    row.processing_lease_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db.commit()
+    next(database, None)
+
+    assert response_worker.run_one_job()
+    detail = client.get(
+        f"/api/responses/{submitted['response_id']}",
+        headers={"X-Participant-Id": participant_id},
+    ).json()
+    assert detail["processing_state"] == "DONE"
+    assert detail["mapping"]["ideas"]
+    response_worker._run_mapping(submitted["response_id"], "old-worker")
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    assert len(db.scalars(select(ResponseIdea).where(ResponseIdea.response_id == submitted["response_id"])).all()) == 1
+    next(database, None)
+
+
+def test_expired_final_lease_marks_saved_response_failed(client, monkeypatch):
+    """Worker chết sau lần thử cuối không để bài RUNNING mãi trong lịch sử."""
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    engine = db.get_bind()
+    next(database, None)
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+    participant_id = create_participant(client)
+    submitted = client.post(
+        "/api/score", headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "responses": ["làm giá đỡ"]},
+    ).json()
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    row = db.get(Response, submitted["response_id"])
+    row.processing_state = "RUNNING"
+    row.processing_claim_token = "worker-da-chet"
+    row.processing_attempts = response_worker.settings.processing_max_attempts
+    row.processing_lease_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db.commit()
+    next(database, None)
+
+    assert response_worker.run_one_job()
+    detail = client.get(
+        f"/api/responses/{submitted['response_id']}",
+        headers={"X-Participant-Id": participant_id},
+    ).json()
+    assert detail["processing_state"] == "FAILED"
+    assert detail["mapping"]["ideas"] == []
+    assert response_worker.run_one_job() is False
+
+
+def test_worker_can_prioritize_scoring_when_mapping_queue_is_busy(monkeypatch):
+    """Worker có lượt ưu tiên chấm để không bỏ đói bài đã phân mã."""
+    claimed_kinds = []
+
+    def no_job(kind):
+        claimed_kinds.append(kind)
+        return None
+
+    monkeypatch.setattr(response_worker, "_claim", no_job)
+    monkeypatch.setattr(response_worker, "_expire_exhausted", lambda: False)
+    monkeypatch.setattr(response_worker, "_wake_one_unresolved", lambda: False)
+    monkeypatch.setattr(response_worker, "_recount_one_item", lambda: False)
+    assert response_worker.run_one_job(prefer_scoring=True) is False
+    assert claimed_kinds == ["resolution", "scoring", "mapping"]
+
+
+def test_cluster_audit_groups_pending_ideas_without_mutating_responses(client):
+    """Báo cáo cụm có guard admin và không dùng ý của bài EXCLUDED."""
+    participant_id = create_participant(client)
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    code = ItemCode(
+        item_id="dua", name="Trang trí bằng đũa",
+        normalized_name="trang tri bang dua", description="Dùng đũa làm đồ trang trí.",
+        embedding=[1.0, 0.0], embedding_model="semantic-v1",
+        functional_signature={"goal": "trang trí", "object_role": "vật liệu", "mechanism": "ghép nối"},
+    )
+    db.add(code)
+    db.flush()
+    code_id = code.id
+    for index, vector in enumerate(([1.0, 0.0], [0.98, 0.2], [-1.0, 0.0])):
+        excluded = index == 2
+        response = Response(
+            participant_id=participant_id, item_id="dua", raw_input=f"Ý {index}",
+            mapping={"ideas": []}, scoring={}, processing_state="DONE",
+            scoring_status=(
+                ResponseScoringStatus.EXCLUDED if excluded
+                else ResponseScoringStatus.PENDING_REVIEW
+            ),
+        )
+        db.add(response)
+        db.flush()
+        db.add(ResponseIdea(
+            response_id=response.id, original=f"Ý {index}", normalized=f"Trang trí {index}",
+            mapping_status="VALID", embedding=list(vector), embedding_model="semantic-v1",
+            review_status="PENDING",
+            functional_signature={"goal": "trang trí", "object_role": "vật liệu", "mechanism": "ghép nối"},
+        ))
+    db.commit()
+    next(database, None)
+
+    endpoint = "/api/admin/items/dua/cluster-audit"
+    assert client.get(endpoint).status_code == 401
+    app.dependency_overrides[require_admin] = lambda: object()
+    report = client.get(endpoint).json()
+    assert report["decision_mode"] == "SHADOW"
+    assert report["total_pending_ideas"] == 2
+    assert report["vectorized_ideas"] == 2
+    assert len(report["proposals"]) == 1
+    assert report["proposals"][0]["member_count"] == 2
+    assert report["proposals"][0]["nearest_codes"][0]["code_id"] == code_id
+    limited = client.get(endpoint, params={"limit": 1}).json()
+    assert limited["sampled_ideas"] == 1
+    assert limited["truncated"] is True
+    assert client.get("/api/admin/items/khong-co/cluster-audit").status_code == 404
+
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    assert db.scalar(select(ResponseIdea.code_id).where(ResponseIdea.original == "Ý 0")) is None
+    assert db.scalar(select(Response.scoring_status).where(Response.raw_input == "Ý 0")) == ResponseScoringStatus.PENDING_REVIEW
+    next(database, None)
 
 
 def test_score_accepts_ten_rows_and_rejects_an_eleventh(client):
@@ -550,6 +992,118 @@ def test_admin_can_audit_an_idea_rejected_by_curator(client, monkeypatch):
     assert payload["invalid_count"] == 1
     assert payload["decisions"][0]["decision"] == "INVALID"
     assert payload["decisions"][0]["code_name"] is None
+
+
+def test_admin_can_resolve_pending_idea_by_creating_code(client, monkeypatch):
+    """Ca AI không đủ căn cứ phải có thể được duyệt mà vẫn giữ audit gốc."""
+    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    participant_id = create_participant(client)
+    submitted = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "raw_input": "làm móc treo"},
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["scoring_status"] == "PENDING_REVIEW"
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    queue = client.get("/api/admin/items/dua/mapping-reviews").json()
+    assert queue["pending_count"] == 1
+    review = queue["reviews"][0]
+    assert review["original"] == "làm móc treo"
+    assert review["review_payload"]["proposal"]["code_name"] == "Móc treo từ đũa"
+    epoch = client.get("/api/admin/items/dua/codebook").json()["codebook_epoch"]
+
+    resolved = client.post(
+        f"/api/admin/items/dua/mapping-reviews/{review['idea_id']}/resolve",
+        json={
+            "action": "CREATE_NEW",
+            "expected_codebook_epoch": epoch,
+            "code_name": "Móc và giá treo từ đũa",
+            "code_description": "Dùng đũa làm phần móc hoặc thanh chịu lực để treo đồ.",
+            "functional_signature": {
+                "goal": "treo đồ vật",
+                "object_role": "móc hoặc thanh chịu lực",
+                "mechanism": "uốn hoặc ghép để giữ vật",
+            },
+            "inclusion_rules": ["Đũa trực tiếp giữ vật ở trạng thái treo."],
+            "exclusion_rules": ["Không gồm dùng đũa làm đồ trang trí không chịu lực."],
+            "positive_examples": ["làm móc treo"],
+            "note": "Ý hợp lệ và khác chức năng với sổ mã hiện tại.",
+        },
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["resolution"] == "CREATE_NEW"
+    assert resolved.json()["scoring_status"] == "COLLECTING"
+    assert client.get("/api/admin/items/dua/mapping-reviews").json()["pending_count"] == 0
+
+    detail = client.get(
+        f"/api/responses/{submitted.json()['response_id']}",
+        headers={"X-Participant-Id": participant_id},
+    ).json()
+    assert detail["mapping"]["ideas"][0]["code"] == "Móc và giá treo từ đũa"
+    assert detail["mapping"]["ideas"][0]["curator_decision"] == "ADMIN_CREATE_NEW"
+
+
+def test_admin_review_rejects_stale_codebook_epoch(client, monkeypatch):
+    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    participant_id = create_participant(client)
+    client.post(
+        "/api/score",
+        headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "raw_input": "làm móc treo"},
+    )
+    app.dependency_overrides[require_admin] = lambda: object()
+    review = client.get("/api/admin/items/dua/mapping-reviews").json()["reviews"][0]
+
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    item = db.get(Item, "dua")
+    item.codebook_epoch += 1
+    db.commit()
+    next(database, None)
+
+    rejected = client.post(
+        f"/api/admin/items/dua/mapping-reviews/{review['idea_id']}/resolve",
+        json={
+            "action": "MARK_INVALID",
+            "expected_codebook_epoch": 0,
+            "note": "kiểm tra stale",
+        },
+    )
+    assert rejected.status_code == 409
+
+
+def test_admin_can_mark_pending_idea_invalid_with_audit_reason(client, monkeypatch):
+    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    participant_id = create_participant(client)
+    submitted = client.post(
+        "/api/score",
+        headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "raw_input": "làm móc treo"},
+    ).json()
+    app.dependency_overrides[require_admin] = lambda: object()
+    review = client.get("/api/admin/items/dua/mapping-reviews").json()["reviews"][0]
+    epoch = client.get("/api/admin/items/dua/codebook").json()["codebook_epoch"]
+
+    resolved = client.post(
+        f"/api/admin/items/dua/mapping-reviews/{review['idea_id']}/resolve",
+        json={
+            "action": "MARK_INVALID",
+            "expected_codebook_epoch": epoch,
+            "note": "Câu không mô tả được công dụng có nghĩa của đũa.",
+        },
+    )
+    assert resolved.status_code == 200, resolved.text
+    detail = client.get(
+        f"/api/responses/{submitted['response_id']}",
+        headers={"X-Participant-Id": participant_id},
+    ).json()
+    idea = detail["mapping"]["ideas"][0]
+    assert idea["status"] == "INVALID"
+    assert idea["code"] is None
+    assert idea["curator_decision"] == "ADMIN_MARK_INVALID"
+    assert idea["reason"] == "Câu không mô tả được công dụng có nghĩa của đũa."
 
 
 @pytest.mark.skip(reason="Thao tác remap đã bị loại trong sổ mã append-only.")

@@ -14,6 +14,13 @@ const STATUS_LABEL: Record<string, string> = {
   PROVISIONAL: "Trạng thái cũ",
 };
 
+const PROCESSING_LABEL: Record<string, string> = {
+  QUEUED: "Đã lưu · chờ chấm",
+  RUNNING: "Đang phân loại ý",
+  SCORING: "Đang chấm điểm",
+  FAILED: "Cần xử lý lại",
+};
+
 function formatDate(value: string): string {
   return new Date(value).toLocaleString("vi-VN", {
     hour: "2-digit",
@@ -61,7 +68,7 @@ export default function History() {
           </div>
           <h1 className="mt-4 font-serif text-4xl md:text-5xl">Lịch sử khảo sát</h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Các lượt trả lời gắn với hồ sơ này. Lượt đang chờ sẽ tự cập nhật trên trang kết quả khi có quyết định.
+            Các lượt trả lời gắn với hồ sơ này. Nếu một lượt còn đang xử lý, hãy tải lại trang để lấy trạng thái mới nhất.
           </p>
         </div>
       </section>
@@ -89,7 +96,7 @@ export default function History() {
         {responses && responses.length > 0 && (
           <ul className="divide-y divide-border border-y border-border">
             {responses.map((response) => {
-              const final = response.scoring_status === "FINAL";
+              const final = response.processing_state === "DONE" && response.scoring_status === "FINAL";
               return (
                 <li key={response.response_id}>
                   <Link
@@ -104,7 +111,7 @@ export default function History() {
                     </div>
                     <div className="flex items-center gap-4">
                       <Badge variant={final ? "success" : "secondary"}>
-                        {STATUS_LABEL[response.scoring_status] ?? response.scoring_status}
+                        {PROCESSING_LABEL[response.processing_state] ?? STATUS_LABEL[response.scoring_status] ?? response.scoring_status}
                       </Badge>
                       <p className="font-mono text-xs text-muted-foreground">
                         {final

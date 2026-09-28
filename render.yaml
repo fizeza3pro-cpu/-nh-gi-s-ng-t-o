@@ -13,7 +13,9 @@ services:
       - key: BYTEPLUS_BASE_URL
         value: https://ark.ap-southeast.bytepluses.com/api/v3
       - key: BYTEPLUS_MODEL
-        value: deepseek-v4-pro-ga-260813
+        value: glm-5-3-flash-260828
+      - key: BYTEPLUS_REASONING_EFFORT
+        value: minimal
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_BASE_URL
@@ -39,7 +41,7 @@ services:
       - key: EMBEDDING_TIMEOUT_SECONDS
         value: "20"
       - key: CODE_CANDIDATE_LIMIT
-        value: "8"
+        value: "3"
       - key: CODEBOOK_FULL_SCAN_LIMIT
         value: "20"
       - key: REFERENCE_CASES_ENABLED
@@ -48,8 +50,58 @@ services:
         value: "2"
       - key: REFERENCE_CASES_MAX_CHARS
         value: "2200"
+      - key: AUTO_MATCH_RETRIEVAL_FLOOR
+        value: "0.60"
+      - key: AUTO_MATCH_SEMANTIC_FLOOR
+        value: "0.70"
+      - key: AUTO_MATCH_MARGIN_FLOOR
+        value: "0.08"
+      - key: AUTO_MATCH_GOAL_FLOOR
+        value: "0.20"
+      - key: AUTO_MATCH_STRUCTURAL_FLOOR
+        value: "0.20"
+      - key: CHALLENGED_MATCH_RETRIEVAL_FLOOR
+        value: "0.50"
+      - key: CHALLENGED_MATCH_SEMANTIC_FLOOR
+        value: "0.70"
+      - key: CHALLENGED_MATCH_MARGIN_FLOOR
+        value: "0.08"
       - key: MOCK_MODE
         value: false
+      - key: ASYNC_PROCESSING_ENABLED
+        value: true
+      - key: SURVEY_SESSION_REQUIRED
+        value: true
+      - key: PARTICIPANT_TOKEN_REQUIRED
+        value: true
+      - key: SURVEY_DATA_SOURCE
+        value: PILOT
+      - key: SURVEY_GRACE_SECONDS
+        value: "60"
+      - key: RESOLVER_MAX_ATTEMPTS
+        value: "3"
+      - key: AUTO_CODE_AUDIT_ENABLED
+        value: true
+      - key: PROCESSING_WORKER_COUNT
+        value: "2"
+      - key: SUBMIT_WAIT_SECONDS
+        value: "240"
+      - key: SUBMIT_WAIT_POLL_SECONDS
+        value: "0.5"
+      - key: LLM_EXTRACTION_MAX_TOKENS
+        value: "3072"
+      - key: LLM_CURATOR_MAX_TOKENS
+        value: "3072"
+      - key: LLM_CHALLENGER_MAX_TOKENS
+        value: "3072"
+      - key: LLM_SCORING_MAX_TOKENS
+        value: "3072"
+      - key: LLM_AUX_MAX_TOKENS
+        value: "3072"
+      - key: LLM_MAX_RETRIES
+        value: "1"
+      - key: STORE_RAW_LLM_RESPONSE
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET

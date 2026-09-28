@@ -1,24 +1,49 @@
-Bạn là Boundary Repair của codebook AUT cho đồ vật "{item_name}".
-Mô tả đồ vật: {item_description}
+Bạn sửa PHẠM VI category AUT cho đồ vật "{item_name}".
+Mô tả: {item_description}
 
-Các quyết định dưới đây đã được Challenger chọn là CREATE_NEW hoặc EXPAND_EXISTING nhưng ranh giới
-đang thiếu hoặc quá chung chung. Chỉ sửa hợp đồng ranh giới; không đổi idea_index, loại quyết định
-hoặc code đích.
+Các quyết định CREATE_NEW hoặc EXPAND_EXISTING dưới đây đã có kết luận nhưng category còn quá cụ thể hoặc
+thiếu bằng chứng về phạm vi. Giữ nguyên loại quyết định và code đích của EXPAND_EXISTING; được sửa tên,
+mô tả và chữ ký category để đạt mức khái quát tối thiểu hợp lý.
 
-Với mỗi quyết định:
-- `inclusion_rules` phải có ít nhất một quy tắc cụ thể mô tả các ý được thuộc category dựa trên
-  goal + object_role + mechanism, không chỉ lặp lại tên category. Không dùng mẫu “có cơ chế X”.
-- `exclusion_rules` phải có ít nhất một phản ví dụ gần nhưng không thuộc category; ưu tiên phân biệt
-  khác mục đích, vai trò hoặc cơ chế. Ưu tiên lấy từ `nearest_codes` hoặc
-  `other_ideas_in_submission`. Không dùng câu chung chung như "các ý không liên quan",
-  “không dùng để X” hoặc một chức năng xa không dễ nhầm.
-- `positive_examples` phải giữ response hiện tại.
-- Chỉ đặt `counterexample_passed=true` khi exclusion_rules thật sự phân biệt được phản ví dụ.
-- Với EXPAND_EXISTING, giữ nguyên existing_code_id, code_relation=IDEA_BROADER_THAN_CODE và không
-  làm mất các ví dụ cũ.
-- Giữ nguyên các trường hợp lý còn lại. Nếu không lập được ranh giới rõ, trả UNCERTAIN.
+- Category phải bao phủ một họ cách dùng chung goal + vai trò của {item_name} + cơ chế, không chỉ chép lại
+  sản phẩm/câu nguồn.
+- Không được gom các cách dùng đổi mục đích, vai trò hoặc cơ chế.
+- `functional_signature` là cấp category; `target` và `context` để rỗng.
+- `scope_variants` gồm đúng 2 cách dùng giả định khác câu nguồn nhưng vẫn thuộc cùng category. Chúng chỉ là
+  phép thử, không phải dữ liệu quan sát.
+- `inclusion_rules` mô tả cụ thể goal + object_role + mechanism.
+- `exclusion_rules` là phản ví dụ gần nhưng khác mục đích, vai trò hoặc cơ chế; không dùng câu chung chung.
+- Nếu không thể lập phạm vi rõ, trả UNCERTAIN.
 
-Các trường hợp cần sửa:
+CA CẦN SỬA:
 {repair_cases_json}
 
-Chỉ trả JSON theo cấu trúc CuratorResult với khóa `decisions`.
+Không dùng `null` cho functional_signature, scope_variants, inclusion_rules, exclusion_rules hoặc
+absorbed_code_ids; dùng `{{}}` cho object rỗng và `[]` cho mảng rỗng.
+
+Chỉ trả JSON ngắn:
+{{
+  "decisions": [
+    {{
+      "idea_index": 0,
+      "decision": "CREATE_NEW",
+      "code_relation": "DIFFERENT",
+      "existing_code_id": null,
+      "code_name": "<tên họ chức năng>",
+      "code_description": "<mô tả ngắn có tên đồ vật>",
+      "functional_signature": {{
+        "goal": "<mục đích cấp nhóm>",
+        "object_role": "<vai trò cấp nhóm>",
+        "mechanism": "<cơ chế cấp nhóm>",
+        "transformation": "",
+        "target": "",
+        "context": ""
+      }},
+      "scope_variants": ["<biến thể 1>", "<biến thể 2>"],
+      "inclusion_rules": ["<quy tắc bao gồm>"],
+      "exclusion_rules": ["<phản ví dụ gần>"],
+      "confidence": 0.0,
+      "reason": "<một câu ngắn>"
+    }}
+  ]
+}}

@@ -16,6 +16,7 @@ from app.config import settings
 
 _LOCAL_VECTOR_SIZE = 384
 _LOCAL_MODEL = "local-hash-v1"
+_REPRESENTATION_VERSION = "core-function-v2"
 
 
 class EmbeddingError(RuntimeError):
@@ -50,9 +51,12 @@ def local_embedding(value: str) -> list[float]:
 
 def embedding_model(client: OpenAI | None) -> str:
     """Tên model dùng để nhận biết vector cache có còn tương thích hay không."""
-    if client is None or settings.embedding_provider == "local":
-        return _LOCAL_MODEL
-    return settings.cloudflare_embedding_model
+    base = (
+        _LOCAL_MODEL
+        if client is None or settings.embedding_provider == "local"
+        else settings.cloudflare_embedding_model
+    )
+    return f"{base}::{_REPRESENTATION_VERSION}"
 
 
 def embed_texts(texts: list[str], client: OpenAI | None = None) -> EmbeddingBatch:
@@ -63,7 +67,7 @@ def embed_texts(texts: list[str], client: OpenAI | None = None) -> EmbeddingBatc
     if client is None or settings.embedding_provider == "local":
         return EmbeddingBatch(
             vectors=[local_embedding(text) for text in cleaned],
-            model=_LOCAL_MODEL,
+            model=embedding_model(client),
             semantic=False,
         )
 
@@ -82,7 +86,13 @@ def embed_texts(texts: list[str], client: OpenAI | None = None) -> EmbeddingBatc
                 batch_vectors = [list(row.embedding) for row in ordered]
                 if len(batch_vectors) != len(batch) or any(not vector for vector in batch_vectors):
                     raise EmbeddingError("Provider trả thiếu semantic embedding.")
-                vectors.extend(batch_vectors)
+                for vector in batch_vectors:
+                    if not all(math.isfinite(value) for value in vector):
+                        raise EmbeddingError("Provider trả vector không hữu hạn.")
+                    norm = math.sqrt(sum(value * value for value in vector))
+                    if norm == 0:
+                        raise EmbeddingError("Provider trả vector có độ dài bằng 0.")
+                    vectors.append([value / norm for value in vector])
                 break
             except Exception as error:  # noqa: BLE001 - cần retry lỗi mạng/provider
                 last_error = error
@@ -95,6 +105,6 @@ def embed_texts(texts: list[str], client: OpenAI | None = None) -> EmbeddingBatc
 
     return EmbeddingBatch(
         vectors=vectors,
-        model=settings.cloudflare_embedding_model,
+        model=embedding_model(client),
         semantic=True,
     )
