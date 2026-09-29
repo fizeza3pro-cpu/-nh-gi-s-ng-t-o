@@ -51,3 +51,41 @@ def test_provider_error_keeps_metadata_without_fake_invalid():
         run_idea_extraction(ITEM, [SOURCE["original"]], client)
     assert caught.value.extraction_checkpoint["ideas"]
     assert caught.value.metadata
+
+
+@pytest.mark.parametrize("stage", ["invalid_verifier", "invalid_policy_repair"])
+def test_inferred_fields_repair_explains_enum_and_preserves_source(stage):
+    from app.pipeline.dynamic_mapping import _validate_adequacy_result
+    from app.schemas.schemas import ExtractedIdea
+
+    fields = ["goal", "object_role", "mechanism"]
+    source = {**SOURCE, "line_index": 1}
+    bad = {"ideas": [SOURCE, {**source, "inferred_signature_fields": fields + ["target", "context", "transformation"]}]}
+    good = {"ideas": [SOURCE, {**source, "inferred_signature_fields": fields}]}
+    client = FakeClient([json.dumps(good)])
+    result, meta = _validate_adequacy_result(
+        bad, {}, [ExtractedIdea(**SOURCE), ExtractedIdea(**source)], "Kiểm chứng", client, stage,
+    )
+    assert client.chat.completions.calls == 1
+    assert [idea.original for idea in result.ideas] == [SOURCE["original"], source["original"]]
+    assert result.ideas[1].inferred_signature_fields == fields
+    assert result.ideas[1].status == "INVALID"
+    prompt = client.chat.completions.requests[0]["messages"][0]["content"]
+    assert '"expected": "\'goal\', \'object_role\' or \'mechanism\'"' in prompt
+    assert 'không đưa "target", "context", "transformation"' in prompt
+    assert meta["schema_repair_attempts"][-1]["stage"] == stage + "_schema_repair"
+
+
+def test_repeated_invalid_enum_keeps_expected_values_without_input():
+    from app.pipeline.dynamic_mapping import _validate_adequacy_result
+    from app.schemas.schemas import ExtractedIdea
+
+    bad = {"ideas": [{**SOURCE, "inferred_signature_fields": ["target", "context", "transformation"]}]}
+    client = FakeClient([json.dumps(bad)])
+    with pytest.raises(LLMJSONError) as caught:
+        _validate_adequacy_result(bad, {}, [ExtractedIdea(**SOURCE)], "Kiểm chứng", client, "invalid_verifier")
+    assert client.chat.completions.calls == 1
+    errors = caught.value.metadata["validation_errors"]
+    assert len(errors) == 3
+    assert all(error["expected"] == "'goal', 'object_role' or 'mechanism'" for error in errors)
+    assert all("input" not in error for error in errors)

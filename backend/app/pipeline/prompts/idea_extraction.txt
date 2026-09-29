@@ -53,6 +53,8 @@ sông” là context; không tự đổi goal thành “giữ đồ khô” nế
 Với ba trường này, trả thêm `functional_evidence`: đoạn nguyên văn liên tục trong response làm căn cứ.
 Nếu response không nói rõ và bạn phải suy ra tối thiểu theo ngữ cảnh, để evidence của trường đó rỗng và
 liệt kê tên trường trong `inferred_signature_fields`. Không được viết phần suy diễn vào evidence.
+`inferred_signature_fields` chỉ nhận "goal", "object_role", "mechanism"; dùng [] nếu không suy diễn.
+Không đưa "target", "context", "transformation" vào mảng này dù chúng có trong functional_signature.
 
 Chỉ trả JSON:
 {{

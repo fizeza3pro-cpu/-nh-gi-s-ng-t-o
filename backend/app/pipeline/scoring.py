@@ -9,6 +9,7 @@ from openai import OpenAI
 from app.config import settings
 from app.pipeline.llm import aggregate_usage, chat_json, LLMJSONError
 from app.schemas.schemas import Item, PerIdeaScore, ScoringResult
+from app.pipeline.creative_feedback import generate_creative_feedback
 
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "scoring.txt"
@@ -241,6 +242,9 @@ def run_scoring(
             )
         )
 
+    summary, feedback_meta = generate_creative_feedback(
+        item, per_idea_scores, client, fallback=_summary(per_idea_scores)
+    )
     result = ScoringResult(
         fluency=fluency,
         flexibility=flexibility,
@@ -248,7 +252,7 @@ def run_scoring(
         originality=sum(p.originality for p in per_idea_scores),
         elaboration=sum(p.elaboration for p in per_idea_scores),
         per_idea_scores=per_idea_scores,
-        summary_vi=_summary(per_idea_scores),
+        summary_vi=summary,
     )
     meta = {
         "provider": settings.llm_provider,
@@ -257,14 +261,15 @@ def run_scoring(
         "runs": n_runs,
         "response_ids": [m.get("response_id") for m in metas],
         "llm_runs": metas,
-        "usage": aggregate_usage(metas),
-        "latency_ms": round(sum(float(m.get("latency_ms") or 0) for m in metas), 2),
+        "creative_feedback": feedback_meta,
+        "usage": aggregate_usage([*metas, feedback_meta]),
+        "latency_ms": round(sum(float(m.get("latency_ms") or 0) for m in [*metas, feedback_meta]), 2),
         "elaboration_method": {
             "score_formula": "1 + target + mechanism + context + goal",
             "facet_source": "LLM evidence extraction with verbatim grounding",
             "aggregation": "majority vote across runs",
             "meaningful_word_count": "deterministic Vietnamese stoplist baseline",
         },
-        "note": "Mọi chỉ số đều do công thức tính; LLM chỉ trích đoạn bằng chứng Elaboration.",
+        "note": "Mọi chỉ số do công thức tính. LLM trích bằng chứng Elaboration và viết nhận xét định tính riêng sau khi chấm.",
     }
     return result, meta

@@ -789,12 +789,23 @@ def persist_mapping(
     return MappingResult(ideas=mapped), has_uncertain
 
 
+def calibration_source_filter():
+    """Cho phép corpus mô phỏng được chỉ định rõ góp vào PILOT, không vào SURVEY."""
+    source = Response.data_source == settings.survey_data_source
+    if settings.survey_data_source == "PILOT":
+        source = source | (
+            (Response.data_source == "SYNTHETIC")
+            & (Response.mapping_meta["calibration_source"].as_string() == "PILOT")
+        )
+    return source
+
+
 def _eligible_response():
     """Cùng một tập bài cho mọi thống kê; SCORING không làm mất người khỏi mẫu."""
     return (
         Response.scoring_status.notin_([ResponseScoringStatus.PENDING_REVIEW, ResponseScoringStatus.EXCLUDED]),
         Response.processing_state.in_(["DONE", "SCORING"]),
-        Response.data_source == settings.survey_data_source,
+        calibration_source_filter(),
     )
 
 
@@ -916,6 +927,9 @@ def originality_for_response(
     basis = {
         "frequency_source": "realtime_at_scoring",
         "data_source": settings.survey_data_source,
+        "synthetic_idea_count": int(db.scalar(_eligible_query(response.item_id, func.count(ResponseIdea.id)).where(
+            Response.data_source == "SYNTHETIC"
+        )) or 0),
         "qualifying_participant_count": qualifying_participant_count(db, response.item_id),
         "qualifying_response_count": qualifying_response_count(db, response.item_id),
         "qualifying_idea_count": qualifying_idea_count(db, response.item_id),
@@ -943,7 +957,7 @@ def refresh_final_frequency_scores(db: Session, item_id: str) -> int:
         select(Response).where(
             Response.item_id == item_id,
             Response.scoring_status == ResponseScoringStatus.FINAL,
-            Response.data_source == settings.survey_data_source,
+            calibration_source_filter(),
         )
     ).all()
     live_counts = _code_live_counts(db, item_id)

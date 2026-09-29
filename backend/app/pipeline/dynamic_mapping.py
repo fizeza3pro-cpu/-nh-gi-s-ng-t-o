@@ -758,7 +758,10 @@ def _validate_adequacy_result(data, meta, source_ideas, prompt, client, stage):
                 raise ValueError("source_or_status_mismatch")
             return result, ({**meta, "schema_repair_attempts": attempts} if attempt else meta)
         except ValueError as exc:
-            issues = ([{"loc": list(error["loc"]), "type": error["type"]}
+            # Chỉ lấy tập giá trị literal từ schema, không đưa input của người dùng vào diagnostics.
+            issues = ([{"loc": list(error["loc"]), "type": error["type"],
+                        **({"expected": error["ctx"]["expected"]}
+                           if error["type"] == "literal_error" and "expected" in error.get("ctx", {}) else {})}
                        for error in exc.errors(include_input=False, include_url=False)]
                       if hasattr(exc, "errors") else [{"type": str(exc)}])
             failure = {**meta, "stage": stage, "error_type": "SchemaContractError", "retryable": True,
@@ -768,7 +771,10 @@ def _validate_adequacy_result(data, meta, source_ideas, prompt, client, stage):
             repair_prompt = prompt + "\nĐầu ra trước chưa đúng contract. Sửa các lỗi: " + json.dumps(issues) + (
                 "\nTrả lại đúng một phần tử cho từng line_index đầu vào, không thêm/bớt/đánh lại số. "
                 "Phải có original, normalized, status; không trả DUPLICATE. normalized là chuỗi ngắn, "
-                "functional_signature là object và inferred_signature_fields là mảng, không dùng null."
+                "functional_signature là object và inferred_signature_fields là mảng, không dùng null. "
+                'inferred_signature_fields chỉ nhận "goal", "object_role", "mechanism"; '
+                'không đưa "target", "context", "transformation" vào mảng này. '
+                "Giữ các trường suy diễn hợp lệ, dùng [] nếu không có; áp dụng cả VALID và INVALID."
             )
             try:
                 data, meta = chat_json(client, model=settings.active_llm_model,

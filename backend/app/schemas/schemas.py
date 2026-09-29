@@ -458,6 +458,8 @@ class AdminAiGroupStats(BaseModel):
 
 
 class AdminDashboardStats(BaseModel):
+    synthetic_calibration_responses: int = 0
+    llm_quota_affected_responses: int = 0
     total_participants: int
     total_responses: int
     qualifying_response_count: int

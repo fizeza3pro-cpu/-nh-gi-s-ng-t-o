@@ -16,6 +16,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.models.models import Item, ItemCalibrationStatus, Response, ResponseIdea, ResponseScoringStatus, PipelineAudit
 from app.pipeline.codebook_service import (
+    calibration_source_filter,
     item_is_ready_for_scoring,
     list_curator_codes,
     originality_for_response,
@@ -67,7 +68,7 @@ def _claim(kind: str) -> tuple[str, str] | None:
                 .where(
                     Response.processing_state.in_(["DONE", "SCORING"]),
                     Response.scoring_status == ResponseScoringStatus.COLLECTING,
-                    Response.data_source == settings.survey_data_source,
+                    calibration_source_filter(),
                     Item.calibration_status == ItemCalibrationStatus.ACTIVE,
                     available,
                     Response.processing_attempts < settings.processing_max_attempts,

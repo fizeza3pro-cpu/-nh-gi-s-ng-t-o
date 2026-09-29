@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { api, getParticipantIdentity } from "@/lib/api";
 import type { ResponseSummary } from "@/lib/types";
 
+const preloadAiThinkingAnimation = () => import("@/components/AiThinkingAnimation");
+
 const STATUS_LABEL: Record<string, string> = {
   COLLECTING: "Đang chờ đủ dữ liệu",
   PENDING_REVIEW: "Đang chờ đối chiếu",
@@ -40,7 +42,10 @@ export default function History() {
     if (!participant) return;
     api
       .participantResponses()
-      .then(setResponses)
+      .then((data) => {
+        setResponses(data);
+        if (data.length > 0) void preloadAiThinkingAnimation();
+      })
       .catch((err: Error) => setError(err.message));
   }, [participant?.id]);
 
@@ -101,6 +106,9 @@ export default function History() {
                 <li key={response.response_id}>
                   <Link
                     to={`/result/${response.response_id}`}
+                    state={{ source: "history" }}
+                    onMouseEnter={() => void preloadAiThinkingAnimation()}
+                    onFocus={() => void preloadAiThinkingAnimation()}
                     className="grid gap-4 px-1 py-6 transition-colors hover:bg-muted/30 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:px-4"
                   >
                     <div>

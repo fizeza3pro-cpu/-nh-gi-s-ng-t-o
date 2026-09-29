@@ -126,7 +126,20 @@ export default function AdminOverview() {
   }
 
   useEffect(() => {
-    api.adminDashboard().then(setStats).catch((err: Error) => setError(err.message));
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const data = await api.adminDashboard();
+        if (active) { setStats(data); setError(null); }
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : "Không thể tải trạng thái hệ thống.");
+      } finally {
+        if (active) timer = setTimeout(refresh, 15000);
+      }
+    };
+    void refresh();
+    return () => { active = false; clearTimeout(timer); };
   }, []);
 
   const trendNote = useMemo(() => {
@@ -204,6 +217,18 @@ export default function AdminOverview() {
         </div>
       </header>
 
+      {stats.llm_quota_affected_responses > 0 && (
+        <div role="alert" className="mb-6 border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+          <p className="font-medium">Dịch vụ LLM báo hết số dư hoặc hạn mức token</p>
+          <p className="mt-2">Có {stats.llm_quota_affected_responses} bài chưa hoàn tất có lỗi hạn mức. Kiểm tra số dư và hạn mức trên trang quản lý nhà cung cấp, sau đó thử xử lý lại các bài lỗi. Cảnh báo được gỡ khi các bài này xử lý thành công.</p>
+        </div>
+      )}
+      {stats.synthetic_calibration_responses > 0 && (
+        <p role="status" className="mb-6 border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Mẫu tính điểm đang bao gồm {stats.synthetic_calibration_responses} lượt SYNTHETIC (mô phỏng).
+          Tần suất và điểm hiện tại dùng để kiểm thử, chưa đại diện phân bố khảo sát thực tế.
+        </p>
+      )}
       <section className="grid grid-cols-2 gap-x-4 gap-y-7 border-b border-stone-300 pb-8 lg:grid-cols-4 lg:gap-x-8">
         <Metric icon={Database} label="Tổng lượt trả lời" value={stats.total_responses} note={`${stats.qualifying_response_count} response đủ điều kiện`} />
         <Metric icon={Users2} label="Người tham gia" value={stats.total_participants} note="Hồ sơ email riêng biệt" />

@@ -318,6 +318,23 @@ def export_response_scores_csv(db: Session) -> str:
     return buffer.getvalue()
 
 
+def _synthetic_count_query(item_id):
+    """Đếm đúng các lượt mô phỏng đang góp vào mẫu hiệu chỉnh."""
+    from app.pipeline.codebook_service import _eligible_query
+    return _eligible_query(item_id, func.count(func.distinct(ResponseModel.id))).where(
+        ResponseModel.data_source == "SYNTHETIC"
+    )
+
+
+def _has_quota_failure(value) -> bool:
+    """Đọc metadata lồng nhau, kể cả lỗi được verifier hoặc Curator bọc lại."""
+    if isinstance(value, dict):
+        return value.get("error_category") == "QUOTA_EXHAUSTED" or any(
+            _has_quota_failure(child) for child in value.values()
+        )
+    return isinstance(value, list) and any(_has_quota_failure(child) for child in value)
+
+
 def get_dashboard_stats(db: Session) -> AdminDashboardStats:
     """Tổng hợp tiến độ thu thập dữ liệu và trạng thái chấm một lần."""
     total_participants = db.scalar(select(func.count()).select_from(ParticipantModel)) or 0
@@ -409,6 +426,19 @@ def get_dashboard_stats(db: Session) -> AdminDashboardStats:
         select(ResponseModel).order_by(ResponseModel.created_at.desc()).limit(10)
     ).all()
     return AdminDashboardStats(
+        synthetic_calibration_responses=sum(
+            int(db.scalar(_synthetic_count_query(item.id)) or 0) for item in items
+        ),
+        llm_quota_affected_responses=sum(
+            _has_quota_failure(mapping_meta) or _has_quota_failure(scoring_meta)
+            for mapping_meta, scoring_meta in db.execute(
+                select(ResponseModel.mapping_meta, ResponseModel.scoring_meta).where(
+                    (ResponseModel.processing_state != "DONE")
+                    | (ResponseModel.scoring_status == ResponseScoringStatus.PENDING_REVIEW)
+                    | (ResponseModel.scoring_meta["creative_feedback"]["error_category"].as_string() == "QUOTA_EXHAUSTED")
+                )
+            )
+        ),
         total_participants=total_participants,
         total_responses=total_responses,
         qualifying_response_count=total_qualifying_responses,

@@ -176,7 +176,7 @@ export default function Home() {
           <div style={reveal(heroLoaded)}>
             <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              Bài tập sáng tạo trong 3 phút
+              Bài test đo tư duy phân kỳ
             </p>
             <h1 className="font-serif text-4xl font-medium leading-[1.05] tracking-tight text-balance md:text-6xl">
               Cách bạn dùng một đồ vật bình thường có thể tiết lộ
@@ -247,7 +247,8 @@ export default function Home() {
                     “{sample.quote}”
                   </p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Điểm thực tế chỉ hiển thị khi bộ dữ liệu của đồ vật đã đủ điều kiện.
+                    Điểm thực tế chỉ hiển thị khi bộ dữ liệu của đồ vật đã đủ
+                    điều kiện.
                   </p>
                 </div>
               </CardContent>

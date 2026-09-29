@@ -167,6 +167,8 @@ export interface AdminScoringStatusCounts {
 }
 
 export interface AdminDashboardStats {
+  synthetic_calibration_responses: number;
+  llm_quota_affected_responses: number;
   total_participants: number;
   total_responses: number;
   qualifying_response_count: number;

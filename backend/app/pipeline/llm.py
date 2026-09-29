@@ -28,6 +28,18 @@ _CONTEXT_LIMIT_RE = re.compile(
 _CONTEXT_SAFETY_TOKENS = 128
 
 
+def quota_exhausted(error: Exception) -> bool:
+    """Nhận diện hết số dư/hạn mức; 429 đơn thuần chỉ là giới hạn tốc độ."""
+    body = getattr(error, "body", None)
+    message = (str(error) + " " + json.dumps(body, default=str)).casefold()
+    return getattr(error, "status_code", None) == 402 or any(marker in message for marker in (
+        "insufficient_quota", "insufficient_balance", "insufficientbalance", "insufficient balance",
+        "insufficient credit", "credit balance", "quota exhausted",
+        "exceeded your current quota", "billing hard limit", "billing_hard_limit",
+        "arrearage", "accountoverdue", "account overdue", "balance is not enough",
+    ))
+
+
 def _response_format_is_unsupported(error: Exception) -> bool:
     """Nhận diện lỗi provider không hỗ trợ JSON mode để gọi lại bằng prompt thuần."""
     message = str(error).casefold()
@@ -280,7 +292,7 @@ def chat_json(
                 isinstance(err, LLMJSONError)
                 and "chạm giới hạn output token" in str(err)
             )
-            permanent_error = getattr(err, "status_code", None) in {400, 401, 403, 404, 422}
+            permanent_error = quota_exhausted(err) or getattr(err, "status_code", None) in {400, 401, 403, 404, 422}
             if attempt < max_retries and not output_was_truncated and not permanent_error:
                 time.sleep(_retry_delay_seconds(err, attempt))
             else:
@@ -291,7 +303,8 @@ def chat_json(
         f"Thất bại sau {attempts_made} lần gọi LLM: {last_err}",
         metadata={
             "error_type": type(last_err).__name__,
-            "retryable": getattr(last_err, "status_code", None) not in {400, 401, 403, 404, 422},
+            "error_category": "QUOTA_EXHAUSTED" if quota_exhausted(last_err) else "LLM_ERROR",
+            "retryable": not quota_exhausted(last_err) and getattr(last_err, "status_code", None) not in {400, 401, 403, 404, 422},
             "prompt_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "stage": stage,
             "provider": provider,

@@ -1,12 +1,70 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { ArrowRight, RotateCcw } from "lucide-react";
+import { ArrowRight, Clock3, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableViewport } from "@/components/ui/table";
 import { api, cacheResponse, readCachedResponse } from "@/lib/api";
+import { responseNeedsProcessing } from "@/lib/response-status";
 import { cn } from "@/lib/utils";
 import type { IdeaStatus, ScoreResponse } from "@/lib/types";
+
+const AiThinkingAnimation = lazy(() => import("@/components/AiThinkingAnimation"));
+
+type ResultNavigationState = {
+  response?: ScoreResponse;
+  source?: "submission" | "history";
+};
+
+function ResultThinkingPanel({
+  loadingInitial = false,
+  pollError = false,
+  showAnimation,
+  onRetry,
+}: {
+  loadingInitial?: boolean;
+  pollError?: boolean;
+  showAnimation: boolean;
+  onRetry?: () => void;
+}) {
+  const title = pollError
+    ? "Chưa kết nối được với hệ thống"
+    : loadingInitial
+      ? "Đang mở lại kết quả"
+      : "AI đang phân tích bài làm";
+  const description = pollError
+    ? "Bài đã được lưu. Hãy kết nối lại để xem tiến độ; bạn không cần nộp lại bài."
+    : loadingInitial
+      ? "Hệ thống đang lấy trạng thái mới nhất của bài làm từ lịch sử."
+      : "Bài đã được lưu. AI đang xử lý các ý tưởng của bạn, kết quả sẽ tự động xuất hiện khi hoàn tất.";
+
+  return (
+    <div className="container grid min-h-[70vh] max-w-xl place-items-center py-12">
+      <section
+        className="w-full overflow-hidden rounded-2xl border border-border bg-card text-center"
+        aria-live="polite"
+        aria-busy={!pollError}
+      >
+        <div className="thinking-stage px-6 py-8">
+          {!pollError && showAnimation ? (
+            <Suspense fallback={<div className="h-36" />}>
+              <AiThinkingAnimation />
+            </Suspense>
+          ) : !pollError ? (
+            <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-research-soft text-research">
+              <Clock3 className="h-6 w-6" aria-hidden="true" />
+            </span>
+          ) : null}
+          <h1 className={cn("font-serif text-3xl", !pollError && "mt-2")}>{title}</h1>
+          <p className="mt-4 text-sm leading-6 text-muted-foreground">{description}</p>
+          {pollError && onRetry ? (
+            <Button className="mt-5" onClick={onRetry}>Kết nối lại</Button>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
 
 const STATUS_LABEL: Record<IdeaStatus, string> = {
   VALID: "Hợp lệ",
@@ -26,13 +84,18 @@ export default function Result() {
   const location = useLocation();
   const adminView = location.pathname.startsWith("/admin/responses/");
   const fetchResponse = adminView ? api.adminGetResponse : api.getResponse;
-  const navigatedResponse = (
-    location.state as { response?: ScoreResponse } | null
-  )?.response;
+  const navigationState = location.state as ResultNavigationState | null;
+  const navigatedResponse = navigationState?.response;
+  const openedFromHistory = navigationState?.source === "history";
+  const openedFromSubmission = navigationState?.source === "submission";
   const initialResponse =
-    navigatedResponse ?? (responseId && !adminView ? readCachedResponse(responseId) : null);
-  const [resp, setResp] = useState<ScoreResponse | null>(initialResponse);
-  const [loading, setLoading] = useState(!initialResponse);
+    !openedFromHistory
+      ? navigatedResponse ?? (responseId && !adminView ? readCachedResponse(responseId) : null)
+      : null;
+  const [resp, setResp] = useState<ScoreResponse | null>(() => initialResponse);
+  const [loading, setLoading] = useState(() => !initialResponse);
+  const [pollError, setPollError] = useState(false);
+  const [pollAttempt, setPollAttempt] = useState(0);
 
   useEffect(() => {
     if (!responseId) {
@@ -43,8 +106,21 @@ export default function Result() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let delay = 1000;
     let failures = 0;
+    setPollError(false);
 
-    const immediate = navigatedResponse ?? (adminView ? null : readCachedResponse(responseId));
+    if (
+      openedFromSubmission &&
+      navigatedResponse &&
+      !responseNeedsProcessing(navigatedResponse)
+    ) {
+      setResp(navigatedResponse);
+      setLoading(false);
+      return;
+    }
+
+    const immediate = navigatedResponse ?? (
+      adminView || openedFromHistory ? null : readCachedResponse(responseId)
+    );
     if (immediate) {
       setResp(immediate);
       setLoading(false);
@@ -57,7 +133,7 @@ export default function Result() {
           setResp(data);
           setLoading(false);
           if (!adminView) cacheResponse(data);
-          if (["QUEUED", "RUNNING", "SCORING"].includes(data.processing_state) || data.resolution_pending || data.scores_stale) {
+          if (responseNeedsProcessing(data)) {
             delay = Math.min(delay * 1.4, 10000);
             timer = setTimeout(poll, delay);
           }
@@ -68,13 +144,17 @@ export default function Result() {
           setLoading(false);
           delay = Math.min(delay * 2, 30000);
           if (++failures < 6) timer = setTimeout(poll, delay);
+          else setPollError(true);
         }
       });
     void poll();
     return () => { active = false; if (timer) clearTimeout(timer); };
-  }, [adminView, fetchResponse, navigatedResponse, responseId]);
+  }, [adminView, fetchResponse, navigatedResponse, openedFromHistory, openedFromSubmission, responseId, pollAttempt]);
 
   if (loading) {
+    if (openedFromHistory) {
+      return <ResultThinkingPanel loadingInitial showAnimation />;
+    }
     return (
       <div className="container max-w-xl py-24 text-center">
         <div className="flex flex-col items-center gap-4">
@@ -86,6 +166,15 @@ export default function Result() {
   }
 
   if (!resp) {
+    if (openedFromHistory && pollError) {
+      return (
+        <ResultThinkingPanel
+          pollError
+          showAnimation
+          onRetry={() => setPollAttempt((value) => value + 1)}
+        />
+      );
+    }
     return (
       <div className="container max-w-xl py-24 text-center">
         <p className="font-serif text-2xl">Không tìm thấy kết quả.</p>
@@ -100,7 +189,25 @@ export default function Result() {
   }
 
   const { item, mapping, scoring } = resp;
-  const processing = ["QUEUED", "RUNNING", "SCORING"].includes(resp.processing_state);
+  const processing = responseNeedsProcessing(resp);
+  if (resp.processing_state === "FAILED") {
+    return (
+      <div className="container max-w-xl py-20 text-center" role="status">
+        <h1 className="font-serif text-3xl">Bài đã được lưu, xử lý đang gián đoạn</h1>
+        <p className="mt-4 text-muted-foreground">Hệ thống chưa hoàn tất phân tích. Quản trị viên cần kiểm tra để xử lý lại; bạn không cần nộp lại bài.</p>
+        <Button className="mt-6" onClick={() => setPollAttempt((value) => value + 1)}>Kiểm tra lại trạng thái</Button>
+      </div>
+    );
+  }
+  if (processing || resp.resolution_pending || resp.scores_stale) {
+    return (
+      <ResultThinkingPanel
+        pollError={pollError}
+        showAnimation={openedFromHistory}
+        onRetry={() => setPollAttempt((value) => value + 1)}
+      />
+    );
+  }
   const validCount = mapping.ideas.filter((i) => i.status === "VALID").length;
   const totalIdeas = mapping.ideas.length;
   if (!scoring) {
@@ -123,15 +230,13 @@ export default function Result() {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Badge
                 variant={
-                  resp.scoring_status === "PENDING_REVIEW" || resp.processing_state === "FAILED"
+                  resp.scoring_status === "PENDING_REVIEW"
                     ? "warning"
                     : "secondary"
                 }
               >
                 {processing
                   ? "Đang xử lý"
-                  : resp.processing_state === "FAILED"
-                  ? "Cần xử lý lại"
                   : resp.scoring_status === "PENDING_REVIEW"
                   ? (resp.resolution_pending ? "AI đang đối chiếu lại" : "Chưa đủ căn cứ phân loại")
                   : "Giai đoạn thu thập"}
@@ -239,12 +344,13 @@ export default function Result() {
                   Nhận xét tổng thể
                 </p>
                 <h2 className="mt-3 font-serif text-2xl">
-                  Bạn tư duy thế nào?
+                  Hướng sáng tạo trong bài của bạn
                 </h2>
               </div>
-              <blockquote className="border-l-2 border-foreground/40 pl-6 font-serif text-xl leading-relaxed text-foreground/90">
-                “{scoring.summary_vi}”
-              </blockquote>
+              <div className="border-l-2 border-foreground/40 pl-6">
+                <p className="whitespace-pre-line text-base leading-7 text-foreground/90">{scoring.summary_vi}</p>
+                <p className="mt-4 text-xs leading-5 text-muted-foreground">Nhận xét chỉ phản ánh các ý được phân tích trong bài này, không kết luận về tính cách hay năng lực sáng tạo cố định của bạn.</p>
+              </div>
             </div>
           </div>
         </section>

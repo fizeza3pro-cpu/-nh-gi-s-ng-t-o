@@ -110,3 +110,17 @@ def test_no_valid_ideas_skips_llm():
     assert meta.get("skipped") is True
     assert result.fluency == 0
     assert client.chat.completions.calls == 0
+
+
+def test_creative_feedback_is_separate_from_numeric_scoring():
+    feedback = {"observations": [{"text": "Bạn khai thác đồ vật theo hướng hỗ trợ hoạt động thực tế.",
+                                  "evidence": [{"idea_id": "idea-0", "quote": "giá đỡ điện thoại"}]}],
+                "suggestion": "Thử đổi đối tượng sử dụng để phát triển thêm một hướng công dụng."}
+    client = FakeClient([_run(), json.dumps(feedback)])
+    result, meta = run_scoring(ITEM, 2, 2, ["GIÁ ĐỠ", "CHỈ DẪN"], ORIGINALITY, client, runs=1)
+    assert result.originality == 3 and result.elaboration == 7
+    assert result.fluency == 2 and result.flexibility == 2
+    assert "giá đỡ điện thoại" in result.summary_vi
+    assert "Bạn có thể thử" in result.summary_vi
+    assert meta["creative_feedback"]["status"] == "GENERATED"
+    assert client.chat.completions.calls == 2
