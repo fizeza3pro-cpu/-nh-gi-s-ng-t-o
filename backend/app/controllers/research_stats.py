@@ -15,7 +15,6 @@ def participant_score_rows(db: Session, *, data_source: str, item_ids: list[str]
         Response.processing_state == "DONE",
         Response.scoring_status == ResponseScoringStatus.FINAL,
         Participant.ai_usage_group.in_(("LOW", "HIGH")),
-        Item.scores_dirty.is_(False),
     ]
     if item_ids is not None:
         scope.append(Response.item_id.in_(item_ids))

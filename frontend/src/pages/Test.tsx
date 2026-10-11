@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   ArrowLeft,
-  Check,
   CheckCircle2,
   Clock3,
   HelpCircle,
@@ -28,45 +27,19 @@ import { Dialog } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   api,
+  ApiError,
   cacheResponse,
   clearParticipantProfile,
   getParticipantIdentity,
   hasParticipantProfile,
 } from "@/lib/api";
-import { responseNeedsProcessing } from "@/lib/response-status";
 import { readDraft, saveDraft, clearDraft } from "@/lib/survey-draft";
-import type { Item, ParticipantIdentity, ScoreResponse } from "@/lib/types";
+import type { Item, ParticipantIdentity } from "@/lib/types";
 import { formatMmSs } from "@/lib/utils";
 
 const IDEA_LIMIT = 10;
 const TEST_DURATION_SECONDS = 180;
 const GUIDE_STORAGE_KEY = "aut:test-guide-seen:v1";
-const SUBMISSION_POLL_TIMEOUT_MS = 180_000;
-
-const wait = (milliseconds: number) =>
-  new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
-
-async function waitForCompletedResponse(
-  initialResponse: ScoreResponse,
-): Promise<ScoreResponse> {
-  let latest = initialResponse;
-  let delay = 750;
-  const deadline = Date.now() + SUBMISSION_POLL_TIMEOUT_MS;
-
-  while (responseNeedsProcessing(latest)) {
-    if (Date.now() >= deadline) {
-      throw new Error(
-        "Bài đã được lưu nhưng hệ thống cần thêm thời gian xử lý. Bạn có thể thử gửi lại để tiếp tục kiểm tra trạng thái.",
-      );
-    }
-    await wait(delay);
-    latest = await api.getResponse(initialResponse.response_id);
-    cacheResponse(latest);
-    delay = Math.min(Math.round(delay * 1.35), 4_000);
-  }
-
-  return latest;
-}
 
 const loadAiThinkingAnimation = () =>
   import("@/components/AiThinkingAnimation");
@@ -92,13 +65,6 @@ const GUIDE_STEPS = [
 
 type TestPhase = "READY" | "ACTIVE" | "EXPIRED";
 
-const ANALYSIS_STEPS = [
-  "Đọc và tách từng ý tưởng",
-  "Làm rõ ý nghĩa câu trả lời",
-  "Đối chiếu các nhóm công dụng",
-  "Tổng hợp kết quả nghiên cứu",
-] as const;
-
 export default function Test() {
   const { itemId } = useParams<{ itemId: string }>();
   const navigate = useNavigate();
@@ -115,7 +81,9 @@ export default function Test() {
   const [participant, setParticipant] = useState<ParticipantIdentity | null>(
     getParticipantIdentity,
   );
-  const [phase, setPhase] = useState<TestPhase>(draft ? "ACTIVE" : "READY");
+  const [phase, setPhase] = useState<TestPhase>(draft?.sessionExpired ? "EXPIRED" : draft ? "ACTIVE" : "READY");
+  const [sessionExpired, setSessionExpired] = useState(draft?.sessionExpired ?? false);
+  const [submittedAnswers, setSubmittedAnswers] = useState<string[] | undefined>(draft?.submittedAnswers);
   const [secondsLeft, setSecondsLeft] = useState(TEST_DURATION_SECONDS);
   const [guideOpen, setGuideOpen] = useState(
     () => localStorage.getItem(GUIDE_STORAGE_KEY) !== "true",
@@ -157,6 +125,8 @@ export default function Test() {
           deadline: deadlineRef.current,
           sessionId: sessionIdRef.current,
           requestId: requestIdRef.current,
+          submittedAnswers,
+          sessionExpired,
         })
       ) {
         setSubmitError(
@@ -164,32 +134,45 @@ export default function Test() {
         );
       }
     }
-  }, [ideas, itemId, phase]);
+  }, [ideas, itemId, phase, submittedAnswers, sessionExpired]);
 
   const submitAnswers = useCallback(async () => {
-    const answers = completedIdeasRef.current;
-    if (!itemId || answers.length === 0 || submittedRef.current) return;
+    const answers = submittedAnswers ?? [...completedIdeasRef.current];
+    if (!itemId || answers.length === 0 || submittedRef.current || sessionExpired) return;
 
     submittedRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
     try {
       requestIdRef.current ??= crypto.randomUUID();
-      const acceptedResponse = await api.score(
+      setSubmittedAnswers(answers);
+      if (sessionIdRef.current && deadlineRef.current) {
+        saveDraft(itemId, { ideas, submittedAnswers: answers, deadline: deadlineRef.current,
+          sessionId: sessionIdRef.current, requestId: requestIdRef.current });
+      }
+      const response = await api.score(
         itemId,
         answers,
         requestIdRef.current,
         sessionIdRef.current ?? undefined,
       );
-      cacheResponse(acceptedResponse);
-      const response = await waitForCompletedResponse(acceptedResponse);
       cacheResponse(response);
       clearDraft(itemId);
       navigate(`/result/${response.response_id}`, {
         state: { response, source: "submission" },
       });
     } catch (error) {
-      const message = (error as Error).message;
+      const message = error instanceof TypeError
+        ? "Chưa kết nối được với máy chủ. Nội dung bài vẫn được giữ trên trang."
+        : (error as Error).message;
+      if (error instanceof ApiError && error.code === "SURVEY_SESSION_EXPIRED") {
+        setSessionExpired(true);
+        setPhase("EXPIRED");
+        setSubmitError(message);
+        submittedRef.current = false;
+        setSubmitting(false);
+        return;
+      }
       if (message.includes("hồ sơ người tham gia")) {
         clearParticipantProfile();
         setParticipant(null);
@@ -199,7 +182,7 @@ export default function Test() {
       submittedRef.current = false;
       setSubmitting(false);
     }
-  }, [itemId, navigate]);
+  }, [itemId, navigate, submittedAnswers, sessionExpired, ideas]);
 
   useEffect(() => {
     if (phase !== "ACTIVE" || submitting || !deadlineRef.current) return;
@@ -267,6 +250,8 @@ export default function Test() {
     setIdeas(Array(IDEA_LIMIT).fill(""));
     setSecondsLeft(TEST_DURATION_SECONDS);
     setSubmitError(null);
+    setSessionExpired(false);
+    setSubmittedAnswers(undefined);
     submittedRef.current = false;
     requestIdRef.current = null;
     setPhase("READY");
@@ -353,7 +338,7 @@ export default function Test() {
               <Skeleton className="mt-2 h-16 w-52 bg-background/15" />
             )}
             <p className="mt-5 max-w-2xl text-pretty text-base leading-7 text-background/70">
-              1 cuộn chỉ mới cứng chờ bạn nghĩ ra cách sử dụng.
+              {item?.description || "Hãy nghĩ ra những công dụng khác thường cho đồ vật này."}
             </p>
           </div>
 
@@ -397,6 +382,7 @@ export default function Test() {
           itemName={item?.name}
           participantName={participant?.full_name}
           onStart={startTest}
+          starting={starting}
           error={submitError}
           recoveryToken={participant?.access_token}
           onOpenGuide={() => setGuideOpen(true)}
@@ -440,7 +426,7 @@ export default function Test() {
                         inputs.current[index] = node;
                       }}
                       value={idea}
-                      disabled={submitting || phase !== "ACTIVE"}
+                      disabled={submitting || Boolean(submittedAnswers) || phase !== "ACTIVE"}
                       rows={1}
                       maxLength={320}
                       onChange={(event) =>
@@ -490,7 +476,7 @@ export default function Test() {
                   aria-live="polite"
                 >
                   {completedIdeas.length > 0
-                    ? "Hệ thống đang gửi các ý tưởng bạn đã hoàn thành."
+                    ? sessionExpired ? "Phiên đã quá hạn nhận bài. Hãy lưu bản nháp trước khi bắt đầu lượt mới." : "Đã hết giờ viết ý tưởng. Nếu bài chưa gửi thành công, hãy thử gửi lại."
                     : "Bạn chưa ghi ý tưởng nào nên bài chưa được gửi."}
                 </p>
               ) : (
@@ -525,11 +511,23 @@ export default function Test() {
               </p>
             ) : null}
 
-            {phase === "EXPIRED" && completedIdeas.length === 0 ? (
+            {sessionExpired && (
+              <Button variant="outline" className="mt-4 w-full" onClick={() => {
+                const url = URL.createObjectURL(new Blob([ideas.join("\n")], { type: "text/plain;charset=utf-8" }));
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "aut-ban-nhap.txt";
+                link.click();
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }}>Tải bản nháp</Button>
+            )}
+            {phase === "EXPIRED" && (completedIdeas.length === 0 || sessionExpired) ? (
               <Button
                 size="lg"
                 variant="outline"
-                onClick={resetTest}
+                onClick={() => {
+                  if (!completedIdeas.length || window.confirm("Bắt đầu lượt mới sẽ xóa bản nháp trên trang. Bạn đã tải bản nháp cần giữ chưa?")) resetTest();
+                }}
                 className="mt-4 h-14 w-full rounded-xl"
               >
                 Bắt đầu lại 3 phút
@@ -576,6 +574,7 @@ function ReadyPanel({
   itemName,
   participantName,
   onStart,
+  starting,
 
   error,
   recoveryToken,
@@ -584,6 +583,7 @@ function ReadyPanel({
   itemName?: string;
   participantName?: string | null;
   onStart: () => void;
+  starting: boolean;
   error: string | null;
   recoveryToken?: string | null;
   onOpenGuide: () => void;
@@ -609,7 +609,7 @@ function ReadyPanel({
             </p>
           ) : null}
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button size="lg" onClick={onStart} className="sm:min-w-52">
+            <Button size="lg" onClick={onStart} disabled={starting} className="sm:min-w-52">
               <Play className="h-4 w-4" aria-hidden="true" /> Bắt đầu 3 phút
             </Button>
             <Button size="lg" variant="outline" onClick={onOpenGuide}>
@@ -624,7 +624,7 @@ function ReadyPanel({
           ) : null}
           {recoveryToken ? (
             <details className="mt-3 text-xs text-muted-foreground">
-              <summary className="cursor-pointer">PIPILABU</summary>
+              <summary className="cursor-pointer">Mã khôi phục hồ sơ</summary>
               <p className="mt-2 break-all font-mono">{recoveryToken}</p>
             </details>
           ) : null}
@@ -717,14 +717,6 @@ function GuideDialog({
 
 function AnalysisOverlay() {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const [activeStep, setActiveStep] = useState(0);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setActiveStep((step) => Math.min(step + 1, ANALYSIS_STEPS.length - 1));
-    }, 1500);
-    return () => window.clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -768,49 +760,16 @@ function AnalysisOverlay() {
             id="analysis-title"
             className="font-serif text-2xl sm:text-[1.75rem]"
           >
-            AI đang phân tích bài làm
+            Đang gửi bài làm
           </h2>
           <p
             id="analysis-description"
             className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground"
           >
-            Các câu trả lời của bạn đã được lưu và đang được đánh giá. Quá trình
-            này có thể mất vài phút và bạn có thể thoát khỏi trang này rồi! Xin
-            cảm ơn
+            Đang chờ hệ thống xác nhận đã nhận bài. Hãy giữ trang này mở.
           </p>
         </div>
 
-        <div className="px-6 py-6 sm:px-8">
-          <ol className="space-y-3" aria-live="polite">
-            {ANALYSIS_STEPS.map((label, index) => {
-              const complete = index < activeStep;
-              const active = index === activeStep;
-              return (
-                <li
-                  key={label}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-[background-color,color,opacity] ${active ? "bg-research-soft text-foreground" : complete ? "text-muted-foreground" : "text-muted-foreground/45"}`}
-                >
-                  <span
-                    className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border ${complete ? "border-research bg-research text-research-foreground" : active ? "border-research" : "border-border"}`}
-                  >
-                    {complete ? (
-                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                    ) : active ? (
-                      <span
-                        className="h-2 w-2 animate-pulse rounded-full bg-research motion-reduce:animate-none"
-                        aria-hidden="true"
-                      />
-                    ) : null}
-                  </span>
-                  <span>
-                    {label}
-                    {active ? "…" : ""}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
       </div>
     </div>
   );

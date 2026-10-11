@@ -382,6 +382,9 @@ def _run_scoring(response_id: str, token: str) -> None:
             **scoring_meta,
             "calculated_at": scored_at.isoformat(),
             "frequency_basis": basis,
+            "score_policy": "FINAL_FROZEN_V1",
+            "mapping_snapshot": row.mapping,
+            "codebook_epoch": row.item.codebook_epoch,
             "history": list((row.scoring_meta or {}).get("history", [])),
         }
         row.fluency = final.fluency

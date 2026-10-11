@@ -11,6 +11,7 @@ export function responseNeedsProcessing(response: ScoreResponse): boolean {
   return (
     ACTIVE_PROCESSING_STATES.has(response.processing_state) ||
     Boolean(response.resolution_pending) ||
+    Boolean(response.scoring_pending) ||
     Boolean(response.scores_stale)
   );
 }

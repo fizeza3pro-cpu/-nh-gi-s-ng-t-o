@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.controllers import participant_controller, response_controller
 from app.core.deps import get_participant
+from app.core.rate_limit import limit_public_write
 from app.db import get_db
 from app.models.models import Participant
 from app.schemas.schemas import (
@@ -26,14 +27,14 @@ def participant_responses(
     return response_controller.list_participant_responses(db, participant.id)
 
 
-@router.post("/identify", response_model=ParticipantIdentifyResult)
+@router.post("/identify", response_model=ParticipantIdentifyResult, dependencies=[Depends(limit_public_write)])
 def identify_participant(
     payload: ParticipantIdentify, db: Session = Depends(get_db)
 ) -> ParticipantIdentifyResult:
     return participant_controller.identify_participant(db, payload)
 
 
-@router.post("", response_model=ParticipantIdentityOut, status_code=201)
+@router.post("", response_model=ParticipantIdentityOut, status_code=201, dependencies=[Depends(limit_public_write)])
 def create_participant(
     payload: ParticipantCreate, db: Session = Depends(get_db)
 ) -> ParticipantIdentityOut:

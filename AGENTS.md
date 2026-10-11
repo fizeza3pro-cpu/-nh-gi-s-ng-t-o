@@ -207,3 +207,14 @@ npm run dev
   validation (ICC, Known-Group Validity, tiêu chí sàng lọc spam...). **Bắt buộc đọc trước khi đổi
   bất cứ gì liên quan đến cách tính điểm hoặc thu thập dữ liệu.**
 - `quy-trinh-sua-doi-database.md` — quy trình Alembic bắt buộc mỗi khi đổi schema.
+# Quyết định bổ sung ngày 11/10/2026
+
+Các quy tắc sau thay thế mô tả cũ tương ứng bên trên:
+
+- Người dùng đã chọn **đóng băng điểm FINAL**. Không tính lại điểm/căn cứ/scored_at của bài đã FINAL khi có dữ liệu mới; bài mới lưu snapshot căn cứ và mapping trong `scoring_meta` (`FINAL_FROZEN_V1`). Không khôi phục bảng codebook_versions legacy. Điểm hiện chuyển COLLECTING → FINAL khi đủ hai ngưỡng; PROVISIONAL là trạng thái legacy.
+- Participant cần UUID + access token, có trang lịch sử `/history`. Nhóm AI không được người tham gia tự đổi sau khi đã có response.
+- Submit trả nhanh mã bài đã commit; frontend chuyển sang Result để poll, bao gồm khoảng mapping DONE nhưng còn chờ scoring. Không báo đã lưu trước khi POST được xác nhận.
+- DB mới dùng `uv run python -m scripts.prepare_database`; DB có version được Alembic upgrade, DB không version nhưng có bảng phải được kiểm tra thủ công. Không chạy thử trên DB khảo sát thật.
+- Production yêu cầu secret JWT/email và CORS cụ thể. Vercel dùng `VITE_API_BASE_URL` đến backend; xem mục “Cập nhật ổn định hệ thống” trong README cho chuyển đổi khóa email và cấu hình.
+
+---

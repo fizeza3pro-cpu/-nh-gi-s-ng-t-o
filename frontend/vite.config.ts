@@ -2,6 +2,10 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+if (process.env.VERCEL && !/^https:\/\/.+\/api\/?$/.test(process.env.VITE_API_BASE_URL || "")) {
+  throw new Error("Đặt VITE_API_BASE_URL=https://<backend>/api trong môi trường Vercel trước khi build.");
+}
+
 export default defineConfig({
   plugins: [react()],
   resolve: {

@@ -10,3 +10,5 @@ os.environ.setdefault("MOCK_MODE", "true")
 os.environ.setdefault("ASYNC_PROCESSING_ENABLED", "false")
 os.environ.setdefault("SURVEY_SESSION_REQUIRED", "false")
 os.environ.setdefault("PARTICIPANT_TOKEN_REQUIRED", "false")
+os.environ["APP_ENV"] = "test"
+os.environ["RATE_LIMIT_ENABLED"] = "false"

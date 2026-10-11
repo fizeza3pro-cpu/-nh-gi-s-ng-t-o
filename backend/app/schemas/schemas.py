@@ -207,6 +207,7 @@ class ScoreResponse(BaseModel):
     processing_state: Literal["QUEUED", "RUNNING", "SCORING", "DONE", "FAILED"] = "DONE"
     status_message: str = ""
     resolution_pending: bool = False
+    scoring_pending: bool = False
     scores_stale: bool = False
 
 

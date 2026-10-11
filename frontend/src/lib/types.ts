@@ -53,6 +53,7 @@ export interface ScoringResult {
 
 export interface ScoreResponse {
   resolution_pending?: boolean;
+  scoring_pending?: boolean;
   scores_stale?: boolean;
   response_id: string;
   item: Item;

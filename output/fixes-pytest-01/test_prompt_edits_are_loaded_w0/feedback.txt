@@ -1,0 +1,1 @@
+Nội dung đã sửa {item_name} {ideas_json}

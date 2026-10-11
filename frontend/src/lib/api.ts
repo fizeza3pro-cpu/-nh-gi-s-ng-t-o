@@ -20,7 +20,7 @@ import type {
 } from "@/lib/types";
 import type { AdminResearchReport } from "@/lib/report-types";
 
-const BASE = "/api";
+const BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 const TOKEN_KEY = "aut:token";
 const PARTICIPANT_ID_KEY = "aut:participant-id";
 const PARTICIPANT_PROFILE_KEY = "aut:participant-email-profile:v3";
@@ -83,17 +83,46 @@ function participantHeaders(extra?: Record<string, string>): Record<string, stri
   };
 }
 
+async function fetchSurvey(url: string, options?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 30_000);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Chưa nhận được xác nhận từ máy chủ. Nội dung được giữ nguyên để thử lại.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public code?: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let message = `Lỗi máy chủ (${res.status})`;
+    let code: string | undefined;
     try {
       const data = JSON.parse(text);
-      if (data?.detail) message = data.detail;
+      if (typeof data?.detail === "string") message = data.detail;
+      else if (typeof data?.detail?.message === "string") {
+        message = data.detail.message;
+        code = data.detail.code;
+      } else if (Array.isArray(data?.detail)) {
+        message = "Thông tin gửi lên chưa hợp lệ. Vui lòng kiểm tra lại các trường đã nhập.";
+      }
     } catch {
       if (text) message = text;
     }
-    throw new Error(message);
+    throw new ApiError(message, res.status, code);
   }
   return res.json() as Promise<T>;
 }
@@ -161,13 +190,13 @@ export const api = {
     method: "POST", headers: authHeaders(),
   }).then(handle<ParticipantIdentity>),
 
-  startSurveySession: (itemId: string) => fetch(`${BASE}/survey-sessions`, {
+  startSurveySession: (itemId: string) => fetchSurvey(`${BASE}/survey-sessions`, {
     method: "POST", headers: participantHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ item_id: itemId, consent: true }),
   }).then(handle<{ id: string; started_at: string; deadline_at: string; server_now: string }>),
 
   score: (itemId: string, responses: string[], requestId: string, sessionId?: string) =>
-    fetch(`${BASE}/score`, {
+    fetchSurvey(`${BASE}/score`, {
       method: "POST",
       headers: participantHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
@@ -185,7 +214,7 @@ export const api = {
     ),
 
   getResponse: (id: string) =>
-    fetch(`${BASE}/responses/${id}`, { headers: participantHeaders() }).then(handle<ScoreResponse>),
+    fetchSurvey(`${BASE}/responses/${id}`, { headers: participantHeaders() }).then(handle<ScoreResponse>),
 
   adminGetResponse: (id: string) =>
     fetch(`${BASE}/admin/responses/${id}`, { headers: authHeaders() }).then(handle<ScoreResponse>),

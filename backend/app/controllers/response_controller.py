@@ -303,6 +303,9 @@ def _score_row(
         **scoring_meta,
         "calculated_at": scored_at.isoformat(),
         "frequency_basis": frequency_basis,
+        "score_policy": "FINAL_FROZEN_V1",
+        "mapping_snapshot": row.mapping,
+        "codebook_epoch": item_row.codebook_epoch,
         "history": history,
     }
     row.fluency = scoring.fluency
@@ -378,7 +381,7 @@ def reprocess_item_mappings(item_id: str) -> int:
             return 0
         rows = db.scalars(
             select(ResponseModel)
-            .where(ResponseModel.item_id == item_id)
+            .where(ResponseModel.item_id == item_id, ResponseModel.scoring_status != ResponseScoringStatus.FINAL)
             .order_by(ResponseModel.created_at)
         ).all()
         if not rows:
@@ -534,7 +537,7 @@ def _status_message(status: ResponseScoringStatus) -> str:
         ResponseScoringStatus.PROVISIONAL: (
             "Điểm tạm thời đang chờ bộ dữ liệu nghiên cứu được chốt."
         ),
-        ResponseScoringStatus.FINAL: "Điểm theo mẫu dữ liệu hiện tại; có thể cập nhật khi mẫu hoặc phân loại thay đổi.",
+        ResponseScoringStatus.FINAL: "Điểm đã được chốt theo mẫu dữ liệu tại thời điểm chấm và không thay đổi khi có bài mới.",
         ResponseScoringStatus.EXCLUDED: "Lượt này bị loại khỏi dữ liệu theo quyết định quản trị.",
     }[status]
 
@@ -544,16 +547,19 @@ def _to_response(row: ResponseModel) -> ScoreResponse:
         response_id=row.id,
         item=Item(id=row.item.id, name=row.item.name, description=row.item.description),
         raw_input=row.raw_input,
-        mapping=MappingResult.model_validate(row.mapping),
-        scoring=ScoringResult.model_validate(row.scoring) if row.scoring and not row.item.scores_dirty else None,
-        scores_stale=bool(row.scoring and row.item.scores_dirty),
+        mapping=MappingResult.model_validate(
+            (row.scoring_meta or {}).get("mapping_snapshot", row.mapping)
+            if row.scoring_status == ResponseScoringStatus.FINAL else row.mapping
+        ),
+        scoring=ScoringResult.model_validate(row.scoring) if row.scoring else None,
+        scores_stale=False,
+        scoring_pending=(row.processing_state == "DONE" and row.scoring_status == ResponseScoringStatus.COLLECTING
+                         and row.item.calibration_status == ItemCalibrationStatus.ACTIVE and not row.scoring
+                         and row.data_source == settings.survey_data_source),
         scoring_status=row.scoring_status.value,
         processing_state=row.processing_state,
         resolution_pending=(row.scoring_status == ResponseScoringStatus.PENDING_REVIEW and row.resolution_attempts < settings.resolver_max_attempts and row.processing_state != "FAILED"),
         status_message=(
-            "Hệ thống đang cập nhật điểm theo mẫu dữ liệu mới."
-            if row.scoring and row.item.scores_dirty
-            else
             "Bài đã được lưu; hệ thống đang chấm. Bạn có thể đóng trang và xem lại trong lịch sử."
             if row.processing_state in {"QUEUED", "RUNNING", "SCORING"}
             else "Bài đã lưu nhưng xử lý chưa thành công. Vui lòng liên hệ quản trị viên để thử lại."
@@ -577,6 +583,8 @@ def _enqueue_response(db: Session, req: ScoreRequest, participant: ParticipantMo
     item = db.scalar(select(ItemModel).where(ItemModel.id == req.item_id).with_for_update())
     if item is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
+    # Cùng khóa với cập nhật nhóm để bài đầu và hồ sơ không vượt nhau.
+    db.scalar(select(ParticipantModel).where(ParticipantModel.id == participant.id).with_for_update())
     raw = "\n".join(req.responses).strip()
     request_id = str(req.request_id) if req.request_id else str(uuid.uuid4())
     if req.request_id:
@@ -604,10 +612,19 @@ def _enqueue_response(db: Session, req: ScoreRequest, participant: ParticipantMo
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) > deadline + timedelta(seconds=settings.survey_grace_seconds):
-            raise HTTPException(status_code=409, detail="Đã quá thời gian nhận bài của phiên. Bản nháp vẫn còn trên thiết bị.")
+            raise HTTPException(status_code=409, detail={
+                "code": "SURVEY_SESSION_EXPIRED",
+                "message": "Đã quá thời gian nhận bài của phiên. Bản nháp vẫn còn trên thiết bị.",
+            })
         session.submitted_at = datetime.now(timezone.utc)
     elif settings.survey_session_required:
         raise HTTPException(status_code=400, detail="Cần bắt đầu phiên 3 phút trước khi nộp bài.")
+    pending = db.scalars(select(ResponseModel.id).where(
+        ResponseModel.participant_id == participant.id,
+        ResponseModel.processing_state.in_(["QUEUED", "RUNNING", "SCORING"]),
+    ).limit(settings.max_pending_responses_per_participant)).all()
+    if len(pending) >= settings.max_pending_responses_per_participant:
+        raise HTTPException(status_code=429, detail="Bạn đang có nhiều bài chờ xử lý. Hãy chờ hoàn tất rồi gửi lại.", headers={"Retry-After": "30"})
     row = ResponseModel(
         id=str(uuid.uuid4()),
         participant_id=participant.id,
@@ -695,10 +712,13 @@ def create_response(
     background_tasks: BackgroundTasks | None = None,
 ) -> ScoreResponse:
     if settings.async_processing_enabled or settings.survey_session_required:
+        participant_id = participant.id
         queued = _enqueue_response(db, req, participant)
+        # Nhánh gửi trùng cũng phải nhả khóa item/connection trước khi chờ worker.
+        db.commit()
         if not req.wait_for_completion:
             return queued
-        return _wait_for_response_completion(db, queued.response_id, participant.id)
+        return _wait_for_response_completion(db, queued.response_id, participant_id)
     # Khóa theo đồ vật trong suốt chu trình mã hóa để hai lượt gửi đồng thời
     # không thể cùng tạo hai code cho một chức năng mới.
     item_row = db.scalar(
@@ -708,6 +728,7 @@ def create_response(
     )
     if item_row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
+    db.scalar(select(ParticipantModel).where(ParticipantModel.id == participant.id).with_for_update())
     raw = "\n".join(req.responses).strip()
     if not raw:
         raise HTTPException(status_code=400, detail="Câu trả lời rỗng.")

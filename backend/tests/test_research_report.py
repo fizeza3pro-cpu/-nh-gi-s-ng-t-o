@@ -149,7 +149,7 @@ def test_multi_item_filter_is_union_and_counts_people_once(db):
     assert {row.item_id for row in report.object_codes} == {"a", "b"}
 
 
-def test_report_keeps_collecting_ideas_and_omits_stale_final_scores(db):
+def test_report_keeps_frozen_final_scores_when_new_data_is_dirty(db):
     item = Item(id="a", name="Đũa", scores_dirty=True)
     person = Participant(ai_usage_group="LOW")
     db.add_all([item, person])
@@ -159,13 +159,13 @@ def test_report_keeps_collecting_ideas_and_omits_stale_final_scores(db):
     _idea(db, collecting, "INVALID")
     db.commit()
     report = get_research_report(db)
-    assert report.sample.stale_score_responses == 1
+    assert report.sample.stale_score_responses == 0
     assert report.sample.analyzed_responses == 2
     assert report.totals.invalid_ideas == 1
-    assert all(row.low.mean is None and row.high.mean is None for row in report.dimensions)
+    assert all(row.low.mean == 7 and row.high.mean is None for row in report.dimensions)
     assert item.scores_dirty is True
-    assert _ai_group_stats(db)[0].scored_participant_count == 0
-    assert _ai_group_stats(db)[0].mean_fluency is None
+    assert _ai_group_stats(db)[0].scored_participant_count == 1
+    assert _ai_group_stats(db)[0].mean_fluency == 7
     assert not db.dirty
 
 

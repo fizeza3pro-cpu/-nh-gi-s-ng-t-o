@@ -7,10 +7,12 @@ import secrets
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.models import Participant as ParticipantModel
+from app.models.models import Response
 from app.schemas.schemas import (
     ParticipantCreate,
     ParticipantIdentify,
@@ -28,6 +30,23 @@ def token_matches(participant, token: str | None) -> bool:
 
 def _identity(participant, token: str | None = None):
     return ParticipantIdentityOut.model_validate(participant).model_copy(update={"access_token": token})
+
+
+def _commit_profile(db: Session) -> None:
+    """Chuyển tranh chấp email/UUID thành lỗi nghiệp vụ, không cấp token của hồ sơ khác."""
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Hồ sơ vừa được tạo hoặc cập nhật ở yêu cầu khác. Dùng trình duyệt ban đầu hoặc mã khôi phục để tiếp tục.") from exc
+
+
+def _guard_research_group(db: Session, participant, group: str) -> None:
+    """Nhóm nghiên cứu không tự đổi sau bài đầu tiên, kể cả hồ sơ cũ thiếu nhóm."""
+    if participant.ai_usage_group != group and db.scalar(
+        select(Response.id).where(Response.participant_id == participant.id).limit(1)
+    ) is not None:
+        raise HTTPException(status_code=409, detail="Hồ sơ đã có bài khảo sát nên không thể tự đổi nhóm sử dụng AI. Giữ nhóm đã đăng ký hoặc liên hệ quản trị để kiểm tra dữ liệu.")
 
 
 def issue_participant_token(db: Session, participant_id: str) -> ParticipantIdentityOut:
@@ -68,7 +87,7 @@ def identify_participant(
         # Chỉ bổ sung email rõ sau khi đã kiểm tra quyền truy cập hồ sơ cũ.
         if participant.email is None:
             participant.email = payload.email
-            db.commit()
+            _commit_profile(db)
             db.refresh(participant)
         if not participant.full_name or not participant.ai_usage_group:
             return ParticipantIdentifyResult(profile_required=True)
@@ -85,7 +104,7 @@ def identify_participant(
             legacy.email_hash = email_hash
             legacy.email_masked = _mask_email(payload.email)
             legacy.email = payload.email
-            db.commit()
+            _commit_profile(db)
             db.refresh(legacy)
             if not legacy.full_name or not legacy.ai_usage_group:
                 return ParticipantIdentifyResult(profile_required=True)
@@ -101,24 +120,25 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
     """Tạo hồ sơ theo email; gửi lại cùng email luôn nhận đúng participant cũ."""
     email_hash = _email_hash(payload.email)
     existing = db.scalar(
-        select(ParticipantModel).where(ParticipantModel.email_hash == email_hash)
+        select(ParticipantModel).where(ParticipantModel.email_hash == email_hash).with_for_update()
     )
     if existing is not None:
         if settings.participant_token_required and not token_matches(existing, payload.access_token):
             raise HTTPException(status_code=403, detail="Email đã có hồ sơ. Dùng trình duyệt cũ hoặc nhập mã khôi phục; liên hệ quản trị nếu đã mất mã.")
         # Biểu mẫu một bước đồng thời là nơi người tham gia xác nhận lại hồ sơ.
+        _guard_research_group(db, existing, payload.ai_usage_group)
         existing.email = payload.email
         existing.full_name = payload.full_name
         existing.age = payload.age
         existing.gender = payload.gender
         existing.occupation = payload.occupation
         existing.ai_usage_group = payload.ai_usage_group
-        db.commit()
+        _commit_profile(db)
         db.refresh(existing)
         return _identity(existing, payload.access_token)
 
     participant_id = str(payload.participant_id or uuid.uuid4())
-    existing_id = db.get(ParticipantModel, participant_id)
+    existing_id = db.scalar(select(ParticipantModel).where(ParticipantModel.id == participant_id).with_for_update())
     if existing_id is not None:
         if settings.participant_token_required and not token_matches(existing_id, payload.access_token):
             raise HTTPException(status_code=403, detail="Cần mã khôi phục của hồ sơ cũ.")
@@ -127,6 +147,7 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
                 status_code=409,
                 detail="Thiết bị đang liên kết với một email khác.",
             )
+        _guard_research_group(db, existing_id, payload.ai_usage_group)
         existing_id.email_hash = email_hash
         existing_id.email_masked = _mask_email(payload.email)
         existing_id.email = payload.email
@@ -135,7 +156,7 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         existing_id.gender = payload.gender
         existing_id.occupation = payload.occupation
         existing_id.ai_usage_group = payload.ai_usage_group
-        db.commit()
+        _commit_profile(db)
         db.refresh(existing_id)
         return _identity(existing_id, payload.access_token)
 
@@ -153,6 +174,6 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         ai_usage_group=payload.ai_usage_group,
     )
     db.add(participant)
-    db.commit()
+    _commit_profile(db)
     db.refresh(participant)
     return _identity(participant, token)

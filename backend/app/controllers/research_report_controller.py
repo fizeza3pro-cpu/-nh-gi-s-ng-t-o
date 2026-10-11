@@ -178,10 +178,8 @@ def get_research_report(
             samples[group][dimension].append(float(values[index]))
     sample.score_participants_low = len(samples["LOW"]["fluency"])
     sample.score_participants_high = len(samples["HIGH"]["fluency"])
-    sample.stale_score_responses = db.scalar(
-        select(func.count(Response.id)).join(Item, Item.id == Response.item_id)
-        .where(*analyzed, Response.scoring_status == ResponseScoringStatus.FINAL, Item.scores_dirty.is_(True))
-    ) or 0
+    # Điểm FINAL thuộc mốc chấm của từng bài, không lỗi thời khi có mẫu mới.
+    sample.stale_score_responses = 0
     dimensions = [_compare(dimension, samples["LOW"][dimension], samples["HIGH"][dimension]) for dimension in DIMENSIONS]
     _adjust_holm(dimensions)
     totals = ReportIdeaCounts(

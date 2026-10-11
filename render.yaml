@@ -4,8 +4,13 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: pip install uv && uv sync --no-dev
+    preDeployCommand: uv run python -m scripts.prepare_database
     startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: APP_ENV
+        value: production
+      - key: PARTICIPANT_EMAIL_SECRET
+        sync: false
       - key: LLM_PROVIDER
         value: byteplus
       - key: BYTEPLUS_API_KEY
@@ -113,4 +118,4 @@ services:
       - key: SCORING_RUNS
         value: "1"
       - key: CORS_ORIGINS
-        value: "*"
+        sync: false

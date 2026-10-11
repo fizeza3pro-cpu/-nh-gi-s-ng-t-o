@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -199,8 +200,10 @@ def test_survey_session_enforces_deadline_and_idempotency(client, monkeypatch):
     db.get(SurveySession, second["id"]).deadline_at = datetime.now(timezone.utc) - timedelta(minutes=2)
     db.commit()
     next(database, None)
-    assert client.post("/api/score", headers=headers,
-                       json={**payload, "survey_session_id": second["id"]}).status_code == 409
+    expired = client.post("/api/score", headers=headers,
+                          json={**payload, "survey_session_id": second["id"]})
+    assert expired.status_code == 409
+    assert expired.json()["detail"]["code"] == "SURVEY_SESSION_EXPIRED"
     other = {"X-Participant-Id": create_participant(client)}
     assert client.post("/api/score", headers=other, json=payload).status_code == 403
 
@@ -529,6 +532,7 @@ def test_submit_can_wait_on_same_post_without_client_polling(client, monkeypatch
     observed: dict[str, str] = {}
 
     def fake_wait(db, response_id: str, current_participant_id: str):
+        assert not db.in_transaction(), "Không giữ transaction của request khi chờ worker"
         row = db.get(Response, response_id)
         assert row is not None
         assert row.processing_state == "QUEUED"
@@ -553,6 +557,13 @@ def test_submit_can_wait_on_same_post_without_client_polling(client, monkeypatch
         "response_id": submitted.json()["response_id"],
         "participant_id": participant_id,
     }
+    duplicate = client.post("/api/score", headers={"X-Participant-Id": participant_id}, json={
+        "item_id": "dua", "responses": ["làm đồ trang trí Noel"],
+        "request_id": json.loads(submitted.request.content)["request_id"],
+        "wait_for_completion": True,
+    })
+    assert duplicate.status_code == 200
+    assert duplicate.json()["response_id"] == submitted.json()["response_id"]
 
 
 def test_browser_ready_waits_for_scoring_after_mapping():
@@ -574,8 +585,77 @@ def test_browser_ready_waits_for_scoring_after_mapping():
     )
 
     assert response_controller._response_is_ready_for_browser(row) is False
+    row.data_source = main_mod.settings.survey_data_source
+    row.id = str(uuid.uuid4())
+    item.description = "Một đôi đũa"
+    row.resolution_attempts = 0
+    assert response_controller._to_response(row).scoring_pending is True
     row.scoring_status = ResponseScoringStatus.PENDING_REVIEW
     assert response_controller._response_is_ready_for_browser(row) is True
+
+
+def test_final_scores_and_basis_survive_new_submissions(client, monkeypatch):
+    """Bài mới và recount không sửa kết quả hoặc căn cứ của bài đã chốt."""
+    from copy import deepcopy
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    engine = db.get_bind()
+    item = db.get(Item, "dua")
+    item.scoring_min_participants = 1
+    item.scoring_min_ideas = 1
+    db.commit()
+    database.close()
+    monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+    headers = {"X-Participant-Id": create_participant(client)}
+    first = client.post("/api/score", headers=headers, json={"item_id": "dua", "responses": ["làm đồ trang trí Noel"]}).json()
+    for _ in range(5):
+        response_worker.run_one_job()
+    with Session(engine) as db:
+        row = db.get(Response, first["response_id"])
+        assert row.scoring_status == ResponseScoringStatus.FINAL
+        frozen = deepcopy((row.scoring, row.scoring_meta, row.scored_at))
+    second = client.post("/api/score", headers=headers, json={"item_id": "dua", "responses": ["làm đồ trang trí Noel"]})
+    assert second.status_code == 200
+    for _ in range(5):
+        response_worker.run_one_job()
+    with Session(engine) as db:
+        row = db.get(Response, first["response_id"])
+        assert (row.scoring, row.scoring_meta, row.scored_at) == frozen
+        row.item.scores_dirty = True
+        db.commit()
+    detail = client.get(f"/api/responses/{first['response_id']}", headers=headers).json()
+    assert detail["scoring"] == frozen[0]
+    assert detail["scores_stale"] is False
+    assert detail["mapping"] == frozen[1]["mapping_snapshot"]
+
+
+def test_research_group_cannot_change_after_submission(client):
+    """Khôi phục hồ sơ không chuyển các bài cũ sang nhóm nghiên cứu khác."""
+    payload = {"email": "group-locked@example.test", "full_name": "Nguyễn Minh Anh",
+               "age": 20, "gender": "female", "occupation": "Sinh viên", "ai_usage_group": "LOW"}
+    identity = client.post("/api/participants", json=payload).json()
+    assert client.post("/api/score", headers={"X-Participant-Id": identity["id"]},
+                       json={"item_id": "dua", "responses": ["gõ nhịp"]}).status_code == 200
+    payload["access_token"] = identity["access_token"]
+    assert client.post("/api/participants", json={**payload, "ai_usage_group": "HIGH"}).status_code == 409
+    assert client.post("/api/participants", json=payload).status_code == 201
+
+
+def test_queue_limit_allows_idempotent_retry(client, monkeypatch):
+    """Giới hạn job mới nhưng bài đã nhận vẫn tra lại được bằng cùng request_id."""
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+    monkeypatch.setattr(main_mod.settings, "max_pending_responses_per_participant", 1)
+    headers = {"X-Participant-Id": create_participant(client)}
+    payload = {"item_id": "dua", "responses": ["gõ nhịp"], "request_id": str(uuid.uuid4())}
+    first = client.post("/api/score", headers=headers, json=payload)
+    assert first.status_code == 200
+    blocked = client.post("/api/score", headers=headers, json={**payload, "request_id": str(uuid.uuid4())})
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "30"
+    retry = client.post("/api/score", headers=headers, json=payload)
+    assert retry.status_code == 200
+    assert retry.json()["response_id"] == first.json()["response_id"]
 
 
 def test_stale_codebook_epoch_rechecks_before_create(client, monkeypatch):

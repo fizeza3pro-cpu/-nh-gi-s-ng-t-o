@@ -235,3 +235,38 @@ Về mỗi terminal (1 và 2) bấm **Ctrl + C**. Đóng 2 cửa sổ là xong.
 | `npm: command not found`                                  | Chưa cài Node.js. Cài lại (Bước 0).                                                    |
 | Cổng 8000 hoặc 5173 báo "address already in use"          | Đã có tiến trình cũ chiếm cổng. Đóng terminal cũ, hoặc khởi động lại máy rồi chạy lại. |
 | Nộp bài báo lỗi khi `MOCK_MODE=false`                     | Kiểm tra `LLM_PROVIDER`, thông tin xác thực và model tương ứng của BytePlus/Groq/Cloudflare. |
+## Cập nhật ổn định hệ thống — 11/10/2026
+
+- Điểm `FINAL` được đóng băng. Bài mới chỉ ảnh hưởng tần suất cho những bài chưa chốt; `scoring_meta` của bài mới lưu căn cứ, mapping tại lúc chấm và `FINAL_FROZEN_V1`. Không khôi phục được các phiên bản điểm đã bị ghi đè trước bản sửa này.
+- Người tham gia không tự đổi nhóm LOW/HIGH sau khi đã có bài. Hồ sơ cũ thiếu nhóm cần xử lý nghiên cứu riêng, không tự gán nhóm quá khứ.
+- Gửi bài chỉ xác nhận đã lưu sau phản hồi API. Mất mạng cho phép gửi lại cùng request_id và nội dung; bản nháp quá hạn có thể tải xuống rồi bắt đầu lượt mới trống.
+
+## Triển khai bản sửa
+
+Backend Render cần `APP_ENV=production`, `JWT_SECRET` và `PARTICIPANT_EMAIL_SECRET` ít nhất 32 ký tự, `CORS_ORIGINS` chứa chính xác origin frontend (không dùng `*`). Nếu trước đây chưa đặt khóa email riêng, đặt `PARTICIPANT_EMAIL_SECRET` bằng **giá trị JWT_SECRET cũ đang dùng** trước khi xoay JWT để giữ nguyên HMAC email. Nếu khóa cũ dưới 32 ký tự, cần kế hoạch chuyển hash hồ sơ trước khi bật production; không thay khóa ngẫu nhiên rồi mất liên kết email.
+
+Vercel: đặt root project là `frontend`, `VITE_API_BASE_URL=https://<backend-thật>/api`; `frontend/vercel.json` đã có rewrite SPA. Không còn proxy tới URL mẫu. Build trên Vercel sẽ dừng nếu thiếu URL API HTTPS. Development vẫn dùng `/api` qua Vite proxy (`AUT_API_PROXY`, mặc định localhost:8000).
+
+Chuẩn bị DB từ thư mục `backend`:
+
+```sh
+uv run python -m scripts.prepare_database
+```
+
+Script chỉ tạo schema hiện hành, 12 đồ vật mặc định và stamp head khi DB hoàn toàn trống. DB đã có Alembic version chạy upgrade; DB có bảng nhưng chưa có version bị từ chối để tránh stamp nhầm. Không tạo tài khoản admin mặc định. Render dùng script này trong `preDeployCommand`; nếu gói hosting không hỗ trợ pre-deploy, chạy bước này từ quy trình phát hành trước khi khởi động app. Sao lưu và kiểm tra revision trước khi nâng DB cũ: lịch sử migration có các bước reset dữ liệu có chủ đích.
+
+Giới hạn tải: `LOGIN_REQUESTS_PER_MINUTE=20`, `PUBLIC_REQUESTS_PER_MINUTE=120` theo IP/mỗi tiến trình; `MAX_PENDING_RESPONSES_PER_PARTICIPANT=3` dùng khóa DB. Có thể điều chỉnh theo quy mô khảo sát chung mạng. Lớp IP limiter không dùng chung giữa replica, reset khi restart; với nhiều replica cần giới hạn chung ở gateway/WAF. Chỉ cấu hình tin proxy đã xác định; không tin tùy ý X-Forwarded-For từ Internet.
+
+## Kiểm thử bản sửa
+
+CI `.github/workflows/checks.yml` chạy pytest, hai kiểm thử PostgreSQL trong schema riêng và build frontend. Local không có `TEST_POSTGRES_URL` sẽ bỏ qua hai test PostgreSQL. Tuyệt đối dùng PostgreSQL kiểm thử riêng cho biến này. Test khởi tạo DB không thay thế diễn tập nâng cấp bản sao DB production từ revision đang vận hành.
+
+```sh
+cd backend
+uv run pytest -q
+cd ../frontend
+npm ci
+npm run build
+```
+
+---

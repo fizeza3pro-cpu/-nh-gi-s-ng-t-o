@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.controllers import response_controller, survey_controller
 from app.core.deps import get_participant, require_admin
+from app.core.rate_limit import limit_public_write
 from app.db import get_db
 from app.models.models import Participant as ParticipantModel
 from app.schemas.schemas import ResponseSummary, ScoreRequest, ScoreResponse
@@ -11,12 +12,12 @@ from app.schemas.schemas import SurveySessionRequest, SurveySessionOut
 router = APIRouter(tags=["responses"])
 
 
-@router.post("/api/survey-sessions", response_model=SurveySessionOut)
+@router.post("/api/survey-sessions", response_model=SurveySessionOut, dependencies=[Depends(limit_public_write)])
 def start_session(payload: SurveySessionRequest, db: Session = Depends(get_db), participant: ParticipantModel = Depends(get_participant)):
     return survey_controller.start_session(db, participant, payload)
 
 
-@router.post("/api/score", response_model=ScoreResponse)
+@router.post("/api/score", response_model=ScoreResponse, dependencies=[Depends(limit_public_write)])
 def score(
     req: ScoreRequest,
     background_tasks: BackgroundTasks,

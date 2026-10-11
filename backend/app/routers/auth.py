@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.controllers import auth_controller
 from app.core.deps import require_admin
+from app.core.rate_limit import limit_login
 from app.db import get_db
 from app.models.models import User as UserModel
 from app.schemas.schemas import Token, UserLogin, UserOut
@@ -10,7 +11,7 @@ from app.schemas.schemas import Token, UserLogin, UserOut
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, dependencies=[Depends(limit_login)])
 def login(payload: UserLogin, db: Session = Depends(get_db)) -> Token:
     return auth_controller.login_user(db, payload)
 

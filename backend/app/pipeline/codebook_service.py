@@ -34,7 +34,6 @@ from app.schemas.schemas import (
     MappedIdea,
     MappingResult,
     PerIdeaScore,
-    ScoringResult,
 )
 
 
@@ -952,63 +951,5 @@ def originality_for_response(
 
 
 def refresh_final_frequency_scores(db: Session, item_id: str) -> int:
-    """Tính lại phần phụ thuộc tần suất, giữ nguyên Elaboration đã chấm bằng LLM."""
-    rows = db.scalars(
-        select(Response).where(
-            Response.item_id == item_id,
-            Response.scoring_status == ResponseScoringStatus.FINAL,
-            calibration_source_filter(),
-        )
-    ).all()
-    live_counts = _code_live_counts(db, item_id)
-    refreshed = 0
-    refreshed_at = datetime.now(timezone.utc)
-    for row in rows:
-        if not row.scoring:
-            continue
-        previous = ScoringResult.model_validate(row.scoring)
-        fluency, flexibility, codes, current_scores, basis = originality_for_response(db, row, live_counts=live_counts)
-        previous_by_idea = {
-            (score.idea_id or (score.original, score.normalized)): score for score in previous.per_idea_scores
-        }
-        merged_scores = []
-        for score in current_scores:
-            old = previous_by_idea.get(score.idea_id or (score.original, score.normalized))
-            if old is None or old.original != score.original:
-                break
-            merged_scores.append(
-                score.model_copy(
-                    update={
-                        "elaboration": old.elaboration if old else 1,
-                        "meaningful_word_count": old.meaningful_word_count if old else 0,
-                        "elaboration_details": old.elaboration_details if old else {},
-                        "note": old.note if old else "",
-                    }
-                )
-            )
-        if len(merged_scores) != len(current_scores):
-            row.scoring_status = ResponseScoringStatus.COLLECTING
-            row.scoring = {}
-            continue
-        scoring = ScoringResult(
-            fluency=fluency,
-            flexibility=flexibility,
-            flexibility_codes=codes,
-            originality=sum(score.originality for score in merged_scores),
-            elaboration=sum(score.elaboration for score in merged_scores),
-            per_idea_scores=merged_scores,
-            summary_vi=previous.summary_vi,
-        )
-        row.scoring = scoring.model_dump()
-        row.fluency = scoring.fluency
-        row.flexibility = scoring.flexibility
-        row.originality = scoring.originality
-        row.elaboration = scoring.elaboration
-        row.scored_at = refreshed_at
-        row.scoring_meta = {
-            **(row.scoring_meta or {}),
-            "frequency_basis": basis,
-            "frequency_refreshed_at": refreshed_at.isoformat(),
-        }
-        refreshed += 1
-    return refreshed
+    """Giữ tương thích script cũ; điểm FINAL và căn cứ đã chốt không tính lại."""
+    return 0

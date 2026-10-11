@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +9,11 @@ BACKEND_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 class Settings(BaseSettings):
+    app_env: Literal["development", "test", "production"] = "development"
+    rate_limit_enabled: bool = True
+    login_requests_per_minute: int = Field(default=20, ge=1)
+    public_requests_per_minute: int = Field(default=120, ge=1)
+    max_pending_responses_per_participant: int = Field(default=3, ge=1)
     # Luôn đọc backend/.env, kể cả khi uvicorn được khởi chạy từ thư mục gốc hoặc từ IDE.
     # Biến môi trường thật của hệ điều hành/Render vẫn có độ ưu tiên cao hơn file này.
     model_config = SettingsConfigDict(
@@ -120,6 +125,18 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-env"
     jwt_expire_minutes: int = 60 * 24
     participant_email_secret: str | None = None
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        """Dừng triển khai thiếu bí mật; không tự sinh khóa làm mất liên kết email cũ."""
+        if self.app_env == "production":
+            if self.jwt_secret == "change-me-in-env" or len(self.jwt_secret.strip()) < 32:
+                raise ValueError("Production cần JWT_SECRET riêng, ít nhất 32 ký tự.")
+            if not self.participant_email_secret or len(self.participant_email_secret.strip()) < 32:
+                raise ValueError("Production cần PARTICIPANT_EMAIL_SECRET ổn định, ít nhất 32 ký tự.")
+            if not self.cors_origins.strip() or any(origin.strip() == "*" for origin in self.cors_origins.split(",")):
+                raise ValueError("Production cần CORS_ORIGINS là danh sách domain frontend cụ thể.")
+        return self
 
     @field_validator("llm_provider", mode="before")
     @classmethod
