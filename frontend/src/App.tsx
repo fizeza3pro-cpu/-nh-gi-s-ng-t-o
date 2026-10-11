@@ -9,6 +9,7 @@ import AdminOverview from "@/pages/AdminOverview";
 import AdminParticipants from "@/pages/AdminParticipants";
 import AdminParticipantDetail from "@/pages/AdminParticipantDetail";
 import AdminCodebooks from "@/pages/AdminCodebooks";
+import AdminReports from "@/pages/AdminReports";
 import Login from "./components/auth/Login";
 import AdminRoute from "./components/auth/AdminRoute";
 
@@ -76,6 +77,7 @@ export default function App() {
           {/* admin — giao diện TÁCH BIỆT hoàn toàn, sidebar riêng, không dùng SiteHeader/Footer */}
           <Route element={<AdminRoute />}>
             <Route path="/admin" element={<AdminOverview />} />
+            <Route path="/admin/reports" element={<AdminReports />} />
             <Route path="/admin/participants" element={<AdminParticipants />} />
             <Route path="/admin/participants/:participantId" element={<AdminParticipantDetail />} />
             <Route path="/admin/responses/:responseId" element={<Result />} />

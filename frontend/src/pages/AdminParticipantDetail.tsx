@@ -96,7 +96,7 @@ export default function AdminParticipantDetail() {
             {detail.participant.age ?? "—"} tuổi · {detail.participant.gender ? GENDER_LABELS[detail.participant.gender] ?? detail.participant.gender : "Dữ liệu cũ"} · {detail.participant.occupation || "Chưa có ngành/nghề"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Email: {detail.participant.email_masked || "Chưa liên kết email"} · {detail.participant.email_verified_at ? "Đã xác thực" : "Chưa xác thực"}
+            Email: {detail.participant.email || detail.participant.email_masked || "Chưa liên kết email"} · {detail.participant.email_verified_at ? "Đã xác thực" : "Chưa xác thực"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             Nhóm nghiên cứu: {detail.participant.ai_usage_group ? AI_GROUP_LABELS[detail.participant.ai_usage_group] : "Chưa phân nhóm"}

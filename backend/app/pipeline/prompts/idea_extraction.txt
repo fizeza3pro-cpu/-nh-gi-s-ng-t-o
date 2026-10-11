@@ -21,11 +21,18 @@ Quy tắc adequacy:
 - Mỗi dòng được trả lời trong ngữ cảnh câu hỏi về {item_name}. Nếu câu ngắn không nhắc lại tên vật
   nhưng mô tả một công dụng có thể áp dụng cho vật đó (ví dụ “làm vòng cổ”, “nhồi thuốc súng để bắn”),
   phải hiểu {item_name} là chủ thể ngầm, đặt `uses_target_object=true` và `object_used="{item_name}"`.
-- INVALID: rỗng nghĩa, lạc đề, hoặc nói rõ chỉ dùng một đồ vật khác mà {item_name} không tham gia.
+- INVALID: rỗng nghĩa, lạc đề, không có cơ sở chức năng cho công dụng được nêu, hoặc nói rõ chỉ dùng một đồ vật khác mà {item_name} không tham gia.
   Không được đánh INVALID chỉ vì response không lặp lại tên {item_name}.
+- Giữ đúng hành động và vai trò trong câu gốc. Chỉ suy ra chủ thể ngầm/thuộc tính thông thường;
+  không tự thêm vật trung gian, đổi công dụng hoặc bịa thuộc tính để cứu ý. Câu rõ nghĩa vẫn có thể INVALID.
+  Ví dụ với vật kim loại: “cho chó ăn”/“làm thức ăn” là đề xuất dùng vật làm thức ăn, không phải làm bát;
+  INVALID vì không có cơ sở chức năng dinh dưỡng. “Làm bát đựng thức ăn” có vai trò chứa đựng nên có thể VALID.
+  Không tự đổi thành đạo cụ, đồ chơi hay biểu tượng nếu câu không có căn cứ cho cách hiểu đó.
+  Ít khả thi/nguy hiểm KHÔNG tự nó là lý do loại, nhưng cũng không thay thế căn cứ chức năng.
+  Nếu INVALID, nêu công dụng được đề xuất và cơ sở chức năng bị thiếu, không chỉ nói “không thể”.
 - Cụm “dùng làm X” vẫn có chủ thể ngầm là {item_name}; X là vai trò/vật thay thế được đề xuất, không
   phải bằng chứng rằng người trả lời chuyển sang đồ vật khác. Các câu như “dùng để tính điểm” hoặc
-  “dùng làm súng cối” cần được giải mã vai trò tối thiểu trước khi cân nhắc INVALID.
+  “dùng làm súng cối” cần xét vai trò vật liệu/bộ phận thực sự có căn cứ, không tự đổi thành mô hình để giữ VALID.
 - DUPLICATE: cùng mục đích, vai trò và cơ chế với một dòng trước trong cùng lượt. Chỉ cùng category nhưng khác công dụng không phải duplicate.
 - Chỉ đổi người nhận (tặng mẹ/tặng người yêu), cách diễn đạt hoặc một chi tiết không tạo công dụng mới là DUPLICATE.
   Vòng tay và vòng cổ có thể là hai sản phẩm khác nhau dù cùng category trang sức. duplicate_of_index phải trỏ về dòng VALID trước đó.

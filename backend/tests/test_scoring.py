@@ -79,7 +79,9 @@ def test_multi_run_uses_grounded_majority_and_formula():
     assert result.per_idea_scores[1].elaboration == 2
     assert result.originality == 3
     assert result.elaboration == 7
-    assert "3.50/5" in result.summary_vi
+    assert "Buộc đũa" in result.summary_vi
+    assert "Bạn có thể thử" in result.summary_vi
+    assert "/5" not in result.summary_vi
 
 
 def test_ungrounded_evidence_does_not_receive_a_point():
@@ -114,7 +116,8 @@ def test_no_valid_ideas_skips_llm():
 
 def test_creative_feedback_is_separate_from_numeric_scoring():
     feedback = {"observations": [{"text": "Bạn khai thác đồ vật theo hướng hỗ trợ hoạt động thực tế.",
-                                  "evidence": [{"idea_id": "idea-0", "quote": "giá đỡ điện thoại"}]}],
+                                  "evidence": [{"idea_id": "idea-0", "quote": "giá đỡ điện thoại"},
+                                               {"idea_id": "idea-1", "quote": "que chỉ trên bảng"}]}],
                 "suggestion": "Thử đổi đối tượng sử dụng để phát triển thêm một hướng công dụng."}
     client = FakeClient([_run(), json.dumps(feedback)])
     result, meta = run_scoring(ITEM, 2, 2, ["GIÁ ĐỠ", "CHỈ DẪN"], ORIGINALITY, client, runs=1)

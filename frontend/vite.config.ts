@@ -14,6 +14,7 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: [".trycloudflare.com"],
     port: 5173,
     proxy: {
       "/api": process.env.AUT_API_PROXY || "http://localhost:8000",

@@ -42,13 +42,13 @@ def issue_participant_token(db: Session, participant_id: str) -> ParticipantIden
 
 
 def _email_hash(email: str) -> str:
-    """Tạo khoá tra cứu email nhưng không lưu email rõ trong database."""
+    """Tạo khoá tra cứu email ổn định, tách khỏi mã xác thực hồ sơ."""
     secret = (settings.participant_email_secret or settings.jwt_secret).encode("utf-8")
     return hmac.new(secret, email.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def _mask_email(email: str) -> str:
-    """Giữ một gợi ý không nhạy cảm để admin phân biệt hồ sơ."""
+    """Giữ bản che cho các phản hồi API công khai và hồ sơ cũ."""
     local, domain = email.split("@", 1)
     visible = local[:2] if len(local) > 1 else local[:1]
     return f"{visible}{'*' * max(3, len(local) - len(visible))}@{domain}"
@@ -65,6 +65,11 @@ def identify_participant(
     if participant is not None:
         if settings.participant_token_required and not token_matches(participant, payload.access_token):
             raise HTTPException(status_code=403, detail="Cần mã khôi phục hoặc trình duyệt đã tạo hồ sơ; email không đủ để truy cập hồ sơ cũ.")
+        # Chỉ bổ sung email rõ sau khi đã kiểm tra quyền truy cập hồ sơ cũ.
+        if participant.email is None:
+            participant.email = payload.email
+            db.commit()
+            db.refresh(participant)
         if not participant.full_name or not participant.ai_usage_group:
             return ParticipantIdentifyResult(profile_required=True)
         return ParticipantIdentifyResult(
@@ -79,6 +84,7 @@ def identify_participant(
                 raise HTTPException(status_code=403, detail="Cần mã khôi phục của hồ sơ cũ.")
             legacy.email_hash = email_hash
             legacy.email_masked = _mask_email(payload.email)
+            legacy.email = payload.email
             db.commit()
             db.refresh(legacy)
             if not legacy.full_name or not legacy.ai_usage_group:
@@ -101,6 +107,7 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         if settings.participant_token_required and not token_matches(existing, payload.access_token):
             raise HTTPException(status_code=403, detail="Email đã có hồ sơ. Dùng trình duyệt cũ hoặc nhập mã khôi phục; liên hệ quản trị nếu đã mất mã.")
         # Biểu mẫu một bước đồng thời là nơi người tham gia xác nhận lại hồ sơ.
+        existing.email = payload.email
         existing.full_name = payload.full_name
         existing.age = payload.age
         existing.gender = payload.gender
@@ -122,6 +129,7 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
             )
         existing_id.email_hash = email_hash
         existing_id.email_masked = _mask_email(payload.email)
+        existing_id.email = payload.email
         existing_id.full_name = payload.full_name
         existing_id.age = payload.age
         existing_id.gender = payload.gender
@@ -138,6 +146,7 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         full_name=payload.full_name,
         email_hash=email_hash,
         email_masked=_mask_email(payload.email),
+        email=payload.email,
         age=payload.age,
         gender=payload.gender,
         occupation=payload.occupation,

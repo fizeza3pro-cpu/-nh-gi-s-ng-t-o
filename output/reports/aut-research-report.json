@@ -1,0 +1,630 @@
+{
+  "generated_at": "2026-10-02T02:31:41.909232Z",
+  "data_source": "PILOT",
+  "item_id": null,
+  "item_ids": [],
+  "available_items": [
+    {
+      "id": "balo_quan_nhu",
+      "name": "Balo quân nhu",
+      "description": "Trang bị cá nhân dùng hằng ngày, có nhiều khoang và dây đeo."
+    },
+    {
+      "id": "bi_dong_nuoc",
+      "name": "Bi đông nước",
+      "description": "Bình đựng nước cá nhân dạng trụ, thường làm bằng kim loại hoặc nhựa cứng."
+    },
+    {
+      "id": "can_tieu_ly",
+      "name": "Cân tiểu ly",
+      "description": "Dụng cụ cân nhỏ dùng để đo khối lượng với độ chính xác cao."
+    },
+    {
+      "id": "cuon_chi",
+      "name": "Cuộn chỉ",
+      "description": "Sợi chỉ dài được quấn quanh một lõi nhỏ thành cuộn."
+    },
+    {
+      "id": "ghim_kep_giay",
+      "name": "Ghim kẹp giấy",
+      "description": "Kẹp kim loại nhỏ dùng để giữ các tờ giấy cùng nhau."
+    },
+    {
+      "id": "kinh_lup",
+      "name": "Kính lúp",
+      "description": "Thấu kính cầm tay dùng để quan sát vật thể ở kích thước phóng đại."
+    },
+    {
+      "id": "mu_coi",
+      "name": "Mũ cối",
+      "description": "Mũ bảo hộ có dạng vòm, quen thuộc trong môi trường quân đội."
+    },
+    {
+      "id": "ni_long_ao_mua",
+      "name": "Ni lông (áo mưa)",
+      "description": "Tấm vật liệu ni lông mềm, chống nước, thường được dùng làm áo mưa."
+    },
+    {
+      "id": "ong_nghiem",
+      "name": "Ống nghiệm",
+      "description": "Ống nhỏ hình trụ dùng trong phòng thí nghiệm để chứa mẫu hoặc chất lỏng."
+    },
+    {
+      "id": "thung_dan",
+      "name": "Thùng đạn",
+      "description": "Thùng hình hộp chắc chắn dùng để chứa và vận chuyển đạn dược."
+    },
+    {
+      "id": "vo_dan",
+      "name": "Vỏ đạn",
+      "description": "Phần vỏ kim loại rỗng còn lại sau khi viên đạn đã được sử dụng."
+    },
+    {
+      "id": "xeng_cong_binh",
+      "name": "Xẻng công binh",
+      "description": "Dụng cụ đào nhỏ gọn dùng trong hoạt động công binh và dã ngoại."
+    }
+  ],
+  "sample": {
+    "submitted_responses": 45,
+    "analyzed_responses": 45,
+    "excluded_responses": 0,
+    "unfinished_responses": 0,
+    "failed_responses": 0,
+    "ungrouped_responses": 0,
+    "final_scored_responses": 40,
+    "stale_score_responses": 0,
+    "other_source_responses": 60,
+    "score_participants_low": 7,
+    "score_participants_high": 13,
+    "registered_participants_low": 9,
+    "registered_participants_high": 15,
+    "submitted_participants_low": 8,
+    "submitted_participants_high": 14
+  },
+  "totals": {
+    "participant_count": 22,
+    "response_count": 45,
+    "total_ideas": 225,
+    "valid_ideas": 194,
+    "invalid_ideas": 25,
+    "duplicate_ideas": 6,
+    "unclassified_ideas": 0,
+    "pending_code_ideas": 5,
+    "used_code_count": 101
+  },
+  "object_groups": [
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "balo_quan_nhu",
+      "item_name": "Balo quân nhu",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 1,
+      "response_count": 1,
+      "total_ideas": 5,
+      "valid_ideas": 5,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 3,
+      "item_id": "balo_quan_nhu",
+      "item_name": "Balo quân nhu",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "bi_dong_nuoc",
+      "item_name": "Bi đông nước",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "bi_dong_nuoc",
+      "item_name": "Bi đông nước",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "can_tieu_ly",
+      "item_name": "Cân tiểu ly",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "can_tieu_ly",
+      "item_name": "Cân tiểu ly",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 2,
+      "response_count": 3,
+      "total_ideas": 15,
+      "valid_ideas": 12,
+      "invalid_ideas": 3,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 7,
+      "item_id": "cuon_chi",
+      "item_name": "Cuộn chỉ",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 5,
+      "response_count": 7,
+      "total_ideas": 47,
+      "valid_ideas": 37,
+      "invalid_ideas": 7,
+      "duplicate_ideas": 3,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 29,
+      "item_id": "cuon_chi",
+      "item_name": "Cuộn chỉ",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "ghim_kep_giay",
+      "item_name": "Ghim kẹp giấy",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "ghim_kep_giay",
+      "item_name": "Ghim kẹp giấy",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "kinh_lup",
+      "item_name": "Kính lúp",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "kinh_lup",
+      "item_name": "Kính lúp",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 2,
+      "response_count": 2,
+      "total_ideas": 11,
+      "valid_ideas": 10,
+      "invalid_ideas": 1,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 8,
+      "item_id": "mu_coi",
+      "item_name": "Mũ cối",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 4,
+      "response_count": 4,
+      "total_ideas": 23,
+      "valid_ideas": 22,
+      "invalid_ideas": 1,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 1,
+      "used_code_count": 15,
+      "item_id": "mu_coi",
+      "item_name": "Mũ cối",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "ni_long_ao_mua",
+      "item_name": "Ni lông (áo mưa)",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "ni_long_ao_mua",
+      "item_name": "Ni lông (áo mưa)",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "ong_nghiem",
+      "item_name": "Ống nghiệm",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "ong_nghiem",
+      "item_name": "Ống nghiệm",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "thung_dan",
+      "item_name": "Thùng đạn",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "thung_dan",
+      "item_name": "Thùng đạn",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 2,
+      "response_count": 2,
+      "total_ideas": 15,
+      "valid_ideas": 15,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 1,
+      "used_code_count": 13,
+      "item_id": "vo_dan",
+      "item_name": "Vỏ đạn",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 7,
+      "response_count": 23,
+      "total_ideas": 99,
+      "valid_ideas": 83,
+      "invalid_ideas": 13,
+      "duplicate_ideas": 3,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 3,
+      "used_code_count": 37,
+      "item_id": "vo_dan",
+      "item_name": "Vỏ đạn",
+      "group": "HIGH"
+    },
+    {
+      "participant_count": 3,
+      "response_count": 3,
+      "total_ideas": 10,
+      "valid_ideas": 10,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 8,
+      "item_id": "xeng_cong_binh",
+      "item_name": "Xẻng công binh",
+      "group": "LOW"
+    },
+    {
+      "participant_count": 0,
+      "response_count": 0,
+      "total_ideas": 0,
+      "valid_ideas": 0,
+      "invalid_ideas": 0,
+      "duplicate_ideas": 0,
+      "unclassified_ideas": 0,
+      "pending_code_ideas": 0,
+      "used_code_count": 0,
+      "item_id": "xeng_cong_binh",
+      "item_name": "Xẻng công binh",
+      "group": "HIGH"
+    }
+  ],
+  "object_codes": [
+    {
+      "item_id": "balo_quan_nhu",
+      "item_name": "Balo quân nhu",
+      "low_code_count": 0,
+      "high_code_count": 3,
+      "shared_code_count": 0,
+      "total_code_count": 3
+    },
+    {
+      "item_id": "bi_dong_nuoc",
+      "item_name": "Bi đông nước",
+      "low_code_count": 0,
+      "high_code_count": 0,
+      "shared_code_count": 0,
+      "total_code_count": 0
+    },
+    {
+      "item_id": "can_tieu_ly",
+      "item_name": "Cân tiểu ly",
+      "low_code_count": 0,
+      "high_code_count": 0,
+      "shared_code_count": 0,
+      "total_code_count": 0
+    },
+    {
+      "item_id": "cuon_chi",
+      "item_name": "Cuộn chỉ",
+      "low_code_count": 7,
+      "high_code_count": 29,
+      "shared_code_count": 5,
+      "total_code_count": 31
+    },
+    {
+      "item_id": "ghim_kep_giay",
+      "item_name": "Ghim kẹp giấy",
+      "low_code_count": 0,
+      "high_code_count": 0,
+      "shared_code_count": 0,
+      "total_code_count": 0
+    },
+    {
+      "item_id": "kinh_lup",
+      "item_name": "Kính lúp",
+      "low_code_count": 0,
+      "high_code_count": 0,
+      "shared_code_count": 0,
+      "total_code_count": 0
+    },
+    {
+      "item_id": "mu_coi",
+      "item_name": "Mũ cối",
+      "low_code_count": 8,
+      "high_code_count": 15,
+      "shared_code_count": 6,
+      "total_code_count": 17
+    },
+    {
+      "item_id": "ni_long_ao_mua",
+      "item_name": "Ni lông (áo mưa)",
+      "low_code_count": 0,
+      "high_code_count": 0,
+      "shared_code_count": 0,
+      "total_code_count": 0
+    },
+    {
+      "item_id": "ong_nghiem",
+      "item_name": "Ống nghiệm",
+      "low_code_count": 0,
+      "high_code_count": 0,
+      "shared_code_count": 0,
+      "total_code_count": 0
+    },
+    {
+      "item_id": "thung_dan",
+      "item_name": "Thùng đạn",
+      "low_code_count": 0,
+      "high_code_count": 0,
+      "shared_code_count": 0,
+      "total_code_count": 0
+    },
+    {
+      "item_id": "vo_dan",
+      "item_name": "Vỏ đạn",
+      "low_code_count": 13,
+      "high_code_count": 37,
+      "shared_code_count": 8,
+      "total_code_count": 42
+    },
+    {
+      "item_id": "xeng_cong_binh",
+      "item_name": "Xẻng công binh",
+      "low_code_count": 8,
+      "high_code_count": 0,
+      "shared_code_count": 0,
+      "total_code_count": 8
+    }
+  ],
+  "dimensions": [
+    {
+      "dimension": "originality",
+      "low": {
+        "n": 7,
+        "mean": 4.523809523809524,
+        "sd": 2.5448360411214073,
+        "sem": 0.9618576131773408
+      },
+      "high": {
+        "n": 13,
+        "mean": 7.218623481781377,
+        "sd": 5.492286463518045,
+        "sem": 1.5232861895193148
+      },
+      "difference": 2.694813957971853,
+      "p_value": 0.15220394962445552,
+      "p_value_holm": 0.6088157984978221,
+      "test_note": ""
+    },
+    {
+      "dimension": "flexibility",
+      "low": {
+        "n": 7,
+        "mean": 4.0476190476190474,
+        "sd": 1.7683280597740134,
+        "sem": 0.6683651832199142
+      },
+      "high": {
+        "n": 13,
+        "mean": 5.5951417004048585,
+        "sd": 3.6115251428611557,
+        "sem": 1.001656852708716
+      },
+      "difference": 1.547522652785811,
+      "p_value": 0.21508203105228815,
+      "p_value_holm": 0.6452460931568644,
+      "test_note": ""
+    },
+    {
+      "dimension": "fluency",
+      "low": {
+        "n": 7,
+        "mean": 4.619047619047619,
+        "sd": 2.3128351323011223,
+        "sem": 0.87416951193742
+      },
+      "high": {
+        "n": 13,
+        "mean": 5.6882591093117405,
+        "sd": 3.6406866176901107,
+        "sem": 1.0097447906136352
+      },
+      "difference": 1.0692114902641219,
+      "p_value": 0.4342436207837628,
+      "p_value_holm": 0.6452460931568644,
+      "test_note": ""
+    },
+    {
+      "dimension": "elaboration",
+      "low": {
+        "n": 7,
+        "mean": 8.380952380952381,
+        "sd": 4.0708019567928595,
+        "sem": 1.5386185163241441
+      },
+      "high": {
+        "n": 13,
+        "mean": 12.218623481781377,
+        "sd": 11.247157148838852,
+        "sem": 3.11940013871845
+      },
+      "difference": 3.837671100828995,
+      "p_value": 0.2856297543676542,
+      "p_value_holm": 0.6452460931568644,
+      "test_note": ""
+    }
+  ],
+  "summary_vi": [
+    "Nguồn PILOT: 22 người, 45 lượt hoàn tất được tổng hợp.",
+    "Trong phạm vi được chọn, đã nộp bài: 8 người ít sử dụng AI và 14 người sử dụng nhiều AI. Toàn hệ thống có 9 và 15 hồ sơ tương ứng; hồ sơ chưa nộp hoặc chưa có điểm FINAL không tham gia biểu đồ điểm.",
+    "Tỷ lệ ý hợp lệ là 86.22%; có 5 ý hợp lệ đang chờ mã và 101 mã đã được sử dụng (đếm riêng theo đồ vật).",
+    "Có 225 ý tưởng: 194 hợp lệ, 25 không hợp lệ và 6 trùng lặp.",
+    "Biểu đồ điểm dùng 40 lượt có điểm chính thức, từ 7 người ít sử dụng AI và 13 người sử dụng nhiều AI.",
+    "Độc đáo: nhóm sử dụng nhiều AI cao hơn 2.69 điểm trung bình.",
+    "Linh hoạt: nhóm sử dụng nhiều AI cao hơn 1.55 điểm trung bình.",
+    "Trôi chảy: nhóm sử dụng nhiều AI cao hơn 1.07 điểm trung bình.",
+    "Chi tiết: nhóm sử dụng nhiều AI cao hơn 3.84 điểm trung bình.",
+    "Chưa ghi nhận khác biệt có ý nghĩa thống kê ở các tiêu chí kiểm định được sau hiệu chỉnh Holm (p ≥ 0,05). Kết quả này không chứng minh hai nhóm tương đương; cần đối chiếu cỡ mẫu và cơ cấu đồ vật."
+  ],
+  "methodology_vi": [
+    "Phân nhóm theo mức sử dụng AI tự khai trong hồ sơ hiện tại: LOW = sử dụng ít AI; HIGH = sử dụng nhiều AI. Đây là so sánh quan sát giữa hai nhóm, không phải trước/sau can thiệp và không chứng minh quan hệ nhân quả.",
+    "Bảng ý tưởng và mã dùng mọi lượt DONE không bị EXCLUDED của nguồn được chọn, kể cả lượt chưa có điểm. Không trộn dữ liệu SYNTHETIC hoặc nguồn khác. Nhóm chưa khai báo được thống kê riêng và không tham gia so sánh điểm.",
+    "Tổng ý = hợp lệ + không hợp lệ + trùng lặp + chưa phân loại. Ý chờ mã là một phần của ý VALID chưa có mã ACCEPTED/ACTIVE. Số mã chỉ đếm mã khác nhau đã gán cho ý VALID; tổng mã là hợp của các nhóm, không cộng mã trùng giữa nhóm.",
+    "Biểu đồ chỉ dùng điểm FINAL của lượt DONE trên đồ vật có điểm đã đồng bộ. Điểm là tổng điểm của một lượt theo rubric hiện hành; số 0 được giữ như một điểm thực. Điểm tạm thời, chưa chấm và điểm đang lỗi thời không được coi là 0.",
+    "Đơn vị so sánh là người tham gia: lấy trung bình tất cả lượt FINAL đủ điều kiện của mỗi người trên các đồ vật được chọn, rồi lấy trung bình nhóm. Mỗi người có trọng số bằng nhau. Cách tính và mẫu điểm thống nhất với dashboard khi cùng nguồn và tất cả đồ vật. Cơ cấu đồ vật có thể khác giữa người/nhóm; dùng bộ lọc đồ vật để đối chiếu.",
+    "Thanh sai số là ±1 SEM (độ lệch chuẩn mẫu chia căn bậc hai số người). Một người chưa đủ để ước lượng SEM. p thô dùng Welch t-test hai phía; p trên biểu đồ hiệu chỉnh Holm cho bốn tiêu chí. Không ước lượng p nếu mỗi nhóm chưa có ít nhất 2 người hoặc cả hai nhóm không có biến thiên."
+  ]
+}

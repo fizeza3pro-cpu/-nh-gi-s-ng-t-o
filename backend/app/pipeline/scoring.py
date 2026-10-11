@@ -146,30 +146,37 @@ def _detail_note(details: dict[str, str], meaningful_word_count: int) -> str:
 
 
 def _summary(per_idea_scores: list[PerIdeaScore]) -> str:
-    """Tạo nhận xét từ điểm đã tính, không giao phần kết luận cho LLM."""
-    count = len(per_idea_scores)
-    average = sum(score.elaboration for score in per_idea_scores) / count
-    developed = sum(score.elaboration >= 3 for score in per_idea_scores)
-    facet_counts = Counter(
-        facet
+    """Nhận xét dự phòng dễ hiểu, chỉ dùng chi tiết có thật trong câu người dùng."""
+    if not per_idea_scores:
+        return "Chưa có đủ ý để nhận xét. Bạn hãy thử nêu một cách dùng đồ vật và giải thích cách dùng đó."
+    explanations = {
+        "mechanism": "Bạn đã nói thêm cách thực hiện",
+        "context": "Bạn đã nói thêm nơi hoặc tình huống sử dụng",
+        "target": "Bạn đã nói rõ ý tưởng dùng cho ai hoặc tác động đến thứ gì",
+        "goal": "Bạn đã giải thích thêm điều muốn đạt được khi sử dụng",
+    }
+    suggestions = {
+        "mechanism": "Chọn một ý và nói thêm bạn sẽ làm thế nào để dùng đồ vật theo cách đó.",
+        "target": "Chọn một ý và nói rõ ai sẽ dùng hoặc bạn sẽ dùng nó với thứ gì.",
+        "context": "Chọn một ý và thử nghĩ xem nó hữu ích ở đâu, trong tình huống nào.",
+        "goal": "Chọn một ý và giải thích thêm cách dùng đó giúp giải quyết việc gì.",
+    }
+    grounded = [
+        {facet: evidence.strip() for facet, evidence in score.elaboration_details.items()
+         if facet in explanations and evidence.strip() and evidence in score.original}
         for score in per_idea_scores
-        for facet in score.elaboration_details
-    )
-    first = (
-        f"Độ chi tiết trung bình {average:.2f}/5; "
-        f"{developed}/{count} ý có từ hai loại chi tiết bổ sung trở lên."
-    )
-    if not facet_counts:
-        return first + " Các ý hiện chủ yếu mới nêu tên công dụng."
-    strongest = max(_FACETS, key=lambda facet: facet_counts[facet])
-    weakest = min(_FACETS, key=lambda facet: facet_counts[facet])
-    if facet_counts[strongest] == facet_counts[weakest]:
-        return first + " Các loại chi tiết được sử dụng tương đối cân bằng."
-    return (
-        first
-        + f" Chi tiết nổi bật nhất là {_FACET_LABELS[strongest]}; "
-        + f"có thể bổ sung rõ hơn {_FACET_LABELS[weakest]}."
-    )
+    ]
+    details = max(grounded, key=len)
+    if details:
+        facet = next(name for name in explanations if name in details)
+        words = details[facet].split()
+        quote = " ".join(words[:16]) + ("…" if len(words) > 16 else "")
+        observation = f'{explanations[facet]}, như “{quote}”. Chi tiết này giúp người đọc hình dung ý tưởng rõ hơn.'
+    else:
+        observation = "Bạn đã nêu cách dùng đồ vật, nhưng các ý được phân tích chưa có thêm chi tiết để người đọc hình dung cách áp dụng."
+    missing = next((name for name in suggestions if name not in details), None)
+    suggestion = suggestions[missing] if missing else "Thử chọn một ý và nghĩ xem có thể dùng nó trong một tình huống khác như thế nào."
+    return f"{observation}\n\nBạn có thể thử: {suggestion}"
 
 
 def run_scoring(

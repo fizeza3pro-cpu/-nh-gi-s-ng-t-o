@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import type { Item } from "@/lib/types";
+import { SURVEY_ITEMS } from "@/lib/survey-items";
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 
 const DIMENSIONS = [
@@ -58,7 +59,7 @@ function useRevealOnScroll<T extends HTMLElement>() {
 // Các kết quả mẫu để "Mẫu kết quả" tự luân phiên minh hoạ nhiều đồ vật khác nhau.
 const SAMPLE_RESULTS = [
   {
-    object: "Balo quân nhu",
+    object: "Vỏ đạn",
     scores: [
       { label: "Số ý", value: "7" },
       { label: "Đa dạng", value: "5" },
@@ -80,9 +81,9 @@ const SAMPLE_RESULTS = [
       "Ý tưởng khai thác cả hình dạng, vật liệu và khả năng biến đổi của đồ vật.",
   },
   {
-    object: "Cuộn chỉ",
+    object: "Kim chỉ",
     scores: [
-      { label: "Số ý", value: "11" },
+      { label: "Số ý", value: "10" },
       { label: "Đa dạng", value: "4" },
       { label: "Độc đáo", value: "6" },
       { label: "Chi tiết", value: "12" },
@@ -122,6 +123,11 @@ export default function Home() {
   }, [reducedMotion]);
 
   const sample = SAMPLE_RESULTS[sampleIndex];
+  const itemsById = new Map(items?.map((item) => [item.id, item]));
+  const surveyItems = SURVEY_ITEMS.flatMap(({ id, name }) => {
+    const item = itemsById.get(id);
+    return item ? [{ ...item, name }] : [];
+  });
   const [heroLoaded, setHeroLoaded] = useState(false);
   const methodReveal = useRevealOnScroll<HTMLDivElement>();
   const itemsReveal = useRevealOnScroll<HTMLDivElement>();
@@ -329,8 +335,8 @@ export default function Home() {
             )}
 
             {!items && !error && (
-              <div className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-2 lg:grid-cols-3">
-                {Array.from({ length: 6 }).map((_, i) => (
+              <div className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-2 lg:grid-cols-4">
+                {Array.from({ length: SURVEY_ITEMS.length }).map((_, i) => (
                   <div key={i} className="space-y-3 bg-card p-7">
                     <Skeleton className="h-4 w-1/3" />
                     <Skeleton className="h-7 w-2/3" />
@@ -341,8 +347,8 @@ export default function Home() {
             )}
 
             {items && (
-              <ul className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-2 lg:grid-cols-3">
-                {items.map((item, idx) => (
+              <ul className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-2 lg:grid-cols-4">
+                {surveyItems.map((item, idx) => (
                   <li
                     key={item.id}
                     className="bg-card"

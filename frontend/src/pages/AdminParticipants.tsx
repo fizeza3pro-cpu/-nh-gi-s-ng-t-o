@@ -98,7 +98,7 @@ export default function AdminParticipants() {
                   </td>
                   <td className="px-4 py-3.5">
                     <p className="font-mono text-xs">
-                      {participant.email_masked || "Chưa liên kết"}
+                      {participant.email || participant.email_masked || "Chưa liên kết"}
                     </p>
                     <p className="mt-1 text-[11px] text-amber-700">
                       {participant.email_verified_at

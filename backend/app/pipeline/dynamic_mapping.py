@@ -727,6 +727,17 @@ def _verify_invalid_extractions(
         ):
             candidate = candidate.model_copy(update={"original": idea.original, "idea_id": idea.idea_id})
             recovered.append(candidate)
+        elif (
+            idea.line_index in policy_retry_indices
+            and candidate is not None
+            and candidate.status == "INVALID"
+            and candidate.reason.strip()
+            and not _invalid_reason_violates_policy(candidate.reason)
+        ):
+            # Kiểm tra lại có thể xác nhận INVALID bằng căn cứ đúng, không ép cứu mọi ý.
+            recovered.append(candidate.model_copy(update={
+                "original": idea.original, "idea_id": idea.idea_id, "review_required": False,
+            }))
         else:
             recovered.append(
                 idea.model_copy(

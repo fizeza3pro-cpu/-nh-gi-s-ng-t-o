@@ -82,7 +82,11 @@ export default function ParticipantProfileForm({
     setSubmitting(true);
     setError(null);
     try {
-      const participant = await api.createParticipant(email.trim(), profile, recoveryToken.trim());
+      const participant = await api.createParticipant(
+        email.trim(),
+        profile,
+        recoveryToken.trim(),
+      );
       onComplete(participant);
     } catch (err) {
       setError(
@@ -107,16 +111,13 @@ export default function ParticipantProfileForm({
             Thông tin người tham gia
           </h2>
           <p className="mt-4 max-w-sm text-sm leading-6 text-background/70">
-            Hoàn thành một biểu mẫu duy nhất trước khi bắt đầu bài khảo sát AUT.
+            Hoàn thành biểu mẫu trước khi bắt đầu bài khảo sát AUT.
           </p>
 
           <div className="mt-8 border-t border-background/20 pt-5">
             <div className="flex gap-3 text-sm leading-6 text-background/75">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
-              <p>
-                Email chỉ được lưu dưới dạng mã tra cứu và bản che một phần.
-                Nhóm sử dụng AI phục vụ thống kê nghiên cứu.
-              </p>
+              <p>Nhóm sử dụng AI phục vụ thống kê nghiên cứu.</p>
             </div>
           </div>
         </div>
@@ -141,6 +142,7 @@ export default function ParticipantProfileForm({
                 type="text"
                 autoComplete="name"
                 required
+                autoFocus
                 minLength={2}
                 maxLength={255}
                 value={fullName}
@@ -166,7 +168,6 @@ export default function ParticipantProfileForm({
                   autoComplete="email"
                   spellCheck={false}
                   required
-                  autoFocus
                   maxLength={320}
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -174,10 +175,23 @@ export default function ParticipantProfileForm({
                   className="pl-10"
                 />
               </div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Email được lưu đầy đủ và chỉ hiển thị cho quản trị viên.
+              </p>
             </div>
             <details className="mt-4 text-sm text-muted-foreground">
-              <summary className="cursor-pointer">Khôi phục hồ sơ trên thiết bị mới</summary>
-              <Input type="password" aria-label="Mã khôi phục hồ sơ" autoComplete="off" value={recoveryToken} onChange={(event) => setRecoveryToken(event.target.value)} placeholder="Mã khôi phục của bạn" className="mt-3" />
+              <summary className="cursor-pointer">
+                Khôi phục hồ sơ trên thiết bị mới
+              </summary>
+              <Input
+                type="password"
+                aria-label="Mã khôi phục hồ sơ"
+                autoComplete="off"
+                value={recoveryToken}
+                onChange={(event) => setRecoveryToken(event.target.value)}
+                placeholder="Mã khôi phục của bạn"
+                className="mt-3"
+              />
             </details>
 
             <div className="mt-6 grid gap-6 sm:grid-cols-[140px_1fr]">
@@ -207,7 +221,7 @@ export default function ParticipantProfileForm({
                   htmlFor="participant-occupation"
                   className="text-sm font-medium"
                 >
-                  Ngành học hoặc nghề nghiệp
+                  Lớp/Chuyên ngành
                 </label>
                 <Input
                   id="participant-occupation"
@@ -219,7 +233,7 @@ export default function ParticipantProfileForm({
                   maxLength={255}
                   value={occupation}
                   onChange={(event) => setOccupation(event.target.value)}
-                  placeholder="Ví dụ: Sinh viên Công nghệ thông tin…"
+                  placeholder="Ví dụ: cntt1-c160"
                 />
               </div>
             </div>

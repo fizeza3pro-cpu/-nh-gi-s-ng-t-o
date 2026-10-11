@@ -89,6 +89,8 @@ class Participant(Base):
         String(64), unique=True, nullable=True, index=True
     )
     email_masked: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    # Email đầy đủ chỉ được trả qua API admin; hồ sơ cũ bổ sung khi nhập lại.
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     email_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -24,7 +24,7 @@ def snapshot(codes):
             for row in sorted(codes, key=lambda row: row.id)]
 
 
-def insert_reference(db, item, plan, batch):
+def insert_reference(db, item, plan, batch, *, source="app/pipeline/shell_reference.py"):
     """Chỉ thêm mã còn thiếu, giữ số mẫu và các ví dụ quan sát bằng không."""
     missing = [entry for entry, match in plan if match is None]
     if len(batch.vectors) != len(missing):
@@ -32,7 +32,7 @@ def insert_reference(db, item, plan, batch):
     created = []
     for entry, vector in zip(missing, batch.vectors):
         row = ItemCode(
-            id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"aut/reference/vo_dan/{entry['key']}")),
+            id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"aut/reference/{item.id}/{entry['key']}")),
             item_id=item.id, name=entry["name"], normalized_name=normalize_code_name(entry["name"]),
             description=entry["description"], functional_signature=entry["functional_signature"],
             functional_key=functional_key(entry["functional_signature"]),
@@ -50,7 +50,7 @@ def insert_reference(db, item, plan, batch):
         item.scores_dirty = True
         db.add(PipelineAudit(item_id=item.id, event="REFERENCE_CODES_IMPORTED", payload={
             "created_ids": created, "reused_ids": [match.id for _, match in plan if match],
-            "source": "app/pipeline/shell_reference.py", "empirically_validated": False,
+            "source": source, "empirically_validated": False,
             "synthetic_responses_added": 0,
         }))
     db.flush()

@@ -237,13 +237,15 @@ export default function AdminOverview() {
       </section>
 
       <div className="mt-6">
-        <Panel title="Hai nhóm nghiên cứu" note="Điểm trung bình được tính theo người, chỉ từ các lượt đã chốt điểm.">
+        <Panel title="Hai nhóm nghiên cứu" note="Hồ sơ là toàn bộ người đã đăng ký. Đã nộp và có điểm chỉ tính nguồn khảo sát hiện hành; điểm trung bình theo người dùng các lượt FINAL đã đồng bộ, cùng cách tính với báo cáo.">
           <div className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="border-y border-stone-200 bg-stone-50 text-xs text-stone-500">
                 <tr>
                   <th className="px-3 py-3 font-medium">Nhóm</th>
-                  <th className="px-3 py-3 text-right font-medium">Người</th>
+                  <th className="px-3 py-3 text-right font-medium">Hồ sơ</th>
+                  <th className="px-3 py-3 text-right font-medium">Đã nộp</th>
+                  <th className="px-3 py-3 text-right font-medium">Có điểm</th>
                   <th className="px-3 py-3 text-right font-medium">Lượt nộp</th>
                   <th className="px-3 py-3 text-right font-medium">Số ý</th>
                   <th className="px-3 py-3 text-right font-medium">Đa dạng</th>
@@ -258,6 +260,8 @@ export default function AdminOverview() {
                       {group.group === "HIGH" ? "Sử dụng AI nhiều" : "Ít sử dụng AI"}
                     </td>
                     <td className="px-3 py-4 text-right font-mono tabular-nums">{group.participant_count}</td>
+                    <td className="px-3 py-4 text-right font-mono tabular-nums">{group.submitted_participant_count}</td>
+                    <td className="px-3 py-4 text-right font-mono tabular-nums">{group.scored_participant_count}</td>
                     <td className="px-3 py-4 text-right font-mono tabular-nums">
                       {group.response_count}
                       <span className="ml-1 text-[11px] text-stone-400">({group.final_response_count} đã chốt)</span>
@@ -381,7 +385,7 @@ export default function AdminOverview() {
                         {hasScore ? `${response.fluency} · ${response.flexibility} · ${response.originality} · ${response.elaboration}` : "Chưa tính điểm"}
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <Link to={`/result/${response.response_id}`} className="inline-flex items-center gap-1 text-xs font-medium text-research hover:text-stone-900">
+                        <Link to={`/admin/responses/${response.response_id}`} className="inline-flex items-center gap-1 text-xs font-medium text-research hover:text-stone-900">
                           Xem <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                       </td>

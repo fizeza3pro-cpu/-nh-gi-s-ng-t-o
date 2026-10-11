@@ -47,22 +47,26 @@ VARIANTS = {
 }
 
 
-def seed_id(kind, index):
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"aut/{CORPUS}/{kind}/{index}"))
+def seed_id(kind, index, corpus=CORPUS):
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"aut/{corpus}/{kind}/{index}"))
 
 
-def build_corpus():
+def build_corpus(counts=None, variants=None):
     """Chia đều 15 lượt; hai ý cùng mã trong một lượt phải là hai sản phẩm khác nhau."""
+    counts = COUNTS if counts is None else counts
+    variants = VARIANTS if variants is None else variants
+    if sum(counts.values()) != 150 or any(n <= 0 for n in counts.values()):
+        raise ValueError("Phân bố phải có đúng 150 ý và số lượng dương.")
     buckets = [[] for _ in range(15)]
-    for key, count in COUNTS.items():
+    for key, count in counts.items():
         for _ in range(count):
             candidates = [i for i, bucket in enumerate(buckets)
-                          if len(bucket) < 10 and sum(k == key for k, _, _ in bucket) < len(VARIANTS[key])]
+                          if len(bucket) < 10 and sum(k == key for k, _, _ in bucket) < len(variants[key])]
             if not candidates:
                 raise ValueError(f"Không thể xếp mã {key} mà vẫn giữ giới hạn 10 ý.")
             index = min(candidates, key=lambda i: (len(buckets[i]), i))
             variant = sum(k == key for k, _, _ in buckets[index])
-            text = VARIANTS[key][variant]
+            text = variants[key][variant]
             # Chỉ chấm thêm bối cảnh khi câu mô phỏng thực sự chứa đoạn này.
             details = {"context": "trong giờ thực hành"} if index % 3 == 1 else {}
             if details:
@@ -71,35 +75,37 @@ def build_corpus():
     return buckets
 
 
-def populate(db):
+def populate(db, *, item_id="vo_dan", corpus=CORPUS, counts=None, variants=None, reference_plan=plan_shell_reference):
     """Nạp nguyên tử corpus đã gán mã có kiểm soát, dùng công thức thật để tính Originality."""
     if settings.survey_data_source != "PILOT":
         raise RuntimeError("Corpus này chỉ được phép bổ sung vào mẫu PILOT.")
-    item = db.scalar(select(Item).where(Item.id == "vo_dan").with_for_update())
+    counts = COUNTS if counts is None else counts
+    make_id = lambda kind, index: seed_id(kind, index, corpus)
+    item = db.scalar(select(Item).where(Item.id == item_id).with_for_update())
     if item is None:
-        raise RuntimeError("Thiếu đồ vật Vỏ đạn.")
-    prior = db.scalars(select(Response).where(Response.id.in_([seed_id("response", i) for i in range(15)]))).all()
+        raise RuntimeError(f"Thiếu đồ vật {item_id}.")
+    prior = db.scalars(select(Response).where(Response.id.in_([make_id("response", i) for i in range(15)]))).all()
     if prior:
-        if len(prior) != 15 or any(row.data_source != "SYNTHETIC" or row.mapping_meta.get("corpus") != CORPUS for row in prior):
+        if len(prior) != 15 or any(row.item_id != item_id or row.data_source != "SYNTHETIC" or row.mapping_meta.get("corpus") != corpus for row in prior):
             raise RuntimeError("Corpus cũ thiếu hoặc xung đột; không ghi đè dữ liệu.")
         return {"created": 0, "reason": "Corpus đã tồn tại"}
-    plan = plan_shell_reference(db.scalars(select(ItemCode).where(ItemCode.item_id == item.id)).all())
+    plan = reference_plan(db.scalars(select(ItemCode).where(ItemCode.item_id == item.id)).all())
     if any(match is None for _, match in plan):
         raise RuntimeError("Cần nạp đủ bộ mã tham chiếu trước.")
     codes = {entry["key"]: match for entry, match in plan}
-    people = [Participant(id=seed_id("participant", i), full_name=f"[SYNTHETIC] Người mô phỏng {i + 1}",
+    people = [Participant(id=make_id("participant", i), full_name=f"[SYNTHETIC] {item.name} - Người {i + 1}",
                           occupation="Dữ liệu kiểm thử tự tạo") for i in range(5)]
     db.add_all(people)
     db.flush()
     rows = []
     evidence = {}
-    for index, bucket in enumerate(build_corpus()):
-        row = Response(id=seed_id("response", index), participant_id=people[index % 5].id,
+    for index, bucket in enumerate(build_corpus(counts, variants)):
+        row = Response(id=make_id("response", index), participant_id=people[index % 5].id,
                        item_id=item.id, raw_input="\n".join(text for _, text, _ in bucket),
                        input_lines=[text for _, text, _ in bucket], data_source="SYNTHETIC",
                        protocol="SYNTHETIC_TOP10", processing_state="DONE",
                        mapping={"ideas": []}, mapping_completed_at=datetime.now(timezone.utc),
-                       mapping_meta={"source": "SYNTHETIC", "corpus": CORPUS, "calibration_source": "PILOT",
+                       mapping_meta={"source": "SYNTHETIC", "corpus": corpus, "calibration_source": "PILOT",
                                      "mapping_method": "CURATED_FIXTURE", "empirical_frequency": False},
                        scoring_status=ResponseScoringStatus.COLLECTING)
         db.add(row)
@@ -107,13 +113,13 @@ def populate(db):
         mapped = []
         for line, (key, text, details) in enumerate(bucket):
             code = codes[key]
-            idea_id = seed_id("idea", f"{index}:{line}")
+            idea_id = make_id("idea", f"{index}:{line}")
             evidence[idea_id] = details
             db.add(ResponseIdea(id=idea_id, response_id=row.id, code_id=code.id, original=text,
                                 normalized=text, line_index=line, coding_state="ASSIGNED", mapping_status="VALID",
                                 functional_signature=code.functional_signature, curator_decision="SYNTHETIC_FIXTURE",
                                 reason="Ý minh họa do AI biên soạn; không phải quan sát khảo sát.",
-                                mapping_evidence={"source": "SYNTHETIC", "corpus": CORPUS}))
+                                mapping_evidence={"source": "SYNTHETIC", "corpus": corpus}))
             mapped.append({"idea_id": idea_id, "original": text, "normalized": text, "code": code.name,
                            "status": "VALID", "line_index": line, "functional_signature": code.functional_signature,
                            "reason": "[SYNTHETIC] Ý minh họa được gán mã có kiểm soát."})
@@ -144,18 +150,18 @@ def populate(db):
     refresh_final_frequency_scores(db, item.id)
     item.scores_dirty = True
     db.add(PipelineAudit(item_id=item.id, event="SYNTHETIC_CORPUS_IMPORTED", payload={
-        "corpus": CORPUS, "participants": 5, "responses": 15, "ideas": 150,
+        "corpus": corpus, "participants": 5, "responses": 15, "ideas": 150,
         "previous_min_participants": old_threshold, "min_participants": 5,
-        "assumed_counts": COUNTS, "calibration_source": "PILOT", "empirical": False}))
-    counts = _code_live_counts(db, item.id)
-    denominator = sum(value[2] for value in counts.values())
+        "assumed_counts": counts, "calibration_source": "PILOT", "empirical": False}))
+    live_counts = _code_live_counts(db, item.id)
+    denominator = sum(value[2] for value in live_counts.values())
     return {"created": 15, "participants_added": 5, "ideas_added": 150,
             "qualifying_participants": qualifying_participant_count(db, item.id),
             "qualifying_ideas": qualifying_idea_count(db, item.id),
             "min_participants": item.scoring_min_participants, "min_ideas": item.scoring_min_ideas,
             "synthetic_originality_distribution": dict(Counter(s["originality"] for row in rows for s in row.scoring["per_idea_scores"])),
-            "frequencies": [{"key": key, "seed_count": COUNTS[key], "combined_count": counts[codes[key].id][2],
-                             "frequency": counts[codes[key].id][2] / denominator} for key in COUNTS]}
+            "frequencies": [{"key": key, "seed_count": counts[key], "combined_count": live_counts[codes[key].id][2],
+                             "frequency": live_counts[codes[key].id][2] / denominator} for key in counts]}
 
 
 def main():

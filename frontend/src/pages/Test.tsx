@@ -85,8 +85,8 @@ const GUIDE_STEPS = [
   },
   {
     icon: Sparkles,
-    title: "Tìm cách dùng khác",
-    body: "Có thể cắt, ghép, biến đổi hoặc dùng đồ vật trong bối cảnh mới.",
+    title: "AI chấm điểm",
+    body: "Sau khi submit, AI sẽ chấm điểm thông qua câu trả lời.",
   },
 ] as const;
 
@@ -353,8 +353,7 @@ export default function Test() {
               <Skeleton className="mt-2 h-16 w-52 bg-background/15" />
             )}
             <p className="mt-5 max-w-2xl text-pretty text-base leading-7 text-background/70">
-              Viết mỗi công dụng trong một ô. Đồng hồ chỉ chạy sau khi bạn nhấn
-              bắt đầu.
+              1 cuộn chỉ mới cứng chờ bạn nghĩ ra cách sử dụng.
             </p>
           </div>
 
@@ -398,7 +397,6 @@ export default function Test() {
           itemName={item?.name}
           participantName={participant?.full_name}
           onStart={startTest}
-          starting={starting}
           error={submitError}
           recoveryToken={participant?.access_token}
           onOpenGuide={() => setGuideOpen(true)}
@@ -412,8 +410,8 @@ export default function Test() {
                   Sổ ý tưởng
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Đã viết {completedIdeas.length}/{IDEA_LIMIT} ý. Không cần điền
-                  đủ.
+                  Đã viết {completedIdeas.length}/{IDEA_LIMIT} ý. Hãy viết 10 ý
+                  tưởng bạn cho là độ đáo nhất đối với đồ vật này
                 </p>
               </div>
               <span className="grid h-10 w-10 place-items-center rounded-full border border-research/20 bg-research-soft">
@@ -578,7 +576,7 @@ function ReadyPanel({
   itemName,
   participantName,
   onStart,
-  starting,
+
   error,
   recoveryToken,
   onOpenGuide,
@@ -586,54 +584,32 @@ function ReadyPanel({
   itemName?: string;
   participantName?: string | null;
   onStart: () => void;
-  starting: boolean;
   error: string | null;
   recoveryToken?: string | null;
   onOpenGuide: () => void;
 }) {
-  const [consent, setConsent] = useState(false);
   return (
     <section className="container py-10 md:py-16">
       <div className="mx-auto grid max-w-5xl overflow-hidden rounded-2xl border border-border bg-card lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
         <div className="p-6 sm:p-9 lg:p-11">
           <p className="inline-flex items-center gap-2 text-sm font-medium text-research">
-            <Clock3 className="h-4 w-4" aria-hidden="true" /> Đồng hồ chưa chạy
+            <Clock3 className="h-4 w-4" aria-hidden="true" /> PIPILABU
           </p>
           <h2 className="mt-4 max-w-2xl text-balance font-serif text-3xl leading-tight sm:text-4xl">
             Bạn có 3 phút để chọn và viết tối đa 10 công dụng sáng tạo nhất cho{" "}
             {itemName ?? "đồ vật này"}.
           </h2>
           <p className="mt-4 max-w-xl text-pretty text-sm leading-6 text-muted-foreground">
-            Không có đáp án duy nhất. Hãy viết rõ đồ vật được dùng vào việc gì;
-            ý tưởng lạ nhưng có thể hiểu được thường có giá trị hơn một từ rời
-            rạc.
+            Hãy phát huy hết khả năng sáng tạo của bạn.
           </p>
 
-          <label className="mt-6 flex items-start gap-3 text-sm text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={consent}
-              onChange={(event) => setConsent(event.target.checked)}
-              className="mt-1"
-            />
-            <span>
-              Tôi đồng ý tham gia nghiên cứu. Câu trả lời được gửi đến dịch vụ
-              AI để phân loại; tôi có thể liên hệ nhóm nghiên cứu để yêu cầu rút
-              dữ liệu.
-            </span>
-          </label>
           {error ? (
             <p role="alert" className="mt-3 text-sm text-destructive">
               {error}
             </p>
           ) : null}
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button
-              size="lg"
-              onClick={onStart}
-              disabled={!consent || starting}
-              className="sm:min-w-52"
-            >
+            <Button size="lg" onClick={onStart} className="sm:min-w-52">
               <Play className="h-4 w-4" aria-hidden="true" /> Bắt đầu 3 phút
             </Button>
             <Button size="lg" variant="outline" onClick={onOpenGuide}>
@@ -648,9 +624,7 @@ function ReadyPanel({
           ) : null}
           {recoveryToken ? (
             <details className="mt-3 text-xs text-muted-foreground">
-              <summary className="cursor-pointer">
-                Mã khôi phục hồ sơ — giữ riêng để dùng trên thiết bị khác
-              </summary>
+              <summary className="cursor-pointer">PIPILABU</summary>
               <p className="mt-2 break-all font-mono">{recoveryToken}</p>
             </details>
           ) : null}
@@ -692,8 +666,8 @@ function GuideDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Cách làm bài trong 3 phút"
-      description="Bạn không cần chuẩn bị đáp án trước. Hãy hiểu nguyên tắc, sau đó để ý tưởng xuất hiện tự nhiên."
+      title="Hướng dẫn nho nhỏ"
+      description="Bạn được cung cấp 10 ô, với mỗi ô hãy viết 1 cách sử dụng mà bạn cho là sáng tạo nhất đối với đồ vật."
       footer={
         <Button onClick={onClose} className="w-full sm:w-auto">
           Đã hiểu, tôi sẵn sàng
@@ -724,7 +698,7 @@ function GuideDialog({
         ))}
       </ol>
 
-      <div className="mt-5 rounded-xl border border-research/20 bg-research-soft/60 p-5">
+      {/* <div className="mt-5 rounded-xl border border-research/20 bg-research-soft/60 p-5">
         <p className="text-xs font-medium text-research">
           Ví dụ với một chiếc cốc giấy
         </p>
@@ -736,7 +710,7 @@ function GuideDialog({
             “Cắt đáy để làm loa khuếch đại cho điện thoại”
           </p>
         </div>
-      </div>
+      </div> */}
     </Dialog>
   );
 }
@@ -800,8 +774,9 @@ function AnalysisOverlay() {
             id="analysis-description"
             className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground"
           >
-            Bài đã được lưu. Bạn có thể đóng trang; hệ thống vẫn tiếp tục xử lý
-            và lưu kết quả vào lịch sử.
+            Các câu trả lời của bạn đã được lưu và đang được đánh giá. Quá trình
+            này có thể mất vài phút và bạn có thể thoát khỏi trang này rồi! Xin
+            cảm ơn
           </p>
         </div>
 

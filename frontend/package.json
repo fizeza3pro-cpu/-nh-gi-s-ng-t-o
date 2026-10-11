@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:pinggy": "vite --config vite.pinggy.config.ts",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --noEmit",
     "preview": "vite preview"

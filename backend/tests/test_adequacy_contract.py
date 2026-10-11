@@ -12,6 +12,21 @@ SOURCE = {"line_index": 0, "original": "một câu chưa rõ nghĩa", "normalize
 ITEM = Item(id="test", name="Vật thử", description="Vật dùng cho kiểm thử")
 
 
+def test_policy_repair_can_confirm_invalid_without_another_review():
+    """Lý do mơ hồ được sửa thành thiếu chức năng thì chốt INVALID, không ép cứu ý."""
+    rejected = {**SOURCE, "reason": "Không thể dùng vật này như đề xuất"}
+    confirmed = {**SOURCE, "reason": "Câu chỉ nêu thao tác phá hủy, thiếu mục đích sử dụng", "review_required": True}
+    client = FakeClient([json.dumps({"ideas": [row]}) for row in [rejected, rejected, confirmed]])
+    result, meta = run_idea_extraction(ITEM, [SOURCE["original"]], client)
+    assert result.ideas[0].status == "INVALID"
+    assert result.ideas[0].review_required is False
+    assert result.ideas[0].reason == confirmed["reason"]
+    assert result.ideas[0].original == SOURCE["original"]
+    assert result.ideas[0].idea_id
+    assert client.chat.completions.calls == 3
+    assert meta["invalid_verifier"]["policy_repair"]
+
+
 @pytest.mark.parametrize("bad", [
     {"ideas": [{key: value for key, value in SOURCE.items() if key != "normalized"}]},
     {"ideas": []},

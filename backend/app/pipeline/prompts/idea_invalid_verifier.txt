@@ -15,10 +15,13 @@ Quy tắc bắt buộc:
   không được tự động kết luận rằng họ đang dùng một đồ vật khác.
 - Một ý kỳ lạ, nguy hiểm, công dụng thông thường, chơi chữ hoặc ít khả thi vẫn VALID nếu có thể xác
   định một vai trò chức năng/vật lý của {item_name}.
-- Ví dụ “dùng để tính điểm chuyên cần” có thể là dùng vật thể như thẻ/vật đếm; “dùng làm súng cối”
-  vẫn đang đề xuất biến hoặc dùng vật thể làm súng/đạo cụ, không phải tự động đổi chủ thể.
-- Chỉ giữ INVALID khi câu rỗng nghĩa, hoàn toàn lạc đề, hoặc nói rõ dùng một vật khác mà {item_name}
-  không tham gia.
+- Giữ đúng hành động/vai trò trong câu gốc; không tự thêm vật trung gian, công dụng, thuộc tính hoặc
+  đổi sang đạo cụ/đồ chơi để cứu ý. Chỉ suy ra chủ thể ngầm và cơ chế thông thường đúng với công dụng đã nêu.
+- Giữ INVALID khi câu rỗng nghĩa, lạc đề, thiếu cơ sở chức năng cho công dụng được nêu hoặc dùng một
+  vật khác mà {item_name} không tham gia. Câu rõ nghĩa vẫn có thể INVALID; không bắt buộc cứu ý.
+  Với vật kim loại, “cho chó ăn”/“làm thức ăn” thiếu cơ sở dinh dưỡng, không được đổi thành bát đựng thức ăn.
+  “Làm bát đựng thức ăn” có vai trò chứa đựng nên có thể VALID. Tặng quà có chức năng xã hội nên vẫn VALID.
+  Nêu cơ sở chức năng bị thiếu; phân biệt với chỉ chê khó thực hiện hoặc nguy hiểm.
 - Nếu chuyển sang VALID, phải trả đủ object_used="{item_name}", target_object_role và
   functional_signature có goal + object_role + mechanism. Không được bịa chi tiết vượt quá cách hiểu
   hợp lý tối thiểu của câu.

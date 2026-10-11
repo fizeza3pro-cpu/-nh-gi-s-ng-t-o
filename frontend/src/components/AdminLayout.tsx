@@ -48,7 +48,7 @@ const SECTIONS: NavSection[] = [
     label: "Phân tích",
     items: [
       { label: "Thống kê", icon: FileBarChart, disabled: true },
-      { label: "Báo cáo", icon: FileBarChart, disabled: true },
+      { to: "/admin/reports", label: "Báo cáo", icon: FileBarChart },
     ],
   },
   {
@@ -166,7 +166,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       {/* Header trên cùng */}
-      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur md:px-6">
+      <header className="admin-header sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur md:px-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -254,7 +254,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
       <div className="flex">
         {/* Sidebar desktop */}
-        <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-64 flex-col border-r border-border md:flex">
+        <aside className="admin-sidebar sticky top-16 hidden h-[calc(100vh-4rem)] w-64 flex-col border-r border-border md:flex">
           <SidebarContent pathname={pathname} />
         </aside>
 

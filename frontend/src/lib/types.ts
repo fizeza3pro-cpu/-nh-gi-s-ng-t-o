@@ -187,6 +187,8 @@ export interface AdminDashboardStats {
 export interface AdminAiGroupStats {
   group: AiUsageGroup;
   participant_count: number;
+  submitted_participant_count: number;
+  scored_participant_count: number;
   response_count: number;
   final_response_count: number;
   mean_fluency: number | null;
@@ -199,6 +201,7 @@ export interface AdminParticipantSummary {
   id: string;
   full_name: string | null;
   email_masked: string | null;
+  email: string | null;
   email_verified_at: string | null;
   age: number | null;
   gender: string | null;
@@ -211,6 +214,7 @@ export interface AdminParticipantSummary {
 
 export interface AdminParticipantDetail {
   participant: Omit<Participant, "age" | "gender" | "occupation"> & {
+    email: string | null;
     age: number | null;
     gender: string | null;
     occupation: string | null;

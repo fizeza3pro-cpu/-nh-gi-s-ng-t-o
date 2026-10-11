@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # --- BytePlus ModelArk ---
     byteplus_api_key: str = ""
     byteplus_base_url: str = "https://ark.ap-southeast.bytepluses.com/api/v3"
-    byteplus_model: str = "glm-5-3-flash-260828"
+    byteplus_model: str = "deepseek-v4-pro-260425"
     byteplus_code_curator_model: str | None = None
     byteplus_challenger_model: str | None = None
     # DeepSeek V4 260425 mặc định suy luận sâu nếu bỏ trống. `minimal` tắt
@@ -196,6 +196,7 @@ class Settings(BaseSettings):
             "code_curator": self.llm_curator_max_tokens,
             "code_challenger": self.llm_challenger_max_tokens,
             "scoring": self.llm_scoring_max_tokens,
+            "creative_feedback": min(self.llm_aux_max_tokens, 1024),
         }.get(stage, self.llm_aux_max_tokens)
         if self.llm_provider == "cloudflare":
             return min(configured, self.cloudflare_max_tokens)

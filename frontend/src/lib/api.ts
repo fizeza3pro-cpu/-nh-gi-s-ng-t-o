@@ -18,6 +18,7 @@ import type {
   ScoreResponse,
   User,
 } from "@/lib/types";
+import type { AdminResearchReport } from "@/lib/report-types";
 
 const BASE = "/api";
 const TOKEN_KEY = "aut:token";
@@ -201,6 +202,16 @@ export const api = {
     ),
 
   // --- Admin (cần role admin, backend tự chặn 403 nếu không đủ quyền) ---
+  adminResearchReport: (options: { source?: string; itemId?: string; itemIds?: string[]; signal?: AbortSignal } = {}) => {
+    const query = new URLSearchParams();
+    if (options.source) query.set("data_source", options.source);
+    if (options.itemId) query.set("item_id", options.itemId);
+    options.itemIds?.forEach(id => query.append("item_ids", id));
+    return fetch(`${BASE}/admin/reports/research?${query}`, {
+      headers: authHeaders(), signal: options.signal,
+    }).then(handle<AdminResearchReport>);
+  },
+
   adminDashboard: () =>
     fetch(`${BASE}/admin/dashboard`, { headers: authHeaders() }).then(
       handle<AdminDashboardStats>,

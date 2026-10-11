@@ -449,12 +449,91 @@ class AdminScoringStatusCounts(BaseModel):
 class AdminAiGroupStats(BaseModel):
     group: Literal["LOW", "HIGH"]
     participant_count: int = 0
+    submitted_participant_count: int = 0
+    scored_participant_count: int = 0
     response_count: int = 0
     final_response_count: int = 0
     mean_fluency: float | None = None
     mean_flexibility: float | None = None
     mean_originality: float | None = None
     mean_elaboration: float | None = None
+
+
+class ReportIdeaCounts(BaseModel):
+    participant_count: int = 0
+    response_count: int = 0
+    total_ideas: int = 0
+    valid_ideas: int = 0
+    invalid_ideas: int = 0
+    duplicate_ideas: int = 0
+    unclassified_ideas: int = 0
+    pending_code_ideas: int = 0
+    used_code_count: int = 0
+
+
+class ReportObjectGroup(ReportIdeaCounts):
+    item_id: str
+    item_name: str
+    group: Literal["LOW", "HIGH", "UNKNOWN"]
+
+
+class ReportObjectCodes(BaseModel):
+    item_id: str
+    item_name: str
+    low_code_count: int = 0
+    high_code_count: int = 0
+    shared_code_count: int = 0
+    total_code_count: int = 0
+
+
+class ReportScoreEstimate(BaseModel):
+    n: int = 0
+    mean: float | None = None
+    sd: float | None = None
+    sem: float | None = None
+
+
+class ReportScoreDimension(BaseModel):
+    dimension: Literal["originality", "flexibility", "fluency", "elaboration"]
+    low: ReportScoreEstimate
+    high: ReportScoreEstimate
+    difference: float | None = None
+    p_value: float | None = None
+    p_value_holm: float | None = None
+    test_note: str = ""
+
+
+class ReportSampleCounts(BaseModel):
+    submitted_responses: int = 0
+    analyzed_responses: int = 0
+    excluded_responses: int = 0
+    unfinished_responses: int = 0
+    failed_responses: int = 0
+    ungrouped_responses: int = 0
+    final_scored_responses: int = 0
+    stale_score_responses: int = 0
+    other_source_responses: int = 0
+    score_participants_low: int = 0
+    score_participants_high: int = 0
+    registered_participants_low: int = 0
+    registered_participants_high: int = 0
+    submitted_participants_low: int = 0
+    submitted_participants_high: int = 0
+
+
+class AdminResearchReport(BaseModel):
+    generated_at: datetime
+    data_source: Literal["PILOT", "SURVEY"]
+    item_id: str | None = None
+    item_ids: list[str] = Field(default_factory=list)
+    available_items: list[Item]
+    sample: ReportSampleCounts
+    totals: ReportIdeaCounts
+    object_groups: list[ReportObjectGroup]
+    object_codes: list[ReportObjectCodes]
+    dimensions: list[ReportScoreDimension]
+    summary_vi: list[str]
+    methodology_vi: list[str]
 
 
 class AdminDashboardStats(BaseModel):
@@ -475,10 +554,17 @@ class AdminDashboardStats(BaseModel):
     ai_group_stats: list[AdminAiGroupStats]
 
 
+class AdminParticipantOut(ParticipantOut):
+    """Hồ sơ đầy đủ cho admin, tách khỏi schema trả về người tham gia."""
+
+    email: str | None
+
+
 class AdminParticipantSummary(BaseModel):
     id: str
     full_name: str | None
     email_masked: str | None
+    email: str | None
     email_verified_at: datetime | None
     age: int | None
     gender: str | None
@@ -492,7 +578,7 @@ class AdminParticipantSummary(BaseModel):
 
 
 class AdminParticipantDetail(BaseModel):
-    participant: ParticipantOut
+    participant: AdminParticipantOut
     responses: list[ResponseSummary]
 
 

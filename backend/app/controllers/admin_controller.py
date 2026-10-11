@@ -3,6 +3,8 @@
 import csv
 import io
 import uuid
+from collections import defaultdict
+from statistics import mean
 
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +13,7 @@ from sqlalchemy import delete, distinct, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.controllers.research_stats import DIMENSIONS, participant_score_rows
 from app.models.models import Item as ItemModel
 from app.models.models import (
     CodeMaturityStatus,
@@ -68,6 +71,7 @@ from app.schemas.schemas import (
     AdminExtractionAudit,
     AdminExtractionExcludedIdea,
     AdminParticipantDetail,
+    AdminParticipantOut,
     AdminParticipantSummary,
     AdminRecentResponse,
     AdminMappingReviewIdea,
@@ -77,7 +81,6 @@ from app.schemas.schemas import (
     AdminScoringStatusCounts,
     MappedIdea,
     MappingResult,
-    ParticipantOut,
     ResponseSummary,
     ScoreResponse,
 )
@@ -194,62 +197,32 @@ def _ai_group_stats(db: Session) -> list[AdminAiGroupStats]:
             .group_by(ParticipantModel.ai_usage_group)
         ).all()
     )
-    response_counts = dict(
-        db.execute(
-            select(ParticipantModel.ai_usage_group, func.count(ResponseModel.id))
-            .join(ResponseModel, ResponseModel.participant_id == ParticipantModel.id)
-            .where(ParticipantModel.ai_usage_group.in_(groups))
-            .group_by(ParticipantModel.ai_usage_group)
-        ).all()
-    )
-    final_counts = dict(
-        db.execute(
-            select(ParticipantModel.ai_usage_group, func.count(ResponseModel.id))
-            .join(ResponseModel, ResponseModel.participant_id == ParticipantModel.id)
-            .where(
-                ParticipantModel.ai_usage_group.in_(groups),
-                ResponseModel.scoring_status == ResponseScoringStatus.FINAL,
-            )
-            .group_by(ParticipantModel.ai_usage_group)
-        ).all()
-    )
-    participant_means = (
-        select(
-            ParticipantModel.ai_usage_group.label("group_name"),
-            ResponseModel.participant_id.label("participant_id"),
-            func.avg(ResponseModel.fluency).label("fluency"),
-            func.avg(ResponseModel.flexibility).label("flexibility"),
-            func.avg(ResponseModel.originality).label("originality"),
-            func.avg(ResponseModel.elaboration).label("elaboration"),
-        )
+    response_rows = db.execute(
+        select(ParticipantModel.ai_usage_group, func.count(ResponseModel.id),
+               func.count(func.distinct(ResponseModel.participant_id)))
         .join(ResponseModel, ResponseModel.participant_id == ParticipantModel.id)
-        .where(
-            ParticipantModel.ai_usage_group.in_(groups),
-            ResponseModel.scoring_status == ResponseScoringStatus.FINAL,
-        )
-        .group_by(ParticipantModel.ai_usage_group, ResponseModel.participant_id)
-        .subquery()
-    )
-    score_rows = db.execute(
-        select(
-            participant_means.c.group_name,
-            func.avg(participant_means.c.fluency),
-            func.avg(participant_means.c.flexibility),
-            func.avg(participant_means.c.originality),
-            func.avg(participant_means.c.elaboration),
-        ).group_by(participant_means.c.group_name)
+        .where(ParticipantModel.ai_usage_group.in_(groups),
+               ResponseModel.data_source == settings.survey_data_source)
+        .group_by(ParticipantModel.ai_usage_group)
     ).all()
-    scores = {row[0]: row[1:] for row in score_rows}
+    response_counts = {group: count for group, count, _people in response_rows}
+    submitted_counts = {group: people for group, _count, people in response_rows}
+    scores = defaultdict(list)
+    final_counts = defaultdict(int)
+    for group, _participant, *values in participant_score_rows(db, data_source=settings.survey_data_source):
+        scores[group].append([float(value) for value in values[:-1]])
+        final_counts[group] += values[-1]
+    averages = {group: {dimension: mean(row[index] for row in rows)
+                       for index, dimension in enumerate(DIMENSIONS)} for group, rows in scores.items()}
     return [
         AdminAiGroupStats(
             group=group,
             participant_count=int(participant_counts.get(group, 0)),
+            submitted_participant_count=int(submitted_counts.get(group, 0)),
+            scored_participant_count=len(scores[group]),
             response_count=int(response_counts.get(group, 0)),
             final_response_count=int(final_counts.get(group, 0)),
-            mean_fluency=float(scores[group][0]) if group in scores else None,
-            mean_flexibility=float(scores[group][1]) if group in scores else None,
-            mean_originality=float(scores[group][2]) if group in scores else None,
-            mean_elaboration=float(scores[group][3]) if group in scores else None,
+            **{f"mean_{dimension}": averages.get(group, {}).get(dimension) for dimension in DIMENSIONS},
         )
         for group in groups
     ]
@@ -477,6 +450,7 @@ def list_participants_with_stats(db: Session) -> list[AdminParticipantSummary]:
             id=participant.id,
             full_name=participant.full_name,
             email_masked=participant.email_masked,
+            email=participant.email,
             email_verified_at=participant.email_verified_at,
             age=participant.age,
             gender=participant.gender,
@@ -500,7 +474,7 @@ def get_participant_detail(db: Session, participant_id: str) -> AdminParticipant
         .order_by(ResponseModel.created_at.desc())
     ).all()
     return AdminParticipantDetail(
-        participant=ParticipantOut.model_validate(participant),
+        participant=AdminParticipantOut.model_validate(participant),
         responses=[_to_summary(row) for row in rows],
     )
 

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.controllers import admin_controller, participant_controller, analysis_export
+from app.controllers import admin_controller, participant_controller, analysis_export, research_report_controller
 from app.core.deps import require_admin
 from app.db import get_db
 from app.models.models import User as UserModel
@@ -14,6 +14,7 @@ from app.schemas.schemas import (
     AdminCodebookSummary,
     AdminCuratorAudit,
     AdminDashboardStats,
+    AdminResearchReport,
     AdminExtractionAudit,
     AdminMappingReviewList,
     AdminMappingReviewResolution,
@@ -32,6 +33,16 @@ router = APIRouter(
 @router.get("/dashboard", response_model=AdminDashboardStats)
 def dashboard(db: Session = Depends(get_db)) -> AdminDashboardStats:
     return admin_controller.get_dashboard_stats(db)
+
+
+@router.get("/reports/research", response_model=AdminResearchReport)
+def research_report(
+    data_source: Literal["PILOT", "SURVEY"] | None = None,
+    item_id: str | None = None,
+    item_ids: list[str] | None = Query(default=None, max_length=100),
+    db: Session = Depends(get_db),
+) -> AdminResearchReport:
+    return research_report_controller.get_research_report(db, data_source=data_source, item_id=item_id, item_ids=item_ids)
 
 
 @router.get("/exports/responses.csv", response_class=Response)

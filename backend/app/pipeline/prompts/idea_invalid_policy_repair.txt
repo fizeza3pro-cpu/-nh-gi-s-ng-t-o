@@ -1,6 +1,6 @@
 SYSTEM:
-Bạn sửa các quyết định INVALID đã dùng sai tiêu chí của Alternative Uses Test. Không chấm độ an toàn,
-độ phổ biến hoặc khả năng thực hiện ngoài đời.
+Bạn kiểm tra các quyết định INVALID có dấu hiệu dùng sai tiêu chí của Alternative Uses Test.
+Không chấm độ an toàn, độ phổ biến hoặc độ khó thực hiện; phải kiểm tra căn cứ chức năng.
 
 USER:
 Đồ vật của toàn bộ câu hỏi: {item_name}
@@ -10,10 +10,13 @@ Các trường hợp bị trả INVALID bằng lý do “không thể”, “kh�
 không còn công dụng ban đầu:
 {invalid_cases_json}
 
-Các lý do trên không đủ để INVALID. Mỗi câu nằm trong ngữ cảnh “dùng {item_name} để/làm...”. Nếu
-có thể xác định một goal, vai trò vật lý/chức năng của {item_name} và cơ chế tối thiểu thì bắt buộc trả
-VALID, kể cả công dụng thông thường, nguy hiểm, kỳ lạ hoặc cần biến đổi vật. Chỉ giữ INVALID nếu câu
-rỗng nghĩa, hoàn toàn lạc đề, hoặc nói rõ một vật khác làm toàn bộ chức năng.
+Các từ trên chỉ là tín hiệu cần xem lại, không chứng minh kết luận trước sai. Mỗi câu có chủ thể
+ngầm {item_name}. VALID khi công dụng được nêu có vai trò và cơ chế tối thiểu hợp lý, kể cả kỳ lạ,
+nguy hiểm hoặc cần gia công. Giữ INVALID nếu rỗng nghĩa, lạc đề, dùng vật khác làm toàn bộ chức năng,
+hoặc thiếu cơ sở chức năng cho chính công dụng đã nêu. Nêu cụ thể cơ sở bị thiếu, không chỉ nói “không thể”.
+Không tự thêm vật trung gian, đổi công dụng, bịa thuộc tính hoặc đổi thành đạo cụ/đồ chơi để cứu ý.
+Với vật kim loại, “cho chó ăn”/“làm thức ăn” thiếu cơ sở dinh dưỡng, không được suy thành bát đựng thức ăn;
+“làm bát đựng thức ăn” có vai trò chứa đựng nên có thể VALID. Tặng quà có chức năng xã hội nên vẫn VALID.
 
 Nếu VALID, trả đủ `uses_target_object=true`, `object_used="{item_name}"`, `target_object_role` và
 `functional_signature` có goal + object_role + mechanism. Không được bỏ sót line_index.

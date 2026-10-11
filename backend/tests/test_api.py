@@ -96,6 +96,81 @@ def test_participant_email_does_not_grant_access(client, monkeypatch):
     assert restored.json()["participant"]["id"] == identity["id"]
 
 
+def test_full_email_is_only_returned_to_admin(client, monkeypatch):
+    """Lưu email chuẩn hoá; API công khai không trả email đầy đủ."""
+    monkeypatch.setattr(main_mod.settings, "participant_token_required", True)
+    response = client.post("/api/participants", json={
+        "email": "  Full.Email@EXAMPLE.test  ", "full_name": "Nguyễn Minh Anh",
+        "age": 20, "gender": "female", "occupation": "Sinh viên", "ai_usage_group": "LOW",
+    })
+    assert response.status_code == 201
+    identity = response.json()
+    participant_id = identity["id"]
+    assert "email" not in identity
+    assert identity["email_masked"] != "full.email@example.test"
+    public_profile = client.post("/api/participants/identify", json={
+        "email": "full.email@example.test", "access_token": identity["access_token"],
+    })
+    assert public_profile.status_code == 200
+    assert "email" not in public_profile.json()["participant"]
+    assert client.get("/api/admin/participants").status_code == 401
+    assert client.get(f"/api/admin/participants/{participant_id}").status_code == 401
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    summary = client.get("/api/admin/participants")
+    detail = client.get(f"/api/admin/participants/{participant_id}")
+    assert summary.status_code == detail.status_code == 200
+    assert summary.json()[0]["email"] == "full.email@example.test"
+    assert detail.json()["participant"]["email"] == "full.email@example.test"
+
+
+@pytest.mark.parametrize("endpoint, legacy_uuid", [
+    ("/api/participants", False),
+    ("/api/participants/identify", False),
+    ("/api/participants", True),
+    ("/api/participants/identify", True),
+])
+def test_old_email_is_saved_on_authorized_resubmission(client, monkeypatch, endpoint, legacy_uuid):
+    """Hồ sơ cũ chỉ bổ sung email khi chủ hồ sơ nhập lại, không tạo participant mới."""
+    monkeypatch.setattr(main_mod.settings, "participant_token_required", True)
+    profile = {"email": "old-email@example.test", "full_name": "Nguyễn Minh Anh",
+               "age": 20, "gender": "female", "occupation": "Sinh viên", "ai_usage_group": "LOW"}
+    identity = client.post("/api/participants", json=profile).json()
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    try:
+        row = db.get(Participant, identity["id"])
+        masked = row.email_masked
+        row.email = None
+        if legacy_uuid:
+            row.email_hash = None
+        db.commit()
+        app.dependency_overrides[require_admin] = lambda: object()
+        old_detail = client.get(f"/api/admin/participants/{identity['id']}").json()["participant"]
+        assert old_detail["email"] is None
+        assert old_detail["email_masked"] == masked
+
+        payload = profile if endpoint == "/api/participants" else {"email": profile["email"]}
+        payload = {**payload, "participant_id": identity["id"], "access_token": "wrong-token"}
+        assert client.post(endpoint, json=payload).status_code == 403
+        db.expire_all()
+        assert db.get(Participant, identity["id"]).email is None
+
+        payload["access_token"] = identity["access_token"]
+        saved = client.post(endpoint, json=payload)
+        assert saved.status_code == (201 if endpoint == "/api/participants" else 200)
+        public_identity = saved.json() if endpoint == "/api/participants" else saved.json()["participant"]
+        assert public_identity["id"] == identity["id"]
+        assert "email" not in public_identity
+        db.expire_all()
+        assert db.get(Participant, identity["id"]).email == profile["email"]
+        updated = client.get(f"/api/admin/participants/{identity['id']}").json()["participant"]
+        assert updated["email"] == profile["email"]
+        assert updated["email_masked"] == masked
+    finally:
+        database.close()
+
+
 def test_survey_session_enforces_deadline_and_idempotency(client, monkeypatch):
     """Một phiên có đồng hồ server và chỉ nhận một nội dung dù đổi request_id."""
     from app.models.models import SurveySession

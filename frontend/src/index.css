@@ -124,3 +124,63 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+@media print {
+  @page aut-research {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  body:has(.research-report) {
+    background: white;
+    color: black;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body:has(.research-report) .bg-background {
+    background: white !important;
+  }
+
+  body:has(.research-report) .admin-header,
+  body:has(.research-report) .admin-sidebar,
+  .research-report .report-controls {
+    display: none !important;
+  }
+
+  .research-report {
+    page: aut-research;
+    max-width: none;
+    padding: 0;
+    font-size: 10pt;
+  }
+
+  .research-report .report-table,
+  .research-report .report-chart {
+    overflow: visible;
+  }
+
+  .research-report table,
+  .research-report svg {
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .research-report table {
+    font-size: 8pt;
+  }
+
+  .research-report th,
+  .research-report td {
+    padding: 6px;
+  }
+
+  .research-report tr,
+  .research-report .report-chart-section {
+    break-inside: avoid;
+  }
+
+  .research-report h2 {
+    break-after: avoid;
+  }
+}
