@@ -332,6 +332,7 @@ export interface AdminCuratorAudit {
 export interface AdminCodeOption {
   id: string;
   name: string;
+  description?: string;
 }
 
 export interface AdminMappingReviewIdea {

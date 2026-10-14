@@ -2,6 +2,16 @@ import json
 import uuid
 
 import pytest
+
+
+def _grounded_new_checks(extraction, codes=()):
+    """Output đối chiếu riêng cho fixture đã được test xác định là chức năng mới."""
+    return json.dumps({"checks": [{
+        "idea_index": index, "source_text": idea.original, "grounded": True,
+        "evidence": idea.original, "reason": "Công dụng dùng thuộc tính của đồ vật, khác nhóm đã có.",
+        "comparisons": [{"code_id": code["id"], "relation": "DIFFERENT",
+                         "reason": "Mục đích và vai trò chức năng khác."} for code in codes],
+    } for index, idea in enumerate(extraction.ideas)]}, ensure_ascii=False)
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -374,7 +384,7 @@ def test_challenger_repairs_missing_or_generic_code_boundaries():
         },
         ensure_ascii=False,
     )
-    client = FakeClient([adjudicator, incomplete, repaired])
+    client = FakeClient([adjudicator, incomplete, repaired, _grounded_new_checks(extraction)])
 
     result, meta = run_code_curator(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
@@ -384,7 +394,7 @@ def test_challenger_repairs_missing_or_generic_code_boundaries():
     )
 
     decision = result.decisions[0]
-    assert client.chat.completions.calls == 3
+    assert client.chat.completions.calls == 4
     assert decision.decision == "CREATE_NEW"
     assert decision.inclusion_rules
     assert decision.exclusion_rules
@@ -473,7 +483,7 @@ def test_weak_wrong_match_is_sent_to_challenger_and_created_as_new_code():
         },
         ensure_ascii=False,
     )
-    client = FakeClient([wrong_match, create_new])
+    client = FakeClient([wrong_match, create_new, _grounded_new_checks(extraction, [plant_code])])
 
     result, _ = run_code_curator(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
@@ -482,7 +492,7 @@ def test_weak_wrong_match_is_sent_to_challenger_and_created_as_new_code():
         client,
     )
 
-    assert client.chat.completions.calls == 2
+    assert client.chat.completions.calls == 3
     assert result.decisions[0].decision == "CREATE_NEW"
     assert result.decisions[0].code_name == "Dụng cụ gãi bằng vỏ đạn"
 
@@ -725,7 +735,7 @@ def test_challenger_can_resolve_uncertain_as_create_new_with_full_evidence():
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [],
-        FakeClient([uncertain, create_new]),
+        FakeClient([uncertain, create_new, _grounded_new_checks(extraction)]),
     )
 
     assert result.decisions[0].decision == "CREATE_NEW"
@@ -1127,7 +1137,7 @@ def test_challenger_retries_only_missing_decisions_before_admin_review():
         {"decisions": [create_payload(1, "Vật chèn giấy từ vỏ đạn")]},
         ensure_ascii=False,
     )
-    client = FakeClient([adjudicator, first_challenge, retry_missing])
+    client = FakeClient([adjudicator, first_challenge, retry_missing, _grounded_new_checks(extraction)])
 
     result, meta = run_code_curator(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
@@ -1136,7 +1146,7 @@ def test_challenger_retries_only_missing_decisions_before_admin_review():
         client,
     )
 
-    assert client.chat.completions.calls == 3
+    assert client.chat.completions.calls == 4
     assert [decision.decision for decision in result.decisions] == [
         "CREATE_NEW", "CREATE_NEW"
     ]
@@ -1287,7 +1297,7 @@ def test_overlapping_new_codes_in_same_submission_are_reconciled(grouped_contrac
         canonical = json.loads(reconciled)["decisions"][0]
         canonical.pop("positive_examples")
         reconciled = json.dumps({"groups": [{"idea_indices": [0, 1], "canonical": canonical}]}, ensure_ascii=False)
-    client = FakeClient([adjudicator, challenger, reconciled])
+    client = FakeClient([adjudicator, challenger, reconciled, _grounded_new_checks(extraction)])
 
     result, meta = run_code_curator(
         Item(id="thung_dan", name="Thùng đạn", description="Thùng gỗ có nắp"),
@@ -1296,7 +1306,7 @@ def test_overlapping_new_codes_in_same_submission_are_reconciled(grouped_contrac
         client,
     )
 
-    assert client.chat.completions.calls == 3
+    assert client.chat.completions.calls == 4
     assert {decision.code_name for decision in result.decisions} == {
         "Chứa và bảo quản đồ vật"
     }
@@ -1500,7 +1510,7 @@ def test_compact_curator_can_create_directly_and_skips_challenger():
         "confidence": 0.88,
         "reason": "Các code hiện có không bao phủ chức năng âm thanh.",
     }]}, ensure_ascii=False)
-    client = FakeClient([compact_create])
+    client = FakeClient([compact_create, _grounded_new_checks(extraction)])
 
     result, meta = run_code_curator(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
@@ -1510,7 +1520,7 @@ def test_compact_curator_can_create_directly_and_skips_challenger():
     )
 
     decision = result.decisions[0]
-    assert client.chat.completions.calls == 1
+    assert client.chat.completions.calls == 2
     assert decision.decision == "CREATE_NEW"
     assert decision.functional_signature == category_signature
     assert extraction.ideas[0].functional_signature.target == "tiếng sáo"

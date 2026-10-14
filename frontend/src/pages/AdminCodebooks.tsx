@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type {
   AdminCodebookCode,
+  AdminCodeOption,
   AdminCodebookOverview,
   AdminCodebookSummary,
   AdminCuratorAudit,
@@ -201,13 +202,54 @@ function DecisionEvidence({ decision, reason, value }: { decision: string; reaso
   );
 }
 
-function ReviewCard({ review }: { review: AdminMappingReviewIdea }) {
+function ReviewCard({ review, itemId, epoch, codes, onResolved }: {
+  review: AdminMappingReviewIdea; itemId: string; epoch: number;
+  codes: AdminCodeOption[]; onResolved: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const options = codes.filter(code => code.id === selected || `${code.name} ${code.description ?? ""}`.toLocaleLowerCase("vi").includes(query.trim().toLocaleLowerCase("vi")));
+  async function assign() {
+    if (!selected || saving) return;
+    setSaving(true); setError("");
+    try {
+      await api.adminResolveMappingReview(itemId, review.idea_id, {
+        action: "MATCH_EXISTING", existing_code_id: selected,
+        expected_codebook_epoch: epoch, note: note.trim(),
+      });
+      onResolved();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không gán được mã. Hãy thử lại.");
+      setSaving(false);
+    }
+  }
   return <article className="border-b border-border p-6">
     <p className="font-medium">{review.original}</p>
     <p className="mt-2 text-sm text-muted-foreground">{review.normalized}</p>
     <p className="mt-3 text-sm">{review.reason}</p>
     <div className="mt-3"><Signature value={review.functional_signature} /></div>
-    <p className="mt-3 text-xs text-muted-foreground">AI t? ??i chi?u l?i trong ng?n s?ch x? l?. N?u v?n thi?u c?n c?, ? ???c gi? ch?a ph?n lo?i; kh?ng t?nh l? 0.</p>
+    <p className="mt-3 text-xs text-muted-foreground">Chọn mã phù hợp với công dụng của ý này. Ý chưa được phân loại không được tính là điểm 0.</p>
+    <fieldset disabled={saving} className="mt-4 grid max-w-xl gap-3">
+      <label className="text-sm">Tìm mã
+        <input className="mt-1 w-full rounded border border-border bg-background p-2" value={query} onChange={e => setQuery(e.target.value)} placeholder="Nhập tên nhóm chức năng" />
+      </label>
+      <label className="text-sm">Mã được chọn
+        <select className="mt-1 w-full rounded border border-border bg-background p-2" value={selected} onChange={e => setSelected(e.target.value)}>
+          <option value="">Chọn mã đang hoạt động</option>
+          {options.map(code => <option key={code.id} value={code.id}>{code.name}</option>)}
+        </select>
+      </label>
+      {!codes.length && <p className="text-sm text-muted-foreground">Đồ vật chưa có mã đang hoạt động để gán.</p>}
+      {selected && <p className="text-sm text-muted-foreground">{codes.find(code => code.id === selected)?.description}</p>}
+      <label className="text-sm">Lý do gán (không bắt buộc)
+        <input className="mt-1 w-full rounded border border-border bg-background p-2" value={note} onChange={e => setNote(e.target.value)} maxLength={2000} />
+      </label>
+      <Button type="button" disabled={!selected || saving} onClick={assign}>{saving ? "Đang lưu…" : "Xác nhận gán mã"}</Button>
+    </fieldset>
+    {error && <div role="alert" className="mt-3 text-sm text-red-700"><p>{error}</p><Button variant="outline" onClick={onResolved}>Tải lại căn cứ</Button></div>}
   </article>;
 }
 
@@ -309,9 +351,9 @@ export default function AdminCodebooks() {
           <section className="mt-6 overflow-hidden rounded-xl border border-stone-300 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
             <div className="border-b border-stone-300 bg-card px-5 py-5 md:px-7">
               <h2 className="font-serif text-2xl text-stone-900">Ý chưa đủ căn cứ phân loại</h2>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">Hệ thống tự đối chiếu trong giới hạn thử lại. Ý còn mơ hồ được giữ nguyên và chưa tham gia mẫu tính điểm; không cần quản trị phê duyệt mã.</p>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">AI tự phân loại trước. Với các ý chưa giải quyết được, quản trị viên có thể chọn mã phù hợp và xác nhận bên dưới.</p>
             </div>
-            {reviews?.reviews.map((review) => <ReviewCard key={review.idea_id} review={review} />)}
+            {reviews?.reviews.map((review) => <ReviewCard key={review.idea_id} review={review} itemId={itemId} epoch={summary.codebook_epoch} codes={reviews.code_options} onResolved={() => setRefreshVersion(value => value + 1)} />)}
             {!reviews?.reviews.length ? <p className="px-6 py-14 text-center text-sm text-stone-500">Không còn ý nào chờ phân xử.</p> : null}
           </section>
         )}

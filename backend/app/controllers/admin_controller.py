@@ -881,7 +881,7 @@ def list_code_options(db: Session, item_id: str) -> list[AdminCodeOption]:
         )
         .order_by(ItemCode.name, ItemCode.id)
     ).all()
-    return [AdminCodeOption(id=row.id, name=row.name) for row in rows]
+    return [AdminCodeOption(id=row.id, name=row.name, description=row.description or "") for row in rows]
 
 
 def _llm_diagnostics(mapping_meta: dict) -> dict:
@@ -1191,6 +1191,7 @@ def resolve_mapping_review(
         idea.reason = resolution.note or "Quản trị viên xác định ý không có nghĩa để mã hóa."
 
     idea.code = selected_code
+    idea.coding_state = "ASSIGNED" if selected_code is not None else "NOT_APPLICABLE"
     idea.review_status = "RESOLVED"
     idea.review_resolution = resolution.action
     idea.review_note = resolution.note

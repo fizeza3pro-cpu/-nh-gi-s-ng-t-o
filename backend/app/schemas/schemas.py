@@ -633,6 +633,7 @@ class AdminCodebookCode(BaseModel):
 class AdminCodeOption(BaseModel):
     id: str
     name: str
+    description: str = ""
 
 
 class AdminExtractionExcludedIdea(BaseModel):

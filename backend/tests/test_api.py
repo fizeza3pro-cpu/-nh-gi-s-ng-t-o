@@ -1200,6 +1200,52 @@ def test_admin_can_resolve_pending_idea_by_creating_code(client, monkeypatch):
     assert detail["mapping"]["ideas"][0]["curator_decision"] == "ADMIN_CREATE_NEW"
 
 
+@pytest.mark.parametrize("blocked", [None, "wrong_item", "final"])
+def test_admin_assign_existing_code_preserves_review_contract(client, monkeypatch, blocked):
+    """Gán mã cùng item, cập nhật trạng thái; không sửa bài FINAL hoặc gán chéo item."""
+    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    participant_id = create_participant(client)
+    submitted = client.post("/api/score", headers={"X-Participant-Id": participant_id},
+                            json={"item_id": "dua", "raw_input": "làm móc treo"}).json()
+    app.dependency_overrides[require_admin] = lambda: object()
+    review = client.get("/api/admin/items/dua/mapping-reviews").json()["reviews"][0]
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    if blocked == "wrong_item":
+        db.add(Item(id="other", name="Vật khác"))
+        db.flush()
+    code = ItemCode(id=str(uuid.uuid4()), item_id="other" if blocked == "wrong_item" else "dua",
+                    name="Thanh treo", normalized_name="thanh treo", description="Đũa chịu lực để treo đồ.")
+    db.add(code)
+    if blocked == "final":
+        row = db.get(Response, submitted["response_id"])
+        row.scoring_status = ResponseScoringStatus.FINAL
+        row.scoring = {"sentinel": "frozen"}
+    db.commit()
+    code_id = code.id
+    epoch = db.get(Item, "dua").codebook_epoch
+    path = f"/api/admin/items/dua/mapping-reviews/{review['idea_id']}/resolve"
+    payload = {"action": "MATCH_EXISTING", "existing_code_id": code_id,
+               "expected_codebook_epoch": epoch, "note": "Cùng chức năng treo đồ."}
+    result = client.post(path, json=payload)
+    db.expire_all()
+    idea = db.get(ResponseIdea, review["idea_id"])
+    if blocked:
+        assert result.status_code == 409
+        assert idea.review_status == "PENDING"
+        if blocked == "final":
+            assert db.get(Response, submitted["response_id"]).scoring == {"sentinel": "frozen"}
+    else:
+        assert result.status_code == 200, result.text
+        assert idea.code_id == code_id
+        assert idea.coding_state == "ASSIGNED"
+        assert idea.review_status == "RESOLVED"
+        assert idea.mapping_evidence["admin_resolution"]["note"] == payload["note"]
+        assert client.post(path, json=payload).status_code == 409
+        assert client.get("/api/admin/items/dua/mapping-reviews").json()["pending_count"] == 0
+    next(database, None)
+
+
 def test_admin_review_rejects_stale_codebook_epoch(client, monkeypatch):
     monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
     participant_id = create_participant(client)

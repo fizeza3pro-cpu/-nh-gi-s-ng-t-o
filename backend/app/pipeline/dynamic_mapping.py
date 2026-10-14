@@ -958,6 +958,26 @@ def run_idea_extraction(
     return _finish_extraction(item, aligned, result_meta, client)
 
 
+def _finalize_curator(item, ideas, curator, candidates, client, embedding_client):
+    """Giữ snapshot retrieval qua reconciler và đối chiếu ngữ nghĩa trước ghi mã."""
+    from app.pipeline.decision_verifier import verify_decisions
+
+    restored = CuratorResult(decisions=[decision.model_copy(update={
+        "compared_code_ids": sorted(_candidate_ids(candidates, decision.idea_index)),
+        "nearest_code_ids": sorted(_candidate_ids(candidates, decision.idea_index)),
+        "retrieval_candidates": [{
+            "code_id": c.get("id"), "name": c.get("name"),
+            "retrieval_score": c.get("retrieval_score"),
+            "semantic_similarity": c.get("semantic_similarity"),
+            "signature_similarity": c.get("signature_similarity") or {},
+            "exclusion_rules": c.get("exclusion_rules") or [],
+        } for c in candidates.get(decision.idea_index, [])],
+    }) for decision in curator.decisions])
+    checked, meta = verify_decisions(item, ideas, restored, candidates, client)
+    checked = _guard_ungrounded_creations(checked, ideas)
+    return _attach_decision_embeddings(checked, embedding_client), meta
+
+
 def run_code_curator(
     item: Item,
     ideas: IdeaExtractionResult,
@@ -1016,7 +1036,8 @@ def run_code_curator(
         combined, reconciliation = _reconcile_new_code_batch(
             item=item, ideas=ideas, curator=CuratorResult(decisions=decisions), client=client,
         )
-        return _attach_decision_embeddings(combined, embedding_client), {"batches": batches, "batch_reconciliation": reconciliation}
+        combined, verification = _finalize_curator(item, ideas, combined, candidates, client, embedding_client)
+        return combined, {"batches": batches, "batch_reconciliation": reconciliation, "decision_verifier": verification}
     prompt = _CURATOR_TEMPLATE.format(
         item_name=item.name,
         item_description=item.description,
@@ -1223,11 +1244,14 @@ def run_code_curator(
     result = CuratorResult(decisions=[decision.model_copy(update={
         "compared_code_ids": sorted(_candidate_ids(candidates, decision.idea_index)),
     }) for decision in result.decisions])
-    result = _attach_decision_embeddings(result, embedding_client)
+    verification = {"skipped": True, "reason": "partial_batch"}
+    if not _skip_reconciliation:
+        result, verification = _finalize_curator(item, ideas, result, candidates, client, embedding_client)
     return result, {
         "adjudicator": meta,
         "challenger": challenge_meta,
         "batch_reconciliation": reconciliation_meta,
+        "decision_verifier": verification,
     }
 
 
