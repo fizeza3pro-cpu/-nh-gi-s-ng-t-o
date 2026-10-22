@@ -61,8 +61,8 @@ def main():
                    for result in results for idea in result["mapping"]["ideas"]), "Còn ý chưa phân loại"
         if edge_cases:
             ideas = results[0]["mapping"]["ideas"]
-            assert all(idea["status"] == "VALID" for idea in ideas[:5] + ideas[6:])
-            assert ideas[5]["status"] == "DUPLICATE", "Đổi người nhận không tạo công dụng mới"
+            assert all(idea["status"] == "VALID" for idea in ideas)
+            assert ideas[4]["code"] == ideas[5]["code"], "Các ý tặng quà vẫn hợp lệ và dùng chung category"
             for left, right in [(0, 1), (2, 3), (4, 6)]:
                 assert ideas[left]["code"] != ideas[right]["code"], "Hai chức năng bị gộp sai"
             return

@@ -767,6 +767,68 @@ def test_expired_worker_lease_reclaims_saved_response(client, monkeypatch):
     next(database, None)
 
 
+def test_repeated_submitted_lines_remain_separate_valid_ideas(client):
+    """Mock cũng giữ hai dòng lặp, dùng một code thay vì va chạm lúc tạo mã."""
+    participant_id = create_participant(client)
+    submitted = client.post(
+        "/api/score", headers={"X-Participant-Id": participant_id},
+        json={"item_id": "dua", "responses": ["làm dấu trang", "làm dấu trang"]},
+    )
+    assert submitted.status_code == 200
+    payload = submitted.json()
+    ideas = payload["mapping"]["ideas"]
+    assert len(ideas) == 2
+    assert all(idea["status"] == "VALID" and idea["is_valid"] for idea in ideas)
+    assert len({idea["idea_id"] for idea in ideas}) == 2
+    assert ideas[0]["code"] == ideas[1]["code"]
+
+
+def test_worker_reextracts_completed_checkpoint_with_legacy_duplicates(client, monkeypatch):
+    """Worker không bỏ qua Extraction khi checkpoint hoàn tất còn nhãn trùng cũ."""
+    import hashlib
+    from tests.fake_llm import FakeClient
+
+    participant_id = create_participant(client)
+    lines = ["làm dấu trang", "làm dấu trang"]
+    row_payload = {
+        "original": lines[0], "normalized": lines[0], "status": "VALID",
+        "uses_target_object": True, "object_used": "Đũa", "target_object_role": "vật đánh dấu",
+        "functional_signature": {"goal": "đánh dấu trang", "object_role": "vật đánh dấu", "mechanism": "kẹp giữa trang"},
+    }
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    engine = db.get_bind()
+    response = Response(participant_id=participant_id, item_id="dua", raw_input="\n".join(lines),
+                        input_lines=lines, processing_claim_token="checkpoint-worker", mapping={}, scoring={})
+    response.mapping_checkpoint = {
+        "input_digest": hashlib.sha256(json.dumps(lines, ensure_ascii=False).encode()).hexdigest(),
+        "extraction": {"ideas": [{**row_payload, "line_index": 0},
+                                  {**row_payload, "line_index": 1, "status": "DUPLICATE", "duplicate_of_index": 0}]},
+    }
+    db.add(response)
+    db.commit()
+    response_id = response.id
+    next(database, None)
+    extraction_client = FakeClient([json.dumps({"ideas": [{**row_payload, "line_index": index}
+                                                          for index in range(2)]}, ensure_ascii=False)])
+    monkeypatch.setattr(main_mod.settings, "mock_mode", False)
+    monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(response_controller, "_client", lambda: extraction_client)
+    monkeypatch.setattr(response_controller, "_embedding_client", lambda: None)
+
+    def mock_curator(item, extraction, codes, *args, **kwargs):
+        _, curator = response_controller._mock_mapping(item, "\n".join(lines), codes)
+        return curator, {"mock": True}
+
+    monkeypatch.setattr(response_worker, "run_code_curator", mock_curator)
+    response_worker._run_mapping(response_id, "checkpoint-worker")
+    assert extraction_client.chat.completions.calls == 1
+    with Session(engine) as db:
+        saved = db.get(Response, response_id)
+        assert [idea["status"] for idea in saved.mapping_checkpoint["extraction"]["ideas"]] == ["VALID", "VALID"]
+        assert all(idea["is_valid"] for idea in saved.mapping["ideas"])
+
+
 def test_expired_final_lease_marks_saved_response_failed(client, monkeypatch):
     """Worker chết sau lần thử cuối không để bài RUNNING mãi trong lịch sử."""
     database = app.dependency_overrides[get_db]()

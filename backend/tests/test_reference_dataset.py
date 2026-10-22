@@ -26,6 +26,15 @@ def test_reference_dataset_has_unique_ids_and_all_pipeline_stages():
     assert {case["stage"] for case in cases} == {"extraction", "curator", "challenger"}
 
 
+def test_extraction_references_keep_repeated_uses_valid():
+    """Ví dụ gửi LLM phải dùng cùng quy tắc giữ ý lặp của pipeline."""
+    cases = [case for case in load_reference_cases() if case["stage"] == "extraction"]
+    assert all(idea["status"] in {"VALID", "INVALID"}
+               for case in cases for idea in case["expected"]["ideas"])
+    repeated = next(case for case in cases if case["id"] == "EX-VALID-REPEATED-01")
+    assert [idea["status"] for idea in repeated["expected"]["ideas"]] == ["VALID", "VALID"]
+
+
 def test_reference_retrieval_is_limited_and_stage_scoped():
     selected = select_reference_cases(
         "challenger",

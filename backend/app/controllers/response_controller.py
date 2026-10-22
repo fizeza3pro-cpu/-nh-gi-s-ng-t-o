@@ -157,6 +157,7 @@ def _mock_mapping(
                 CuratorDecision(
                     idea_index=index,
                     decision="CREATE_NEW",
+                    proposal_group=f"mock:{line.casefold()}",
                     code_name=line[:80],
                     code_description=f"[MOCK] Dùng {item.name}: {line[:120]}",
                     target_object_confirmed=True,

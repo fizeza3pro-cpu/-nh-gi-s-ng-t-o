@@ -143,7 +143,7 @@ def rank_code_candidates(
         for code in codes:
             code_signature = FunctionalSignature.model_validate(code.get("functional_signature") or {})
             code_vector = code.get("embedding") or []
-            similarities = signature_similarity(query_signature, code_signature)
+            similarities = signature_similarity(query_signature, code_signature) #so sánh các phần chức năng
             structural = similarities["weighted"]
             semantic = max(cosine(query_vector, code_vector), 0.0)
             if settings.centroid_retrieval_enabled and not code.get("drift_flag"):

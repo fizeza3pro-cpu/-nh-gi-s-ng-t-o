@@ -44,7 +44,7 @@
     "principle": "Không suy diễn rằng đồ vật mục tiêu tham gia nếu response chỉ mô tả một đồ vật khác."
   },
   {
-    "id": "EX-DUPLICATE-01",
+    "id": "EX-VALID-REPEATED-01",
     "stage": "extraction",
     "item": "Chai nhựa",
     "input": {
@@ -63,12 +63,17 @@
         },
         {
           "line_index": 1,
-          "status": "DUPLICATE",
-          "duplicate_of_index": 0
+          "status": "VALID",
+          "uses_target_object": true,
+          "functional_signature": {
+            "goal": "cấp nước cho cây",
+            "object_role": "bình chứa và phân phối nước",
+            "mechanism": "nước chảy qua lỗ nhỏ"
+          }
         }
       ]
     },
-    "principle": "Hai cách diễn đạt có cùng mục đích, vai trò và cơ chế trong một lượt chỉ được tính một ý."
+    "principle": "Mỗi dòng có công dụng hợp lệ đều VALID, kể cả lặp công dụng hoặc cách diễn đạt; các dòng vẫn được phân code riêng."
   },
   {
     "id": "EX-NOT-DUPLICATE-01",

@@ -1,94 +1,81 @@
-﻿"Báo cáo AUT","So sánh sử dụng ít AI / sử dụng nhiều AI"
-"Nguồn","PILOT"
-"Thời điểm","2026-10-02T02:31:41.909232Z"
-"Đồ vật","Tất cả đồ vật"
+﻿1. Nhận bài và lưu dữ liệu trước khi xử lý
+Backend lưu bản ghi Response, gồm nội dung gốc, các dòng trả lời và thông tin lượt khảo sát. Sau khi commit thành công, API trả mã bài; worker chạy mapping phía sau.
+Như vậy, bài đã được lưu trước khi gọi LLM. Lỗi LLM không làm mất nội dung đã nộp.
+2. Extraction: hiểu từng dòng và kiểm tra tính hợp lệ
+Mô tả của bạn gần đúng, nhưng nên nói là:
+Extraction xử lý từng dòng trả lời, giữ câu gốc, tạo câu chuẩn hoá, nhận diện vai trò của đồ vật, trích chữ ký chức năng và phân loại VALID, INVALID hoặc DUPLICATE.
 
-"Mẫu dữ liệu","Số lượt"
-"submitted_responses","45"
-"analyzed_responses","45"
-"excluded_responses","0"
-"unfinished_responses","0"
-"failed_responses","0"
-"ungrouped_responses","0"
-"final_scored_responses","40"
-"stale_score_responses","0"
-"other_source_responses","60"
-"score_participants_low","7"
-"score_participants_high","13"
-"registered_participants_low","9"
-"registered_participants_high","15"
-"submitted_participants_low","8"
-"submitted_participants_high","14"
+Có ba trường chức năng cốt lõi là goal, object_role, mechanism; ngoài ra chữ ký còn có transformation, target, context. Extraction cũng ghi bằng chứng và những trường phải suy diễn.
+Các ý bị đánh INVALID còn được kiểm tra lại bằng Invalid Verifier; nếu lý do loại có dấu hiệu sai chính sách thì có bước Policy Repair. Vì vậy, không phải Extraction trả INVALID là loại ngay lập tức.
+Kết quả Extraction được lưu vào checkpoint, để khi chạy lại có thể sử dụng kết quả cũ thay vì gọi Extraction lại từ đầu.
+3. Embedding và tìm code ứng viên
+Các ý VALID có sử dụng đúng đồ vật được đưa vào tìm kiếm ứng viên:
+- Tạo embedding từ chữ ký chức năng cốt lõi của ý.
+- So với embedding của các code.
+- Tính độ giống từ ngữ của goal, object_role, mechanism.
+- Tính điểm cấu trúc theo trọng số 40/30/30.
+- Tính điểm truy hồi: 75% ngữ nghĩa + 25% cấu trúc.
+- Xếp hạng và lấy danh sách ứng viên.
+Với codebook nhỏ, hệ thống có thể đưa toàn bộ code vào danh sách theo cấu hình; khi lớn mới giới hạn số ứng viên. Curator nhận thông tin code và các điểm so sánh, không nhận toàn bộ vector số. [Code tìm ứng viên (line 99)](D:/AUT-demo/AUT-demo/AUT-demo/backend/app/pipeline/code_retrieval.py:99).
+4. Curator đề xuất quyết định; backend xử lý theo từng nhánh
+Quyết định	Xử lý tiếp
+CREATE_NEW	Kiểm tra phạm vi, tránh code phân mảnh, kiểm chứng độc lập rồi mới cho phép tạo.
+MATCH_EXISTING	Kiểm tra code đích, quan hệ ngữ nghĩa và các tín hiệu/ngưỡng. Không đạt thì chuyển UNCERTAIN để Challenger phân xử.
+EXPAND_EXISTING	Đưa sang Challenger kiểm tra đề xuất mở rộng.
+OUT_OF_CODEBOOK / UNCERTAIN	Đưa sang Challenger tìm quyết định phù hợp hơn.
+INVALID	Nếu Extraction trước đó đã xác nhận VALID, chuyển thành UNCERTAIN để phân xử bất đồng.
 
-"Bảng 1. Ý tưởng theo đồ vật và nhóm"
-"Đồ vật","Nhóm","Số người","Số lượt","Tổng ý","Hợp lệ","Không hợp lệ","Trùng lặp","Chưa phân loại","Hợp lệ chờ mã"
-"Balo quân nhu","Sử dụng ít AI","0","0","0","0","0","0","0","0"
-"Balo quân nhu","Sử dụng nhiều AI","1","1","5","5","0","0","0","0"
-"Bi đông nước","Sử dụng ít AI","0","0","0","0","0","0","0","0"
-"Bi đông nước","Sử dụng nhiều AI","0","0","0","0","0","0","0","0"
-"Cân tiểu ly","Sử dụng ít AI","0","0","0","0","0","0","0","0"
-"Cân tiểu ly","Sử dụng nhiều AI","0","0","0","0","0","0","0","0"
-"Cuộn chỉ","Sử dụng ít AI","2","3","15","12","3","0","0","0"
-"Cuộn chỉ","Sử dụng nhiều AI","5","7","47","37","7","3","0","0"
-"Ghim kẹp giấy","Sử dụng ít AI","0","0","0","0","0","0","0","0"
-"Ghim kẹp giấy","Sử dụng nhiều AI","0","0","0","0","0","0","0","0"
-"Kính lúp","Sử dụng ít AI","0","0","0","0","0","0","0","0"
-"Kính lúp","Sử dụng nhiều AI","0","0","0","0","0","0","0","0"
-"Mũ cối","Sử dụng ít AI","2","2","11","10","1","0","0","0"
-"Mũ cối","Sử dụng nhiều AI","4","4","23","22","1","0","0","1"
-"Ni lông (áo mưa)","Sử dụng ít AI","0","0","0","0","0","0","0","0"
-"Ni lông (áo mưa)","Sử dụng nhiều AI","0","0","0","0","0","0","0","0"
-"Ống nghiệm","Sử dụng ít AI","0","0","0","0","0","0","0","0"
-"Ống nghiệm","Sử dụng nhiều AI","0","0","0","0","0","0","0","0"
-"Thùng đạn","Sử dụng ít AI","0","0","0","0","0","0","0","0"
-"Thùng đạn","Sử dụng nhiều AI","0","0","0","0","0","0","0","0"
-"Vỏ đạn","Sử dụng ít AI","2","2","15","15","0","0","0","1"
-"Vỏ đạn","Sử dụng nhiều AI","7","23","99","83","13","3","0","3"
-"Xẻng công binh","Sử dụng ít AI","3","3","10","10","0","0","0","0"
-"Xẻng công binh","Sử dụng nhiều AI","0","0","0","0","0","0","0","0"
 
-"Bảng 2. Số mã đã sử dụng"
-"Đồ vật","Sử dụng ít AI","Sử dụng nhiều AI","Chung hai nhóm","Tổng mã (kể cả chưa khai báo)"
-"Balo quân nhu","0","3","0","3"
-"Bi đông nước","0","0","0","0"
-"Cân tiểu ly","0","0","0","0"
-"Cuộn chỉ","7","29","5","31"
-"Ghim kẹp giấy","0","0","0","0"
-"Kính lúp","0","0","0","0"
-"Mũ cối","8","15","6","17"
-"Ni lông (áo mưa)","0","0","0","0"
-"Ống nghiệm","0","0","0","0"
-"Thùng đạn","0","0","0","0"
-"Vỏ đạn","13","37","8","42"
-"Xẻng công binh","8","0","0","8"
+Cụ thể các nhánh như sau.
+Nhánh CREATE_NEW: chưa phải “OK, tạo xong”
+Đề xuất code mới phải đi qua những lớp sau:
+1. Kiểm tra phạm vi có tái sử dụng được không: đủ chữ ký cốt lõi, tên/mô tả phù hợp, quy tắc bao gồm và loại trừ, các biến thể kiểm tra phạm vi. Thiếu thì có thể gọi Boundary Repair.
+2. Đối chiếu các code mới trong cùng bài: nếu nhiều đề xuất có khả năng chồng lấn, Batch Reconciler phân xử xem chúng nên dùng chung một code hay tách riêng.
+3. Decision Verifier kiểm chứng độc lập: đối chiếu câu gốc, cách hiểu và một danh sách ngắn các code gần nhất. Bước này có thể giữ CREATE_NEW, đổi thành MATCH_EXISTING hoặc chuyển UNCERTAIN.
+4. Trước khi ghi DB: kiểm tra lại căn cứ câu gốc, vai trò đồ vật, phạm vi và xung đột tên/chữ ký với code đang tồn tại.
+Chỉ đạt các điều kiện cuối mới tạo code và gán ý vào code đó. [Decision Verifier (line 37)](D:/AUT-demo/AUT-demo/AUT-demo/backend/app/pipeline/decision_verifier.py:37), [kiểm tra trước khi lưu (line 574)](D:/AUT-demo/AUT-demo/AUT-demo/backend/app/pipeline/codebook_service.py:574).
 
-"Bảng 3. Điểm trung bình theo người tham gia"
-"Tiêu chí","Nhóm","n","Trung bình","SD","SEM","Chênh lệch nhiều - ít","p Welch thô","p Holm","Ghi chú"
-"Độc đáo","Sử dụng ít AI","7","4.523809523809524","2.5448360411214073","0.9618576131773408","2.694813957971853","0.15220394962445552","0.6088157984978221",""
-"Độc đáo","Sử dụng nhiều AI","13","7.218623481781377","5.492286463518045","1.5232861895193148","2.694813957971853","0.15220394962445552","0.6088157984978221",""
-"Linh hoạt","Sử dụng ít AI","7","4.0476190476190474","1.7683280597740134","0.6683651832199142","1.547522652785811","0.21508203105228815","0.6452460931568644",""
-"Linh hoạt","Sử dụng nhiều AI","13","5.5951417004048585","3.6115251428611557","1.001656852708716","1.547522652785811","0.21508203105228815","0.6452460931568644",""
-"Trôi chảy","Sử dụng ít AI","7","4.619047619047619","2.3128351323011223","0.87416951193742","1.0692114902641219","0.4342436207837628","0.6452460931568644",""
-"Trôi chảy","Sử dụng nhiều AI","13","5.6882591093117405","3.6406866176901107","1.0097447906136352","1.0692114902641219","0.4342436207837628","0.6452460931568644",""
-"Chi tiết","Sử dụng ít AI","7","8.380952380952381","4.0708019567928595","1.5386185163241441","3.837671100828995","0.2856297543676542","0.6452460931568644",""
-"Chi tiết","Sử dụng nhiều AI","13","12.218623481781377","11.247157148838852","3.11940013871845","3.837671100828995","0.2856297543676542","0.6452460931568644",""
+Nhánh MATCH_EXISTING: bạn hiểu đúng, nhưng sau Challenger còn một bước
+Luồng thường là:
+Curator đề xuất MATCH
+    → backend kiểm tra
+        → đạt: giữ MATCH
+        → không đạt: chuyển UNCERTAIN → Challenger
+Nếu Challenger lại chọn MATCH_EXISTING, backend kiểm tra tiếp. Bộ điều kiện sau Challenger có khác bộ điều kiện ghép trực tiếp; không phải lặp nguyên mọi ngưỡng.
+Nếu lần này vẫn yếu:
+pair_verifier so sánh đúng một ý với một code được chọn
+    ├─ Chứng minh cùng nhóm / ý nằm trong code
+    │   → có thể xác nhận MATCH
+    ├─ Kết luận ý rộng hơn code và vai trò phù hợp
+    │   → gọi scope_expansion đề xuất mở rộng
+    └─ Chưa chứng minh được
+        → UNCERTAIN
+Kết quả cuối vẫn được kiểm tra trước khi ghi DB. Không đạt thì giữ ý chưa có code để resolver xử lý sau, chứ không ghép cưỡng ép. [Nhánh kiểm tra sau Challenger (line 1971)](D:/AUT-demo/AUT-demo/AUT-demo/backend/app/pipeline/dynamic_mapping.py:1971).
 
-"Nhận xét"
-"Nguồn PILOT: 22 người, 45 lượt hoàn tất được tổng hợp."
-"Trong phạm vi được chọn, đã nộp bài: 8 người ít sử dụng AI và 14 người sử dụng nhiều AI. Toàn hệ thống có 9 và 15 hồ sơ tương ứng; hồ sơ chưa nộp hoặc chưa có điểm FINAL không tham gia biểu đồ điểm."
-"Tỷ lệ ý hợp lệ là 86.22%; có 5 ý hợp lệ đang chờ mã và 101 mã đã được sử dụng (đếm riêng theo đồ vật)."
-"Có 225 ý tưởng: 194 hợp lệ, 25 không hợp lệ và 6 trùng lặp."
-"Biểu đồ điểm dùng 40 lượt có điểm chính thức, từ 7 người ít sử dụng AI và 13 người sử dụng nhiều AI."
-"Độc đáo: nhóm sử dụng nhiều AI cao hơn 2.69 điểm trung bình."
-"Linh hoạt: nhóm sử dụng nhiều AI cao hơn 1.55 điểm trung bình."
-"Trôi chảy: nhóm sử dụng nhiều AI cao hơn 1.07 điểm trung bình."
-"Chi tiết: nhóm sử dụng nhiều AI cao hơn 3.84 điểm trung bình."
-"Chưa ghi nhận khác biệt có ý nghĩa thống kê ở các tiêu chí kiểm định được sau hiệu chỉnh Holm (p ≥ 0,05). Kết quả này không chứng minh hai nhóm tương đương; cần đối chiếu cỡ mẫu và cơ cấu đồ vật."
+Nhánh EXPAND_EXISTING: Challenger đồng ý vẫn chưa đủ
+Sau Challenger, đề xuất mở rộng phải được kiểm chứng rằng:
+- Vẫn bao phủ các ý đang thuộc code đích.
+- Bao phủ được ý mới.
+- Phân biệt được với các ví dụ của code lân cận.
+- Có đủ bằng chứng, ranh giới và điều kiện mở rộng.
+- Code đích và các ý thành viên không thay đổi trong lúc kiểm chứng.
+Đây là bước Scope Audit. Nếu không đạt, chuyển sang UNCERTAIN và giữ nguyên phạm vi code cũ.
+Nếu đạt hết điều kiện lưu, backend cập nhật phạm vi của code đích và gán ý mới vào code đó. Mở rộng code không mặc định đồng nghĩa với gộp thêm các code khác. [Scope Audit (line 17)](D:/AUT-demo/AUT-demo/AUT-demo/backend/app/pipeline/scope_audit.py:17), [áp dụng mở rộng (line 283)](D:/AUT-demo/AUT-demo/AUT-demo/backend/app/pipeline/codebook_service.py:283).
+5. Challenger không tự lặp liên tục cho tới hết số lần
+Chỗ này trong mô tả của bạn cần sửa:
+Mỗi lượt mapping gọi Challenger cho các ca cần phân xử. Nếu cuối lượt vẫn chưa phân code được, backend lưu trạng thái chờ và lên lịch cho resolver chạy lại sau.
 
-"Phương pháp"
-"Phân nhóm theo mức sử dụng AI tự khai trong hồ sơ hiện tại: LOW = sử dụng ít AI; HIGH = sử dụng nhiều AI. Đây là so sánh quan sát giữa hai nhóm, không phải trước/sau can thiệp và không chứng minh quan hệ nhân quả."
-"Bảng ý tưởng và mã dùng mọi lượt DONE không bị EXCLUDED của nguồn được chọn, kể cả lượt chưa có điểm. Không trộn dữ liệu SYNTHETIC hoặc nguồn khác. Nhóm chưa khai báo được thống kê riêng và không tham gia so sánh điểm."
-"Tổng ý = hợp lệ + không hợp lệ + trùng lặp + chưa phân loại. Ý chờ mã là một phần của ý VALID chưa có mã ACCEPTED/ACTIVE. Số mã chỉ đếm mã khác nhau đã gán cho ý VALID; tổng mã là hợp của các nhóm, không cộng mã trùng giữa nhóm."
-"Biểu đồ chỉ dùng điểm FINAL của lượt DONE trên đồ vật có điểm đã đồng bộ. Điểm là tổng điểm của một lượt theo rubric hiện hành; số 0 được giữ như một điểm thực. Điểm tạm thời, chưa chấm và điểm đang lỗi thời không được coi là 0."
-"Đơn vị so sánh là người tham gia: lấy trung bình tất cả lượt FINAL đủ điều kiện của mỗi người trên các đồ vật được chọn, rồi lấy trung bình nhóm. Mỗi người có trọng số bằng nhau. Cách tính và mẫu điểm thống nhất với dashboard khi cùng nguồn và tất cả đồ vật. Cơ cấu đồ vật có thể khác giữa người/nhóm; dùng bộ lọc đồ vật để đối chiếu."
-"Thanh sai số là ±1 SEM (độ lệch chuẩn mẫu chia căn bậc hai số người). Một người chưa đủ để ước lượng SEM. p thô dùng Welch t-test hai phía; p trên biểu đồ hiệu chỉnh Holm cho bốn tiêu chí. Không ước lượng p nếu mỗi nhóm chưa có ít nhất 2 người hoặc cả hai nhóm không có biến thiên."
+Resolver gọi lại run_code_curator() cho các ý còn thiếu code, rồi các ý đó tiếp tục đi qua những bước cần thiết, bao gồm Challenger nếu thuộc điều kiện. Nó không chỉ gọi lặp riêng Challenger.
+Cấu hình mặc định trong code là tối đa 3 lượt resolver, khoảng chờ 15 giây; đây là giá trị có thể cấu hình và không tính lượt mapping đầu tiên. Sau khi hết lượt mà chưa giải quyết được:
+- Ý vẫn được giữ trong DB.
+- coding_state chuyển thành UNRESOLVED.
+- Bài ở trạng thái PENDING_REVIEW.
+- Admin có thể xem và gán ý vào code phù hợp.
+Ngoài ra, hệ thống có thể đánh thức thêm một lượt khi codebook xuất hiện code mới liên quan mà ý đó chưa từng được đối chiếu. [Luồng resolver và đánh thức lại (line 142)](D:/AUT-demo/AUT-demo/AUT-demo/backend/app/controllers/response_worker.py:142).
+Cũng cần phân biệt chưa phân loại được với lỗi kỹ thuật. Lỗi API, JSON hoặc worker có cơ chế thử lại riêng; không phải tất cả đều dùng bộ đếm resolver.
+6. Trước khi commit còn kiểm tra codebook có thay đổi không
+Trong lúc LLM đang xử lý, một bài khác có thể tạo hoặc mở rộng code. Backend kiểm tra codebook_epoch trước khi lưu.
+Nếu codebook đã đổi, backend đọc danh sách mới và chạy lại Curator để tránh tạo code trùng hoặc ghép theo thông tin cũ. Đây là vòng kiểm tra dữ liệu đồng thời, khác với resolver dành cho ý chưa phân loại được.
+7. Mapping xong mới chuyển sang chấm điểm
+Kết quả mapping và các ý được lưu vào DB. Nếu còn ý cần phân xử, bài tiếp tục ở PENDING_REVIEW. Khi mapping hoàn tất, bài chờ đủ điều kiện mẫu để chấm điểm.
+Tầng scoring tính các chỉ số theo công thức; LLM trích bằng chứng Elaboration và viết nhận xét. Điểm đã FINAL được đóng băng theo quyết định của bạn.

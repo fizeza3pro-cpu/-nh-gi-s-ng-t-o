@@ -167,7 +167,9 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
         curator_meta = {"mock": True}
     else:
         input_digest = hashlib.sha256(json.dumps(input_lines, ensure_ascii=False).encode()).hexdigest()
-        if checkpoint.get("extraction") and checkpoint.get("input_digest") == input_digest and not checkpoint.get("needs_extraction_repair"):
+        if (checkpoint.get("extraction") and checkpoint.get("input_digest") == input_digest
+                and not checkpoint.get("needs_extraction_repair")
+                and not any(idea.get("status") == "DUPLICATE" for idea in checkpoint["extraction"].get("ideas", []))):
             extraction = IdeaExtractionResult.model_validate(checkpoint["extraction"])
             extraction_meta = checkpoint.get("extraction_meta", {})
         else:
@@ -199,8 +201,8 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
             if item_row is None or row is None or row.processing_claim_token != token:
                 return
             if (item_row.codebook_epoch or 0) == epoch:
-                curator = _guard_stale_creations(curator, new_code_ids)
-                curator = guard_members(db, curator, scope_guards)
+                curator = _guard_stale_creations(curator, new_code_ids) #ngăn tạo code mới nếu có code mới xuất hiện mà quyết định chưa phân biệt rõ.
+                curator = guard_members(db, curator, scope_guards) #áp các điều kiện bảo vệ cho quyết định liên quan đến phạm vi code.
                 mapping, has_uncertain = persist_mapping(
                     db,
                     item=item_row,

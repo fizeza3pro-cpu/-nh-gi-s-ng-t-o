@@ -217,4 +217,10 @@ Các quy tắc sau thay thế mô tả cũ tương ứng bên trên:
 - DB mới dùng `uv run python -m scripts.prepare_database`; DB có version được Alembic upgrade, DB không version nhưng có bảng phải được kiểm tra thủ công. Không chạy thử trên DB khảo sát thật.
 - Production yêu cầu secret JWT/email và CORS cụ thể. Vercel dùng `VITE_API_BASE_URL` đến backend; xem mục “Cập nhật ổn định hệ thống” trong README cho chuyển đổi khóa email và cấu hình.
 
+## Quyết định bổ sung ngày 22/10/2026 — giữ các ý lặp
+
+- Mỗi dòng trả lời được xét độc lập: ý lặp nguyên văn hoặc cùng công dụng vẫn `VALID` nếu đủ căn cứ chức năng. Không sinh `DUPLICATE` cho lượt xử lý mới; ý vô nghĩa/lạc đề vẫn `INVALID`.
+- Các ý lặp hợp lệ đi qua embedding, Curator và scoring như mọi ý khác; có thể dùng chung code và được tính riêng vào số ý/tần suất. Flexibility vẫn đếm code khác nhau.
+- Checkpoint Extraction cũ chứa `DUPLICATE` phải được phân tích lại trước khi tiếp tục. Giữ tương thích nhãn cũ để đọc lịch sử; không tự sửa dữ liệu đã lưu hoặc điểm `FINAL`.
+
 ---

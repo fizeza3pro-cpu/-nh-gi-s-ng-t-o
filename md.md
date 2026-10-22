@@ -310,6 +310,8 @@ AI giải quyết được 4–6, với **tradeoff** ở 1–3 (verbosity/positi
 
 ### C.1. Luồng tổng quan
 
+**Quyết định triển khai ngày 22/10/2026:** mỗi dòng được xét độc lập; các ý lặp vẫn `VALID` nếu có công dụng hợp lệ và được phân code/chấm điểm riêng. Không sinh `DUPLICATE` trong pipeline mới. Quy tắc này thay thế bước loại trùng trong thiết kế ban đầu và khác quy tắc Fluency tham khảo ở phần B.2. Dữ liệu lịch sử và điểm `FINAL` đã đóng băng không tự thay đổi.
+
 ```
 Người dùng nhập text tự do, lộn xộn, không cấu trúc
     ↓
@@ -317,7 +319,7 @@ TẦNG 1 — SEMANTIC NORMALIZATION (Mapping)
     ├── Tách ý tưởng riêng biệt
     ├── Giải mã ý định ("người dùng đang nói đến công dụng gì?")
     ├── Gán Code danh mục tiếng Việt
-    └── Đánh dấu VALID / INVALID / DUPLICATE
+    └── Đánh dấu VALID / INVALID; giữ các dòng lặp hợp lệ
     ↓
 TẦNG 2 — SCORING
     ├── Fluency   = count VALID
@@ -364,7 +366,7 @@ BƯỚC 2 — GIẢI MÃ Ý ĐỊNH:
 Mỗi ý: người dùng muốn nói đến CÔNG DỤNG GÌ? Diễn đạt lại bằng cụm ngắn.
 - Mơ hồ nhưng đoán được → giải mã theo nghĩa gần nhất
 - Hoàn toàn không liên quan → INVALID
-- Trùng ý đã có → DUPLICATE
+- Trùng ý đã có → vẫn VALID nếu công dụng hợp lệ; giữ từng dòng riêng
 
 BƯỚC 3 — GÁN CODE:
 Gán 1 Code danh mục cho mỗi ý VALID. Hai ý cùng nghĩa sâu xa → cùng Code.
@@ -373,7 +375,7 @@ OUTPUT (JSON):
 {
   "ideas": [
     {"original": "...", "normalized": "...", "code": "...",
-     "status": "VALID|INVALID|DUPLICATE", "reason": "..."}
+     "status": "VALID|INVALID", "reason": "..."}
   ]
 }
 ```

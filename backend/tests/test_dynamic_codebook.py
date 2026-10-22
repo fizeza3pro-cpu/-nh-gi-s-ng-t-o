@@ -1327,21 +1327,91 @@ def test_overlapping_new_codes_in_same_submission_are_reconciled(grouped_contrac
         assert all(idea.coding_state == "ASSIGNED" for idea in mapping.ideas)
 
 
-def test_duplicate_missing_reference_repairs_only_affected_line():
-    """Giữ nguyên ý đầu, chỉ hỏi lại liên kết bị thiếu của ý trùng."""
+@pytest.mark.parametrize("legacy_reference", [None, 0])
+def test_legacy_duplicate_is_reanalyzed_as_an_independent_idea(legacy_reference):
+    """Nhãn trùng cũ phải được phân tích đủ chữ ký thay vì loại hoặc sao chép ý trước."""
     first = {"line_index": 0, "original": "tặng bạn An", "normalized": "tặng quà", "status": "VALID",
              "uses_target_object": True, "object_used": "Vỏ đạn", "target_object_role": "món quà",
              "functional_signature": {"goal": "tặng quà", "object_role": "món quà", "mechanism": "trao tặng"}}
-    duplicate = {**first, "line_index": 1, "original": "tặng bạn Bình", "status": "DUPLICATE", "duplicate_of_index": None}
-    fixed = {**duplicate, "duplicate_of_index": 0}
+    duplicate = {"line_index": 1, "original": "tặng bạn Bình", "normalized": "tặng quà",
+                 "status": "DUPLICATE", "duplicate_of_index": legacy_reference}
+    fixed = {**first, "line_index": 1, "original": duplicate["original"]}
     client = FakeClient([json.dumps({"ideas": [first, duplicate]}, ensure_ascii=False),
                          json.dumps({"ideas": [fixed]}, ensure_ascii=False)])
     result, metadata = run_idea_extraction(Item(id="vo", name="Vỏ đạn", description="Vỏ kim loại rỗng"),
                                          [first["original"], duplicate["original"]], client)
     assert client.chat.completions.calls == 2
-    assert result.ideas[1].duplicate_of_index == 0
-    assert result.ideas[0].status == "VALID"
-    assert metadata["extraction_repairs"][0]["stage"] == "duplicate_reference_repair"
+    assert all(idea.status == "VALID" for idea in result.ideas)
+    assert result.ideas[1].duplicate_of_index is None
+    assert result.ideas[1].target_object_role == "món quà"
+    assert metadata["extraction_repairs"][0]["stage"] == "extraction_repair"
+
+
+def test_legacy_duplicate_checkpoint_is_extracted_again():
+    """Checkpoint cũ không được bỏ qua ý lặp khi tiếp tục worker."""
+    row = {"line_index": 0, "original": "tặng bạn An", "normalized": "tặng quà", "status": "VALID",
+           "uses_target_object": True, "object_used": "Vỏ đạn", "target_object_role": "món quà",
+           "functional_signature": {"goal": "tặng quà", "object_role": "món quà", "mechanism": "trao tặng"}}
+    repeated = {**row, "line_index": 1}
+    checkpoint = {"ideas": [row, {**repeated, "status": "DUPLICATE", "duplicate_of_index": 0}]}
+    client = FakeClient([json.dumps({"ideas": [row, repeated]}, ensure_ascii=False)])
+    result, _ = run_idea_extraction(
+        Item(id="vo", name="Vỏ đạn", description="Vỏ kim loại rỗng"),
+        [row["original"], repeated["original"]], client, checkpoint=checkpoint,
+    )
+    assert client.chat.completions.calls == 1
+    assert [idea.status for idea in result.ideas] == ["VALID", "VALID"]
+    assert result.ideas[0].idea_id != result.ideas[1].idea_id
+
+
+def test_repeated_valid_lines_are_mapped_and_scored_separately():
+    """Hai dòng giống nhau được lưu riêng và tính điểm riêng, cùng dùng một code."""
+    from app.config import settings
+    from app.pipeline.scoring import run_scoring
+    from app.schemas.schemas import Item as ItemSchema
+
+    engine = _engine()
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        participant = Participant(id=str(uuid.uuid4()))
+        item = Item(id="vo", name="Vỏ đạn", description="Vỏ kim loại rỗng")
+        response = _response(participant.id, item.id)
+        response.processing_state = "DONE"
+        response.data_source = settings.survey_data_source
+        signature = FunctionalSignature(goal="tặng quà", object_role="món quà", mechanism="trao tặng")
+        code = ItemCode(id="gift", item_id=item.id, name="Quà tặng", normalized_name="qua tang",
+                        description="Dùng vỏ đạn làm quà tặng", functional_signature=signature.model_dump(),
+                        validation_status="ACCEPTED", maturity_status="ACTIVE")
+        db.add_all([participant, item, response, code])
+        db.flush()
+        row = {"original": "tặng bạn An", "normalized": "tặng quà", "status": "VALID",
+               "uses_target_object": True, "object_used": "Vỏ đạn", "target_object_role": "món quà",
+               "functional_signature": signature.model_dump(), "functional_evidence": {"goal": "tặng"}}
+        extraction_client = FakeClient([json.dumps({"ideas": [{**row, "line_index": index}
+                                                             for index in range(2)]}, ensure_ascii=False)])
+        item_schema = ItemSchema(id=item.id, name=item.name, description=item.description)
+        extraction, _ = run_idea_extraction(item_schema, [row["original"]] * 2, extraction_client)
+        curator_client = FakeClient([json.dumps({"decisions": [{
+            "idea_index": index, "source_text": row["original"], "decision": "MATCH_EXISTING",
+            "existing_code_id": code.id, "code_relation": "SAME_CATEGORY", "confidence": 0.99,
+        } for index in range(2)]}, ensure_ascii=False)])
+        snapshots = list_curator_codes(db, item.id)
+        curator, _ = run_code_curator(item_schema, extraction, snapshots, curator_client)
+        mapping, pending = persist_mapping(db, item=item, response=response, extraction=extraction,
+                                          curator=curator, code_snapshots=snapshots)
+        assert not pending
+        assert len({idea.idea_id for idea in mapping.ideas}) == 2
+        assert all(idea.code == code.name and idea.is_valid for idea in mapping.ideas)
+        assert qualifying_idea_count(db, item.id) == 2
+        fluency, flexibility, codes, per_idea, _ = originality_for_response(db, response)
+        assert (fluency, flexibility, len(per_idea)) == (2, 1, 2)
+        scoring_client = FakeClient([json.dumps({"elaboration_analysis": [{
+            "idea_id": idea.idea_id, "original": idea.original,
+            "facets": {"target": {"present": True, "evidence": "bạn An"}},
+        } for idea in per_idea]}, ensure_ascii=False), "{}"])
+        scores, _ = run_scoring(item_schema, fluency, flexibility, codes, per_idea, scoring_client, runs=1)
+        assert scores.elaboration == 4
+        assert len(scores.per_idea_scores) == 2
 
 
 def test_score_request_accepts_ten_separate_ideas_and_rejects_more():

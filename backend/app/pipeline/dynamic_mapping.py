@@ -802,7 +802,7 @@ def _finish_extraction(item, aligned, result_meta, client):
     """Giữ checkpoint trước verifier để lỗi phụ không bắt tách lại toàn bộ bài."""
     snapshot = {"ideas": [idea.model_dump() for idea in aligned], "metadata": result_meta}
     try:
-        aligned, verifier_meta = _verify_invalid_extractions(item=item, ideas=aligned, client=client)
+        aligned, verifier_meta = _verify_invalid_extractions(item=item, ideas=aligned, client=client) #kiểm tra lại các ý bị LLM đánh INVALID,
     except LLMJSONError as exc:
         exc.extraction_checkpoint = snapshot
         raise
@@ -819,13 +819,14 @@ def run_idea_extraction(
     embedding_client: OpenAI | None = None,
     *, checkpoint: dict | None = None,
 ) -> tuple[IdeaExtractionResult, dict]:
-    if checkpoint:
+    # Checkpoint cũ có DUPLICATE phải được phân tích lại, vì có thể thiếu chữ ký/vai trò đồ vật.
+    if checkpoint and not any(idea.get("status") == "DUPLICATE" for idea in checkpoint["ideas"]):
         aligned = IdeaExtractionResult.model_validate({"ideas": checkpoint["ideas"]}).ideas
         return _finish_extraction(item, aligned, checkpoint.get("metadata", {}), client)
-    lines = (
+    lines = ( #bỏ dòng trống, xóa khoảng trắng ở đầu/cuối và giới hạn 10 dòng. Mỗi dòng vẫn là một ý độc lập.
         [line.strip() for line in responses.splitlines() if line.strip()]
         if isinstance(responses, str)
-        else [line.strip() for line in responses if line.strip()]
+        else [line.strip() for line in responses if line.strip()] 
     )[:10]
     prompt = _EXTRACTION_TEMPLATE.format(
         item_name=item.name,
@@ -861,11 +862,11 @@ def run_idea_extraction(
     )
     result = IdeaExtractionResult.model_validate(data)
     by_line = {}
-    for index in range(len(lines)):
+    for index in range(len(lines)):  #đoạn này ktra output của llm
         matches = [idea for idea in result.ideas if idea.line_index == index]
-        if len(matches) == 1:
+        if len(matches) == 1 and matches[0].status != "DUPLICATE":
             by_line[index] = matches[0]
-    # Sai/thiếu index là lỗi kỹ thuật; sửa đúng dòng, không tạo INVALID giả.
+    # Sai/thiếu index hoặc nhãn DUPLICATE cũ: phân tích lại đúng dòng theo quy tắc độc lập.
     repairs = []
     for index, line in enumerate(lines):
         if index in by_line:
@@ -885,6 +886,8 @@ def run_idea_extraction(
         fixed_rows = IdeaExtractionResult.model_validate(fixed).ideas
         if len(fixed_rows) != 1 or fixed_rows[0].line_index != index:
             raise LLMJSONError("Extraction vẫn thiếu hoặc trùng dòng sau repair.", metadata=fixed_meta)
+        if fixed_rows[0].status == "DUPLICATE":
+            raise LLMJSONError("Extraction vẫn loại ý lặp sau repair; chỉ cho phép VALID hoặc INVALID.", metadata=fixed_meta)
         by_line[index] = fixed_rows[0]
         repairs.append(fixed_meta)
     aligned = []
@@ -903,33 +906,7 @@ def run_idea_extraction(
             idea.original = line
             idea.line_index = index
             idea.idea_id = hashlib.sha256(f"{index}:{line}".encode()).hexdigest()[:24]
-            if idea.status == "DUPLICATE":
-                target = idea.duplicate_of_index
-                if target is None or target >= index or by_line[target].status != "VALID":
-                    prior = [{"line_index": key, "original": value.original} for key, value in by_line.items()
-                             if key < index and value.status == "VALID"]
-                    repair_prompt = _EXTRACTION_TEMPLATE.format(
-                        item_name=item.name, item_description=item.description,
-                        responses_json=json.dumps([{"line_index": index, "text": line}], ensure_ascii=False),
-                        reference_cases_json="[]",
-                    ) + "\nChỉ phân tích dòng hiện tại; các dòng VALID trước đó để xét trùng: " + json.dumps(prior, ensure_ascii=False) + (
-                        "\nNếu DUPLICATE phải ghi duplicate_of_index là line_index của một dòng trước đó. "
-                        "Chỉ trả một ý cho dòng hiện tại, không trả lại các dòng trước."
-                    )
-                    fixed, repair_meta = chat_json(client, model=settings.active_llm_model,
-                        temperature=settings.mapping_temperature, prompt=repair_prompt,
-                        provider=settings.llm_provider, reasoning_effort=settings.active_reasoning_effort,
-                        max_tokens=settings.max_tokens_for("idea_extraction"), max_retries=settings.llm_max_retries,
-                        stage="duplicate_reference_repair")
-                    fixed_ideas = IdeaExtractionResult.model_validate(fixed).ideas
-                    if len(fixed_ideas) != 1 or fixed_ideas[0].line_index != index:
-                        raise LLMJSONError("Repair trùng không trả đúng dòng.", metadata=repair_meta)
-                    idea = fixed_ideas[0].model_copy(update={"original": line, "idea_id": idea.idea_id})
-                    target = idea.duplicate_of_index
-                    if idea.status == "DUPLICATE" and (target is None or target >= index or by_line[target].status != "VALID"):
-                        raise LLMJSONError("DUPLICATE không trỏ đến dòng VALID trước đó.", metadata=repair_meta)
-                    by_line[index] = idea
-                    repairs.append(repair_meta)
+            idea.duplicate_of_index = None
             implicit_object = not idea.object_used.strip() or _mentions_target_object(
                 item, idea.object_used
             )

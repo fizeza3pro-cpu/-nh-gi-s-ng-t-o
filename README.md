@@ -29,13 +29,17 @@ uv --version          # nếu báo "not found" → xem bên dưới
 Mở **terminal thứ nhất**, gõ lần lượt:
 
 ```bash
-cd d:/AUT/backend
-uv sync / .venv\Scripts\Activate.ps1 / pip install uvicorn fastapi
-uv run alembic upgrade head
+cd D:/AUT-demo/AUT-demo/AUT-demo/backend
+uv sync --locked
 uv run uvicorn app.main:app --reload
 ```
 
-- `uv sync` cài phụ thuộc Python (chỉ lâu ở lần đầu). Migration
+- `uv sync --locked` tạo lại `.venv` nếu chưa có và cài phụ thuộc Python theo `uv.lock`.
+  Không cần kích hoạt `.venv` hay cài riêng `uvicorn`/`fastapi`; `uv run` tự dùng môi trường của dự án.
+  Nếu lưu dự án ở nơi khác, thay đường dẫn `cd` bằng đường dẫn thực tế.
+- Chỉ với DB phát triển mới hoàn toàn, chạy `uv run python -m scripts.prepare_database`
+  trước khi bật backend. Với DB đang có dữ liệu, kiểm tra phiên bản và sao lưu trước khi nâng cấp.
+  Migration
   `c3e7a9d0b142` thêm hàng đợi xử lý và metadata centroid; hãy sao lưu DB và
   kiểm tra migration trước khi chạy `alembic upgrade head` trên dữ liệu thật.
 - Chạy thành công khi thấy dòng:
@@ -56,7 +60,7 @@ vào prompt hay không.
 Mở **terminal thứ hai** (cửa sổ mới, đừng dùng lại terminal 1), gõ lần lượt:
 
 ```bash
-cd d:/AUT/frontend
+cd D:/AUT-demo/AUT-demo/AUT-demo/frontend
 npm install
 npm run dev
 ```

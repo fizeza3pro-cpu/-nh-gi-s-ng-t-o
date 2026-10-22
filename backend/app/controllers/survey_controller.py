@@ -11,8 +11,7 @@ def start_session(db, participant, payload):
         raise HTTPException(status_code=400, detail="Cần đồng ý tham gia trước khi bắt đầu.")
     if db.get(Item, payload.item_id) is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
-    # Khóa hồ sơ để hai lần bấm bắt đầu không tạo hai đồng hồ song song.
-    db.scalar(select(Participant).where(Participant.id == participant.id).with_for_update())
+    db.scalar(select(Participant).where(Participant.id == participant.id).with_for_update())     # Khóa hồ sơ để hai lần bấm bắt đầu không tạo hai đồng hồ song song.
     now = datetime.now(timezone.utc)
     row = db.scalar(select(SurveySession).where(
         SurveySession.participant_id == participant.id, SurveySession.item_id == payload.item_id,
