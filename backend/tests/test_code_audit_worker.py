@@ -32,7 +32,7 @@ def test_auto_audit_merges_only_after_member_checks(monkeypatch):
                          json.dumps({"checks": [verdict("đựng sách"), verdict("đựng quân nhu")]}, ensure_ascii=False)])
     monkeypatch.setattr(worker, "SessionLocal", lambda: Session(engine))
     monkeypatch.setattr(worker.settings, "mock_mode", False)
-    monkeypatch.setattr(response_controller, "_client", lambda: client)
+    monkeypatch.setattr("app.pipeline.clients.chat_client", lambda: client)
     assert worker.run_one_audit()
     assert not worker.run_one_audit()
     with Session(engine) as db:
@@ -41,5 +41,5 @@ def test_auto_audit_merges_only_after_member_checks(monkeypatch):
         assert db.get(ItemCode, "a").centroid_count == 2
         assert db.get(ResponseIdea, "idea-z").code_id == "a"
         assert db.get(Response, "response-z").mapping["ideas"][0]["code"] == "Balo chứa a"
-        assert db.get(Item, "balo").scores_dirty
+        assert db.get(Item, "balo").calibration_dirty
         assert db.scalar(select(PipelineAudit)).payload["reason"] == "MERGED"

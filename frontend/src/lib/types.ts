@@ -52,6 +52,8 @@ export interface ScoringResult {
 }
 
 export interface ScoreResponse {
+  result_state?: "QUEUED" | "MAPPING" | "RESOLVING" | "SCORING" | "COLLECTING" | "REVIEW" | "FINAL" | "EXCLUDED" | "FAILED";
+  needs_processing?: boolean;
   resolution_pending?: boolean;
   scoring_pending?: boolean;
   scores_stale?: boolean;

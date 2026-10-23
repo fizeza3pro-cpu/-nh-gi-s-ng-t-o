@@ -16,7 +16,6 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.controllers.response_controller import _needs_curator_retry
 from app.db import Base
 from app.models.models import (
     Item,
@@ -42,7 +41,7 @@ from app.pipeline.dynamic_mapping import (
     _one_decision_per_index,
     _potential_new_code_overlaps,
     _stored_match_review_reason,
-    run_code_curator,
+    run_code_mapping,
     run_idea_extraction,
 )
 from app.schemas.schemas import (
@@ -101,13 +100,12 @@ def test_missing_curator_decisions_keeps_response_pending():
             ]
         )
 
-        curator, meta = run_code_curator(item, extraction, [], FakeClient(["{}"]), None)
+        curator, meta = run_code_mapping(item, extraction, [], FakeClient(["{}"]), None)
         mapping, uncertain = persist_mapping(
             db, item=item, response=response, extraction=extraction, curator=curator
         )
 
         assert meta["adjudicator"]["failed"] is True
-        assert _needs_curator_retry(curator, extraction) is True
         assert uncertain is True
         assert mapping.ideas[0].status == "VALID"
         assert mapping.ideas[0].code is None
@@ -150,7 +148,7 @@ def test_missing_challenger_decisions_abstains():
         }
     )
 
-    curator, meta = run_code_curator(
+    curator, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [],
@@ -213,7 +211,7 @@ def test_empty_codebook_keeps_disagreement_uncertain():
     )
     client = FakeClient([adjudicator, challenger])
 
-    result, meta = run_code_curator(
+    result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
         extraction,
         [],
@@ -272,7 +270,7 @@ def test_empty_codebook_keeps_incomplete_signature_uncertain():
         }
     )
 
-    result, _ = run_code_curator(
+    result, _ = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
         extraction,
         [],
@@ -386,7 +384,7 @@ def test_challenger_repairs_missing_or_generic_code_boundaries():
     )
     client = FakeClient([adjudicator, incomplete, repaired, _grounded_new_checks(extraction)])
 
-    result, meta = run_code_curator(
+    result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [],
@@ -485,7 +483,7 @@ def test_weak_wrong_match_is_sent_to_challenger_and_created_as_new_code():
     )
     client = FakeClient([wrong_match, create_new, _grounded_new_checks(extraction, [plant_code])])
 
-    result, _ = run_code_curator(
+    result, _ = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
         extraction,
         [plant_code],
@@ -545,7 +543,7 @@ def test_challenger_cannot_reapprove_same_weak_match():
         ensure_ascii=False,
     )
 
-    result, _ = run_code_curator(
+    result, _ = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
         extraction,
         [plant_code],
@@ -731,7 +729,7 @@ def test_challenger_can_resolve_uncertain_as_create_new_with_full_evidence():
         "reason": "Chức năng mới có ranh giới đầy đủ.",
     }]}, ensure_ascii=False)
 
-    result, _ = run_code_curator(
+    result, _ = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [],
@@ -802,7 +800,7 @@ def test_match_with_false_goal_flag_is_rejected_even_when_verdict_says_match():
         ensure_ascii=False,
     )
 
-    result, _ = run_code_curator(
+    result, _ = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [jewelry],
@@ -870,7 +868,7 @@ def test_strong_match_skips_challenger_and_records_backend_audit():
     )
     client = FakeClient([match])
 
-    result, meta = run_code_curator(
+    result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
         extraction,
         [code],
@@ -1139,7 +1137,7 @@ def test_challenger_retries_only_missing_decisions_before_admin_review():
     )
     client = FakeClient([adjudicator, first_challenge, retry_missing, _grounded_new_checks(extraction)])
 
-    result, meta = run_code_curator(
+    result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [],
@@ -1299,7 +1297,7 @@ def test_overlapping_new_codes_in_same_submission_are_reconciled(grouped_contrac
         reconciled = json.dumps({"groups": [{"idea_indices": [0, 1], "canonical": canonical}]}, ensure_ascii=False)
     client = FakeClient([adjudicator, challenger, reconciled, _grounded_new_checks(extraction)])
 
-    result, meta = run_code_curator(
+    result, meta = run_code_mapping(
         Item(id="thung_dan", name="Thùng đạn", description="Thùng gỗ có nắp"),
         extraction,
         [],
@@ -1396,7 +1394,7 @@ def test_repeated_valid_lines_are_mapped_and_scored_separately():
             "existing_code_id": code.id, "code_relation": "SAME_CATEGORY", "confidence": 0.99,
         } for index in range(2)]}, ensure_ascii=False)])
         snapshots = list_curator_codes(db, item.id)
-        curator, _ = run_code_curator(item_schema, extraction, snapshots, curator_client)
+        curator, _ = run_code_mapping(item_schema, extraction, snapshots, curator_client)
         mapping, pending = persist_mapping(db, item=item, response=response, extraction=extraction,
                                           curator=curator, code_snapshots=snapshots)
         assert not pending
@@ -1582,7 +1580,7 @@ def test_compact_curator_can_create_directly_and_skips_challenger():
     }]}, ensure_ascii=False)
     client = FakeClient([compact_create, _grounded_new_checks(extraction)])
 
-    result, meta = run_code_curator(
+    result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [],
@@ -1686,7 +1684,7 @@ def test_small_codebook_searches_all_compact_candidates():
     }]}, ensure_ascii=False)
     client = FakeClient([compact_create])
 
-    run_code_curator(
+    run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         codes,
@@ -1759,7 +1757,7 @@ def test_same_functional_key_does_not_silently_match_or_create_code():
         assert len(db.scalars(select(ItemCode)).all()) == 1
 
 
-def test_excluded_response_does_not_contribute_to_centroid():
+def test_excluded_response_does_not_contribute_to_centroid(monkeypatch):
     """Ý hợp lệ của bài EXCLUDED không được kéo tâm mã nghiên cứu."""
     from app.models.models import ResponseScoringStatus
 
@@ -1806,8 +1804,15 @@ def test_excluded_response_does_not_contribute_to_centroid():
         )
         assert not uncertain
         assert mapping.ideas[0].code == code.name
+        assert code.centroid_dirty
+        db.commit()
+        from app.controllers import response_worker
+        monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+        assert response_worker._refresh_one_centroid()
+        db.expire_all()
         assert code.centroid_count == 1
         assert code.centroid == [1.0, 0.0]
+        assert not code.centroid_dirty
 
 
 def test_failed_policy_gate_does_not_mutate_codebook():

@@ -28,7 +28,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   api,
   ApiError,
-  cacheResponse,
   clearParticipantProfile,
   getParticipantIdentity,
   hasParticipantProfile,
@@ -156,7 +155,6 @@ export default function Test() {
         requestIdRef.current,
         sessionIdRef.current ?? undefined,
       );
-      cacheResponse(response);
       clearDraft(itemId);
       navigate(`/result/${response.response_id}`, {
         state: { response, source: "submission" },

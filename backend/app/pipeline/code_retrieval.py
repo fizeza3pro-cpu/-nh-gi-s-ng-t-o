@@ -27,13 +27,6 @@ def functional_key(signature: FunctionalSignature | dict) -> str:
     return "|".join(normalize_text(data[field]) for field in ("goal", "object_role", "mechanism"))
 
 
-def signature_text(signature: FunctionalSignature | dict) -> str:
-    data = (
-        signature.model_dump()
-        if isinstance(signature, FunctionalSignature)
-        else FunctionalSignature.model_validate(signature or {}).model_dump()
-    )
-    return " ".join(value for value in data.values() if value)
 
 
 def core_signature_text(signature: FunctionalSignature | dict) -> str:
@@ -146,7 +139,7 @@ def rank_code_candidates(
             similarities = signature_similarity(query_signature, code_signature) #so sánh các phần chức năng
             structural = similarities["weighted"]
             semantic = max(cosine(query_vector, code_vector), 0.0)
-            if settings.centroid_retrieval_enabled and not code.get("drift_flag"):
+            if settings.centroid_retrieval_enabled and not code.get("drift_flag") and not code.get("centroid_dirty"):
                 centroid = code.get("centroid") or []
                 if code.get("centroid_model") == batch.model:
                     semantic = max(semantic, cosine(query_vector, centroid))

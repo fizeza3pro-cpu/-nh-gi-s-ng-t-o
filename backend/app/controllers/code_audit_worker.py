@@ -63,8 +63,8 @@ def run_one_audit():
     accepted = None
     guards = {}
     try:
-        from app.controllers.response_controller import _client
-        client = _client()
+        from app.pipeline.clients import chat_client
+        client = chat_client()
         original = source["positive_examples"][0]
         verdict, metadata = verify_pair(item, original, target, client)
         if verdict.relation in {"SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE"} and verdict.goal_match and verdict.role_match and not verdict.exclusion_hit:
@@ -100,7 +100,7 @@ def run_one_audit():
                             rebuild_confirmed_members(allowed[code_id], [(vector or [], model or "") for vector, model in members],
                                                       drift_cosine_floor=settings.centroid_drift_cosine_floor)
                         synchronize_response_mappings(db, item.id)
-                        current.scores_dirty = True
+                        current.calibration_dirty = True
                         reason = "MERGED"
         elif current.codebook_epoch != epoch:
             reason = "STALE_EPOCH"

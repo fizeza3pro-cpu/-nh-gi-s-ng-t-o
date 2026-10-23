@@ -1,3 +1,4 @@
+from app.pipeline import mock as mock_pipeline
 import csv
 import io
 import json
@@ -30,6 +31,24 @@ from app.core.deps import require_admin
 from app.schemas.schemas import CuratorDecision, CuratorResult, ExtractedIdea, IdeaExtractionResult
 
 
+class PipelineTestClient(TestClient):
+    """Tiện ích test: POST thật lưu hàng đợi, sau đó chạy worker và đọc lại bằng GET."""
+
+    def post(self, url, **kwargs):
+        response = super().post(url, **kwargs)
+        if main_mod.settings.async_processing_enabled or response.status_code != 200:
+            return response
+        if url == "/api/score" or ("/mapping-reviews/" in url and url.endswith("/resolve")):
+            for _ in range(100):
+                if not response_worker.run_one_job():
+                    break
+            else:
+                raise AssertionError("Worker kiểm thử không hết việc sau 100 bước")
+            if url == "/api/score":
+                return super().get(f"/api/responses/{response.json()['response_id']}", headers=kwargs.get("headers"))
+        return response
+
+
 @pytest.fixture()
 def client(monkeypatch):
     """Dùng SQLite cô lập để test API không phụ thuộc PostgreSQL thật."""
@@ -54,8 +73,9 @@ def client(monkeypatch):
             yield db
 
     monkeypatch.setattr(main_mod.settings, "mock_mode", True)
+    monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
+    with PipelineTestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
     Base.metadata.drop_all(engine)
@@ -233,8 +253,8 @@ def test_resolver_retries_automatically_without_admin(client, monkeypatch):
     db = next(database)
     engine = db.get_bind()
     monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
-    original = response_controller._mock_mapping
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    original = mock_pipeline.run_mapping
+    monkeypatch.setattr(mock_pipeline, "run_mapping", uncertain_mapping)
     headers = {"X-Participant-Id": create_participant(client)}
     response_id = client.post("/api/score", headers=headers,
         json={"item_id": "dua", "responses": ["làm móc treo"], "wait_for_completion": False}).json()["response_id"]
@@ -245,7 +265,7 @@ def test_resolver_retries_automatically_without_admin(client, monkeypatch):
     old_id = db.scalar(select(ResponseIdea.id).where(ResponseIdea.response_id == response_id))
     row.resolution_next_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     db.commit()
-    monkeypatch.setattr(response_controller, "_mock_mapping", original)
+    monkeypatch.setattr(mock_pipeline, "run_mapping", original)
     assert response_worker.run_one_job()
     db.expire_all()
     row = db.get(Response, response_id)
@@ -525,24 +545,17 @@ def test_queued_response_survives_navigation_and_reuses_new_code(client, monkeyp
     next(database, None)
 
 
-def test_submit_can_wait_on_same_post_without_client_polling(client, monkeypatch):
-    """Frontend được phép giữ POST chờ; bài vẫn phải được commit trước lúc chờ."""
-    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", True)
+@pytest.mark.parametrize("automatic_workers", [False, True])
+def test_submit_always_queues_without_calling_llm(client, monkeypatch, automatic_workers):
+    """POST chỉ commit; payload cũ yêu cầu chờ cũng không chạy LLM trong request."""
+    monkeypatch.setattr(main_mod.settings, "async_processing_enabled", automatic_workers)
     participant_id = create_participant(client)
-    observed: dict[str, str] = {}
+    def unexpected_mapping(*args, **kwargs):
+        raise AssertionError("Không gọi mapping trong request")
 
-    def fake_wait(db, response_id: str, current_participant_id: str):
-        assert not db.in_transaction(), "Không giữ transaction của request khi chờ worker"
-        row = db.get(Response, response_id)
-        assert row is not None
-        assert row.processing_state == "QUEUED"
-        observed["response_id"] = response_id
-        observed["participant_id"] = current_participant_id
-        return response_controller._to_response(row)
-
-    monkeypatch.setattr(response_controller, "_wait_for_response_completion", fake_wait)
-    submitted = client.post(
-        "/api/score",
+    monkeypatch.setattr(mock_pipeline, "run_mapping", unexpected_mapping)
+    submitted = client.request(
+        "POST", "/api/score",
         headers={"X-Participant-Id": participant_id},
         json={
             "item_id": "dua",
@@ -553,11 +566,8 @@ def test_submit_can_wait_on_same_post_without_client_polling(client, monkeypatch
     )
 
     assert submitted.status_code == 200
-    assert observed == {
-        "response_id": submitted.json()["response_id"],
-        "participant_id": participant_id,
-    }
-    duplicate = client.post("/api/score", headers={"X-Participant-Id": participant_id}, json={
+    assert submitted.json()["processing_state"] == "QUEUED"
+    duplicate = client.request("POST", "/api/score", headers={"X-Participant-Id": participant_id}, json={
         "item_id": "dua", "responses": ["làm đồ trang trí Noel"],
         "request_id": json.loads(submitted.request.content)["request_id"],
         "wait_for_completion": True,
@@ -584,14 +594,13 @@ def test_browser_ready_waits_for_scoring_after_mapping():
         scoring_status=ResponseScoringStatus.COLLECTING,
     )
 
-    assert response_controller._response_is_ready_for_browser(row) is False
     row.data_source = main_mod.settings.survey_data_source
     row.id = str(uuid.uuid4())
     item.description = "Một đôi đũa"
     row.resolution_attempts = 0
     assert response_controller._to_response(row).scoring_pending is True
     row.scoring_status = ResponseScoringStatus.PENDING_REVIEW
-    assert response_controller._response_is_ready_for_browser(row) is True
+    assert response_controller._to_response(row).scoring_pending is False
 
 
 def test_final_scores_and_basis_survive_new_submissions(client, monkeypatch):
@@ -622,7 +631,7 @@ def test_final_scores_and_basis_survive_new_submissions(client, monkeypatch):
     with Session(engine) as db:
         row = db.get(Response, first["response_id"])
         assert (row.scoring, row.scoring_meta, row.scored_at) == frozen
-        row.item.scores_dirty = True
+        row.item.calibration_dirty = True
         db.commit()
     detail = client.get(f"/api/responses/{first['response_id']}", headers=headers).json()
     assert detail["scoring"] == frozen[0]
@@ -673,7 +682,7 @@ def test_stale_codebook_epoch_rechecks_before_create(client, monkeypatch):
         "/api/score", headers={"X-Participant-Id": participant_id},
         json={"item_id": "dua", "responses": ["làm đồ trang trí Noel"]},
     )
-    original_mock = response_controller._mock_mapping
+    original_mock = mock_pipeline.run_mapping
     injected = False
 
     def concurrent_create(item, raw, codes):
@@ -691,7 +700,7 @@ def test_stale_codebook_epoch_rechecks_before_create(client, monkeypatch):
                 transaction.commit()
         return original_mock(item, raw, codes)
 
-    monkeypatch.setattr(response_controller, "_mock_mapping", concurrent_create)
+    monkeypatch.setattr(mock_pipeline, "run_mapping", concurrent_create)
     assert response_worker.run_one_job()
     detail = client.get(
         f"/api/responses/{response.json()['response_id']}",
@@ -813,14 +822,14 @@ def test_worker_reextracts_completed_checkpoint_with_legacy_duplicates(client, m
                                                           for index in range(2)]}, ensure_ascii=False)])
     monkeypatch.setattr(main_mod.settings, "mock_mode", False)
     monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
-    monkeypatch.setattr(response_controller, "_client", lambda: extraction_client)
-    monkeypatch.setattr(response_controller, "_embedding_client", lambda: None)
+    monkeypatch.setattr(response_worker, "chat_client", lambda: extraction_client)
+    monkeypatch.setattr(response_worker, "make_embedding_client", lambda: None)
 
     def mock_curator(item, extraction, codes, *args, **kwargs):
-        _, curator = response_controller._mock_mapping(item, "\n".join(lines), codes)
+        _, curator = mock_pipeline.run_mapping(item, "\n".join(lines), codes)
         return curator, {"mock": True}
 
-    monkeypatch.setattr(response_worker, "run_code_curator", mock_curator)
+    monkeypatch.setattr(response_worker, "run_code_mapping", mock_curator)
     response_worker._run_mapping(response_id, "checkpoint-worker")
     assert extraction_client.chat.completions.calls == 1
     with Session(engine) as db:
@@ -874,6 +883,7 @@ def test_worker_can_prioritize_scoring_when_mapping_queue_is_busy(monkeypatch):
     monkeypatch.setattr(response_worker, "_expire_exhausted", lambda: False)
     monkeypatch.setattr(response_worker, "_wake_one_unresolved", lambda: False)
     monkeypatch.setattr(response_worker, "_recount_one_item", lambda: False)
+    monkeypatch.setattr(response_worker, "_refresh_one_centroid", lambda: False)
     assert response_worker.run_one_job(prefer_scoring=True) is False
     assert claimed_kinds == ["resolution", "scoring", "mapping"]
 
@@ -1142,7 +1152,7 @@ def test_admin_can_audit_ideas_rejected_by_extraction(client, monkeypatch):
             CuratorResult(decisions=[]),
         )
 
-    monkeypatch.setattr(response_controller, "_mock_mapping", mock_extraction)
+    monkeypatch.setattr(mock_pipeline, "run_mapping", mock_extraction)
     participant_id = create_participant(client)
     submitted = client.post(
         "/api/score",
@@ -1193,7 +1203,7 @@ def test_admin_can_audit_an_idea_rejected_by_curator(client, monkeypatch):
             ),
         )
 
-    monkeypatch.setattr(response_controller, "_mock_mapping", mock_curator_invalid)
+    monkeypatch.setattr(mock_pipeline, "run_mapping", mock_curator_invalid)
     participant_id = create_participant(client)
     submitted = client.post(
         "/api/score",
@@ -1213,7 +1223,7 @@ def test_admin_can_audit_an_idea_rejected_by_curator(client, monkeypatch):
 
 def test_admin_can_resolve_pending_idea_by_creating_code(client, monkeypatch):
     """Ca AI không đủ căn cứ phải có thể được duyệt mà vẫn giữ audit gốc."""
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    monkeypatch.setattr(mock_pipeline, "run_mapping", uncertain_mapping)
     participant_id = create_participant(client)
     submitted = client.post(
         "/api/score",
@@ -1228,7 +1238,7 @@ def test_admin_can_resolve_pending_idea_by_creating_code(client, monkeypatch):
     assert queue["pending_count"] == 1
     review = queue["reviews"][0]
     assert review["original"] == "làm móc treo"
-    assert review["review_payload"]["proposal"]["code_name"] == "Móc treo từ đũa"
+    assert review["mapping_evidence"]["proposal"]["code_name"] == "Móc treo từ đũa"
     epoch = client.get("/api/admin/items/dua/codebook").json()["codebook_epoch"]
 
     resolved = client.post(
@@ -1265,7 +1275,7 @@ def test_admin_can_resolve_pending_idea_by_creating_code(client, monkeypatch):
 @pytest.mark.parametrize("blocked", [None, "wrong_item", "final"])
 def test_admin_assign_existing_code_preserves_review_contract(client, monkeypatch, blocked):
     """Gán mã cùng item, cập nhật trạng thái; không sửa bài FINAL hoặc gán chéo item."""
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    monkeypatch.setattr(mock_pipeline, "run_mapping", uncertain_mapping)
     participant_id = create_participant(client)
     submitted = client.post("/api/score", headers={"X-Participant-Id": participant_id},
                             json={"item_id": "dua", "raw_input": "làm móc treo"}).json()
@@ -1309,7 +1319,7 @@ def test_admin_assign_existing_code_preserves_review_contract(client, monkeypatc
 
 
 def test_admin_review_rejects_stale_codebook_epoch(client, monkeypatch):
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    monkeypatch.setattr(mock_pipeline, "run_mapping", uncertain_mapping)
     participant_id = create_participant(client)
     client.post(
         "/api/score",
@@ -1338,7 +1348,7 @@ def test_admin_review_rejects_stale_codebook_epoch(client, monkeypatch):
 
 
 def test_admin_can_mark_pending_idea_invalid_with_audit_reason(client, monkeypatch):
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
+    monkeypatch.setattr(mock_pipeline, "run_mapping", uncertain_mapping)
     participant_id = create_participant(client)
     submitted = client.post(
         "/api/score",
@@ -1367,356 +1377,3 @@ def test_admin_can_mark_pending_idea_invalid_with_audit_reason(client, monkeypat
     assert idea["code"] is None
     assert idea["curator_decision"] == "ADMIN_MARK_INVALID"
     assert idea["reason"] == "Câu không mô tả được công dụng có nghĩa của đũa."
-
-
-@pytest.mark.skip(reason="Thao tác remap đã bị loại trong sổ mã append-only.")
-def test_admin_can_request_full_remap(client, monkeypatch):
-    app.dependency_overrides[require_admin] = lambda: object()
-    monkeypatch.setattr(
-        "app.controllers.admin_controller.reprocess_item_mappings", lambda _item_id: 2
-    )
-    response = client.post("/api/admin/items/dua/remap")
-    assert response.status_code == 200
-    assert response.json() == {"processed": 2}
-
-
-@pytest.mark.skip(reason="Code không còn chờ admin chấp nhận.")
-def test_admin_can_accept_an_uncertain_code(client, monkeypatch):
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
-    participant_id = create_participant(client)
-    submitted = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": participant_id},
-        json={"item_id": "dua", "raw_input": "làm móc treo"},
-    )
-    assert submitted.status_code == 200
-    assert submitted.json()["scoring_status"] == "PENDING_REVIEW"
-
-    app.dependency_overrides[require_admin] = lambda: object()
-    before = client.get("/api/admin/items/dua/codebook").json()
-    uncertain = before["codes"][0]
-    assert uncertain["validation_status"] == "UNCERTAIN"
-    assert before["contributing_idea_count"] == 0
-
-    accepted = client.patch(
-        f"/api/admin/items/dua/codes/{uncertain['id']}",
-        json={"validation_status": "ACCEPTED", "admin_locked": True},
-    )
-    assert accepted.status_code == 200
-    code = accepted.json()["codes"][0]
-    assert code["validation_status"] == "ACCEPTED"
-    assert code["admin_locked"] is True
-    assert code["contributing_idea_count"] == 1
-    assert accepted.json()["contributing_idea_count"] == 1
-
-    detail = client.get(f"/api/responses/{submitted.json()['response_id']}").json()
-    assert detail["scoring_status"] == "COLLECTING"
-    assert detail["mapping"]["ideas"][0]["status"] == "VALID"
-
-
-@pytest.mark.skip(reason="Hệ thống mới chấm trực tiếp và không có code uncertain.")
-def test_accepting_uncertain_code_scores_once_when_item_is_ready(client, monkeypatch):
-    database = app.dependency_overrides[get_db]()
-    db = next(database)
-    item = db.get(Item, "dua")
-    item.scoring_min_participants = 1
-    item.scoring_min_ideas = 1
-    db.commit()
-    next(database, None)
-
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
-    participant_id = create_participant(client)
-    submitted = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": participant_id},
-        json={"item_id": "dua", "raw_input": "làm móc treo"},
-    )
-    assert submitted.json()["scoring_status"] == "PENDING_REVIEW"
-
-    app.dependency_overrides[require_admin] = lambda: object()
-    uncertain = client.get("/api/admin/items/dua/codebook").json()["codes"][0]
-    accepted = client.patch(
-        f"/api/admin/items/dua/codes/{uncertain['id']}",
-        json={"validation_status": "ACCEPTED", "admin_locked": True},
-    )
-    assert accepted.status_code == 200
-
-    detail = client.get(f"/api/responses/{submitted.json()['response_id']}").json()
-    assert detail["scoring_status"] == "FINAL"
-    assert detail["scoring"]["fluency"] == 1
-    assert detail["scoring"]["flexibility"] == 1
-
-
-@pytest.mark.skip(reason="Ngưỡng chờ và backfill đã được thay bằng chấm trực tiếp.")
-def test_threshold_backfills_once_and_new_data_does_not_change_final_score(client):
-    database = app.dependency_overrides[get_db]()
-    db = next(database)
-    item = db.get(Item, "dua")
-    item.scoring_min_participants = 2
-    item.scoring_min_ideas = 2
-    db.commit()
-    next(database, None)
-
-    first_participant = create_participant(client, "first@example.test")
-    second_participant = create_participant(client, "second@example.test")
-    first = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": first_participant},
-        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"},
-    ).json()
-    assert first["scoring_status"] == "COLLECTING"
-
-    second = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": second_participant},
-        json={"item_id": "dua", "raw_input": "làm thanh gõ nhịp"},
-    ).json()
-    assert second["scoring_status"] == "FINAL"
-    assert client.get(f"/api/responses/{first['response_id']}").json()["scoring_status"] == "FINAL"
-
-    database = app.dependency_overrides[get_db]()
-    db = next(database)
-    first_row = db.get(Response, first["response_id"])
-    frozen_score = dict(first_row.scoring)
-    frozen_scored_at = first_row.scored_at
-    frozen_basis = dict(first_row.scoring_meta["frequency_basis"])
-    assert frozen_basis["qualifying_response_count"] == 2
-    next(database, None)
-
-    third = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": second_participant},
-        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"},
-    ).json()
-    assert third["scoring_status"] == "FINAL"
-
-    database = app.dependency_overrides[get_db]()
-    db = next(database)
-    first_row = db.get(Response, first["response_id"])
-    assert first_row.scoring == frozen_score
-    assert first_row.scored_at == frozen_scored_at
-    assert first_row.scoring_meta["frequency_basis"] == frozen_basis
-    next(database, None)
-
-
-@pytest.mark.skip(reason="Admin mới chỉ kiểm toán, không thay quyết định code.")
-def test_admin_can_reject_an_uncertain_code(client, monkeypatch):
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
-    participant_id = create_participant(client)
-    submitted = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": participant_id},
-        json={"item_id": "dua", "raw_input": "làm móc treo"},
-    )
-    app.dependency_overrides[require_admin] = lambda: object()
-    uncertain = client.get("/api/admin/items/dua/codebook").json()["codes"][0]
-
-    rejected = client.patch(
-        f"/api/admin/items/dua/codes/{uncertain['id']}",
-        json={"validation_status": "REJECTED", "admin_locked": True},
-    )
-    assert rejected.status_code == 200
-    code = rejected.json()["codes"][0]
-    assert code["validation_status"] == "REJECTED"
-    assert code["admin_locked"] is True
-    assert code["contributing_idea_count"] == 0
-
-    detail = client.get(f"/api/responses/{submitted.json()['response_id']}").json()
-    assert detail["scoring_status"] == "COLLECTING"
-    assert detail["mapping"]["ideas"][0]["status"] == "INVALID"
-    assert detail["mapping"]["ideas"][0]["is_valid"] is False
-
-
-@pytest.mark.skip(reason="Sổ mã append-only không hỗ trợ gộp mã.")
-def test_admin_can_merge_an_uncertain_code_and_resolve_pending(client, monkeypatch):
-    participant_id = create_participant(client)
-    accepted_response = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": participant_id},
-        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"},
-    )
-    assert accepted_response.status_code == 200
-
-    monkeypatch.setattr(response_controller, "_mock_mapping", uncertain_mapping)
-    pending_response = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": participant_id},
-        json={"item_id": "dua", "raw_input": "làm móc treo"},
-    )
-    assert pending_response.json()["scoring_status"] == "PENDING_REVIEW"
-
-    app.dependency_overrides[require_admin] = lambda: object()
-    codes = client.get("/api/admin/items/dua/codebook").json()["codes"]
-    source = next(code for code in codes if code["validation_status"] == "UNCERTAIN")
-    target = next(code for code in codes if code["validation_status"] == "ACCEPTED")
-    merged = client.post(
-        f"/api/admin/items/dua/codes/{source['id']}/merge",
-        json={"target_code_id": target["id"]},
-    )
-    assert merged.status_code == 200
-    merged_source = next(code for code in merged.json()["codes"] if code["id"] == source["id"])
-    assert merged_source["maturity_status"] == "MERGED"
-    assert merged_source["merged_into_id"] == target["id"]
-    assert merged_source["merged_into_name"] == target["name"]
-
-    detail = client.get(f"/api/responses/{pending_response.json()['response_id']}").json()
-    assert detail["scoring_status"] == "COLLECTING"
-    assert detail["mapping"]["ideas"][0]["code"] == target["name"]
-    assert detail["mapping"]["ideas"][0]["status"] == "VALID"
-    assert client.patch(
-        f"/api/admin/items/dua/codes/{source['id']}",
-        json={"name": "Không được sửa"},
-    ).status_code == 409
-    assert client.delete(f"/api/admin/items/dua/codes/{source['id']}").status_code == 409
-    assert client.delete(f"/api/admin/items/dua/codes/{target['id']}").status_code == 409
-
-
-@pytest.mark.skip(reason="Sổ mã append-only không hỗ trợ gộp mã.")
-def test_merge_keeps_final_score_and_mapping_snapshot(client):
-    database = app.dependency_overrides[get_db]()
-    db = next(database)
-    item = db.get(Item, "dua")
-    item.scoring_min_participants = 1
-    item.scoring_min_ideas = 1
-    db.commit()
-    next(database, None)
-
-    participant_id = create_participant(client)
-    headers = {"X-Participant-Id": participant_id}
-    source_response = client.post(
-        "/api/score",
-        headers=headers,
-        json={"item_id": "dua", "raw_input": "Mã nguồn"},
-    ).json()
-    target_response = client.post(
-        "/api/score",
-        headers=headers,
-        json={"item_id": "dua", "raw_input": "Mã đích"},
-    ).json()
-    assert source_response["scoring_status"] == "FINAL"
-    assert target_response["scoring_status"] == "FINAL"
-    frozen_scoring = source_response["scoring"]
-    frozen_mapping = source_response["mapping"]
-
-    app.dependency_overrides[require_admin] = lambda: object()
-    codes = client.get("/api/admin/items/dua/codebook").json()["codes"]
-    source = next(code for code in codes if code["name"] == "Mã nguồn")
-    target = next(code for code in codes if code["name"] == "Mã đích")
-    merged = client.post(
-        f"/api/admin/items/dua/codes/{source['id']}/merge",
-        json={"target_code_id": target["id"]},
-    )
-    assert merged.status_code == 200
-
-    detail = client.get(f"/api/responses/{source_response['response_id']}").json()
-    assert detail["scoring_status"] == "FINAL"
-    assert detail["scoring"] == frozen_scoring
-    assert detail["mapping"] == frozen_mapping
-
-    database = app.dependency_overrides[get_db]()
-    db = next(database)
-    response_row = db.get(Response, source_response["response_id"])
-    idea = db.scalar(
-        select(ResponseIdea).where(ResponseIdea.response_id == source_response["response_id"])
-    )
-    assert idea.code_id == target["id"]
-    assert "requires_manual_rescore" not in response_row.scoring_meta
-    assert response_row.scoring_meta["codebook_changes"][-1]["type"] == "CODE_MERGE"
-    next(database, None)
-
-
-@pytest.mark.skip(reason="Sổ mã append-only không hỗ trợ gộp mã.")
-def test_merge_requires_an_active_accepted_target(client):
-    source_id = str(uuid.uuid4())
-    target_id = str(uuid.uuid4())
-    database = app.dependency_overrides[get_db]()
-    db = next(database)
-    db.add_all(
-        [
-            ItemCode(
-                id=source_id,
-                item_id="dua",
-                name="Mã nguồn hợp lệ",
-                normalized_name="ma-nguon-hop-le",
-                validation_status=CodeValidationStatus.ACCEPTED,
-                maturity_status=CodeMaturityStatus.ACTIVE,
-                confidence=0.99,
-            ),
-            ItemCode(
-                id=target_id,
-                item_id="dua",
-                name="Mã đích đã loại",
-                normalized_name="ma-dich-da-loai",
-                validation_status=CodeValidationStatus.REJECTED,
-                maturity_status=CodeMaturityStatus.ACTIVE,
-                confidence=0.99,
-            ),
-        ]
-    )
-    db.commit()
-    next(database, None)
-
-    app.dependency_overrides[require_admin] = lambda: object()
-    response = client.post(
-        f"/api/admin/items/dua/codes/{source_id}/merge",
-        json={"target_code_id": target_id},
-    )
-    assert response.status_code == 409
-    assert "đang hoạt động và đã được chấp nhận" in response.json()["detail"]
-
-
-@pytest.mark.skip(reason="Mã đã dùng để tính điểm là bất biến.")
-def test_admin_can_delete_one_code_without_deleting_raw_response(client):
-    participant_id = create_participant(client)
-    submitted = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": participant_id},
-        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"},
-    )
-    response_id = submitted.json()["response_id"]
-    app.dependency_overrides[require_admin] = lambda: object()
-    codebook = client.get("/api/admin/items/dua/codebook").json()
-    code_id = codebook["codes"][0]["id"]
-
-    deleted = client.delete(f"/api/admin/items/dua/codes/{code_id}")
-    assert deleted.status_code == 200
-    assert deleted.json()["codes"] == []
-
-    detail = client.get(f"/api/responses/{response_id}")
-    assert detail.status_code == 200
-    assert detail.json()["raw_input"] == "làm cọc đánh dấu cây"
-    assert detail.json()["scoring"] is None
-    assert detail.json()["scoring_status"] == "PENDING_REVIEW"
-
-
-@pytest.mark.skip(reason="Sổ mã append-only không hỗ trợ xoá toàn bộ mã.")
-def test_delete_all_codes_resets_mapping_but_keeps_responses_eligible_for_remap(client):
-    participant_id = create_participant(client)
-    first = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": participant_id},
-        json={"item_id": "dua", "raw_input": "làm cọc đánh dấu cây"},
-    )
-    app.dependency_overrides[require_admin] = lambda: object()
-
-    reset = client.delete("/api/admin/items/dua/codes")
-    assert reset.status_code == 200
-    assert reset.json()["codes"] == []
-    assert reset.json()["qualifying_participant_count"] == 1
-    assert reset.json()["qualifying_response_count"] == 1
-    assert reset.json()["calibration_status"] == "COLLECTING"
-    assert client.get(f"/api/responses/{first.json()['response_id']}").status_code == 200
-    detail = client.get(f"/api/responses/{first.json()['response_id']}").json()
-    assert detail["scoring_status"] == "COLLECTING"
-    assert detail["scoring"] is None
-
-    # Sau reset, response cũ vẫn đóng góp và response mới được cộng thêm bình thường.
-    second = client.post(
-        "/api/score",
-        headers={"X-Participant-Id": participant_id},
-        json={"item_id": "dua", "raw_input": "làm thanh chống cây"},
-    )
-    assert second.status_code == 200
-    refreshed = client.get("/api/admin/items/codebooks").json()[0]
-    assert refreshed["qualifying_participant_count"] == 1
-    assert refreshed["qualifying_response_count"] == 2

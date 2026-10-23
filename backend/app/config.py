@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # --- BytePlus ModelArk ---
     byteplus_api_key: str = ""
     byteplus_base_url: str = "https://ark.ap-southeast.bytepluses.com/api/v3"
-    byteplus_model: str = "deepseek-v4-pro-260425"
+    byteplus_model: str = "deepseek-v4-1-flash-economy-261017"
     byteplus_code_curator_model: str | None = None
     byteplus_challenger_model: str | None = None
     # DeepSeek V4 260425 mặc định suy luận sâu nếu bỏ trống. `minimal` tắt
@@ -67,8 +67,7 @@ class Settings(BaseSettings):
     # Chỉ đưa vài code gần nhất vào prompt. Quét toàn bộ codebook làm kích thước
     # output tăng theo tích số ý × số code dù model chỉ cần chọn một kết quả.
     code_candidate_limit: int = Field(default=3, ge=1, le=8)
-    # Giữ trường cũ để cấu hình triển khai không bị lỗi khi nâng cấp; retrieval
-    # không còn dùng nó để ép full-scan trong prompt.
+    # Codebook nhỏ được đối chiếu toàn bộ; lớn hơn ngưỡng này lấy novelty_candidate_limit.
     codebook_full_scan_limit: int = Field(default=20, ge=1, le=100)
     # Cổng tạm thời cho auto-MATCH, cần hiệu chỉnh lại bằng dữ liệu chuyên gia.
     auto_match_retrieval_floor: float = Field(default=0.60, ge=0.0, le=1.0)
@@ -86,13 +85,12 @@ class Settings(BaseSettings):
     reference_cases_max_chars: int = Field(default=2200, ge=400, le=8000)
     scoring_min_participants: int = 24
     scoring_min_ideas: int = 150
+    # Bật worker tự động khi khởi động app; POST luôn lưu hàng đợi.
     async_processing_enabled: bool = True
     processing_worker_count: int = Field(default=2, ge=1, le=16)
     processing_poll_seconds: float = Field(default=2.0, ge=0.2, le=60.0)
     processing_lease_seconds: int = Field(default=600, ge=60, le=14400)
     processing_max_attempts: int = Field(default=3, ge=1, le=10)
-    submit_wait_seconds: float = Field(default=240.0, ge=0.0, le=900.0)
-    submit_wait_poll_seconds: float = Field(default=0.5, ge=0.1, le=5.0)
     codebook_recheck_limit: int = Field(default=3, ge=1, le=10)
     resolver_max_attempts: int = Field(default=3, ge=1, le=6)
     resolver_retry_seconds: int = Field(default=15, ge=1, le=600)
@@ -201,10 +199,6 @@ class Settings(BaseSettings):
             return self.groq_reasoning_effort
         return None
 
-    @property
-    def active_max_tokens(self) -> int | None:
-        """Cloudflare mặc định chỉ sinh 256 token nên cần cấp đủ chỗ cho JSON AUT."""
-        return self.cloudflare_max_tokens if self.llm_provider == "cloudflare" else None
 
     def max_tokens_for(self, stage: str) -> int:
         """Giới hạn output theo stage, đồng thời tôn trọng trần của Cloudflare."""

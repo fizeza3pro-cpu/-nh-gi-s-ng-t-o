@@ -16,44 +16,6 @@ def unit_vector(values: list[float]) -> list[float]:
     return [value / norm for value in values] if norm else []
 
 
-def add_confirmed_member(
-    code: ItemCode,
-    vector: list[float],
-    model: str,
-    *,
-    drift_cosine_floor: float,
-) -> bool:
-    """Cộng đúng trọng số từng ý; từ chối trộn model hoặc chiều vector."""
-    normalized = unit_vector(vector)
-    if not normalized or not model:
-        return False
-    previous_sum = code.centroid_sum or []
-    if code.centroid_count and (
-        code.centroid_model != model or len(previous_sum) != len(normalized)
-    ):
-        code.drift_flag = True
-        return False
-    if not code.centroid_count:
-        previous_sum = [0.0] * len(normalized)
-    old_centroid = code.centroid or []
-    if old_centroid and len(old_centroid) == len(normalized):
-        member_similarity = sum(a * b for a, b in zip(old_centroid, normalized))
-        if member_similarity < drift_cosine_floor:
-            code.drift_flag = True
-    next_sum = [left + right for left, right in zip(previous_sum, normalized)]
-    next_centroid = unit_vector(next_sum)
-    if not next_centroid:
-        return False
-    if old_centroid and len(old_centroid) == len(next_centroid):
-        similarity = sum(a * b for a, b in zip(old_centroid, next_centroid))
-        if similarity < drift_cosine_floor:
-            code.drift_flag = True
-    code.centroid_sum = next_sum
-    code.centroid = next_centroid
-    code.centroid_count = (code.centroid_count or 0) + 1
-    code.centroid_revision = (code.centroid_revision or 0) + 1
-    code.centroid_model = model
-    return True
 
 
 def rebuild_confirmed_members(

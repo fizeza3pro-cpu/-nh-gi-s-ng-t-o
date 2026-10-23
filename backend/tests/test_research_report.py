@@ -150,7 +150,7 @@ def test_multi_item_filter_is_union_and_counts_people_once(db):
 
 
 def test_report_keeps_frozen_final_scores_when_new_data_is_dirty(db):
-    item = Item(id="a", name="Đũa", scores_dirty=True)
+    item = Item(id="a", name="Đũa", calibration_dirty=True)
     person = Participant(ai_usage_group="LOW")
     db.add_all([item, person])
     db.flush()
@@ -163,7 +163,7 @@ def test_report_keeps_frozen_final_scores_when_new_data_is_dirty(db):
     assert report.sample.analyzed_responses == 2
     assert report.totals.invalid_ideas == 1
     assert all(row.low.mean == 7 and row.high.mean is None for row in report.dimensions)
-    assert item.scores_dirty is True
+    assert item.calibration_dirty is True
     assert _ai_group_stats(db)[0].scored_participant_count == 1
     assert _ai_group_stats(db)[0].mean_fluency == 7
     assert not db.dirty

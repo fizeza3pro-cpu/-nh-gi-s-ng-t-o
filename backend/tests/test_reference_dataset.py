@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.config import BACKEND_ENV_FILE, Settings
 from app.config import settings
-from app.controllers.response_controller import _client
+from app.pipeline.clients import chat_client as _client
 from app.pipeline.dynamic_mapping import run_idea_extraction
 from app.pipeline.reference_dataset import (
     load_reference_cases,
@@ -135,8 +135,7 @@ def test_settings_can_switch_between_three_providers_without_changing_code():
     assert cloudflare.active_llm_model == "@cf/test/default-model"
     assert cloudflare.active_curator_model == "@cf/test/curator-model"
     assert cloudflare.active_reasoning_effort is None
-    assert cloudflare.active_max_tokens == 3072
-    assert groq.active_max_tokens is None
+    assert cloudflare.max_tokens_for("scoring") == 3072
 
 
 def test_settings_always_load_env_from_backend_directory():

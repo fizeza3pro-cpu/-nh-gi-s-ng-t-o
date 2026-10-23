@@ -47,7 +47,7 @@ def insert_reference(db, item, plan, batch, *, source="app/pipeline/shell_refere
         created.append(row.id)
     if created:
         item.codebook_epoch = (item.codebook_epoch or 0) + 1
-        item.scores_dirty = True
+        item.calibration_dirty = True
         db.add(PipelineAudit(item_id=item.id, event="REFERENCE_CODES_IMPORTED", payload={
             "created_ids": created, "reused_ids": [match.id for _, match in plan if match],
             "source": source, "empirically_validated": False,
@@ -74,7 +74,7 @@ def main():
     if not args.apply or not missing:
         return
     # Chỉ gửi chữ ký mã tự soạn, không gửi câu trả lời hay hồ sơ người tham gia.
-    from app.controllers.response_controller import _embedding_client
+    from app.pipeline.clients import embedding_client as _embedding_client
     batch = embed_texts([core_signature_text(entry["functional_signature"]) for entry in missing], _embedding_client())
     artifact_dir = Path(__file__).resolve().parents[2] / ".artifacts"
     artifact_dir.mkdir(exist_ok=True)

@@ -32,7 +32,8 @@ from app.pipeline.codebook_service import (
     item_is_ready_for_scoring,
     list_curator_codes,
     refresh_item_scoring_state,
-    refresh_final_frequency_scores,
+    mapping_from_ideas as _mapping_from_ideas,
+    mapping_diagnostics,
     qualifying_idea_count,
     qualifying_participant_count,
     qualifying_response_count,
@@ -41,8 +42,6 @@ from app.pipeline.cluster_proposals import propose_clusters
 from app.pipeline.dynamic_mapping import normalize_code_name
 from app.controllers.response_controller import (
     _to_response,
-    reprocess_item_mappings,
-    reprocess_item_scores_in_session,
 )
 from app.models.models import Participant as ParticipantModel
 from app.models.models import Response as ResponseModel
@@ -993,7 +992,7 @@ def get_mapping_reviews(
                 review_payload=idea.review_payload or {},
                 functional_signature=idea.functional_signature or {},
                 mapping_evidence=idea.mapping_evidence or {},
-                ai_diagnostics=_llm_diagnostics(response.mapping_meta or {}),
+                ai_diagnostics=_llm_diagnostics(mapping_diagnostics(response)),
                 created_at=idea.created_at,
             )
             for idea, response in rows
@@ -1001,24 +1000,6 @@ def get_mapping_reviews(
     )
 
 
-def _mapping_from_ideas(ideas: list[ResponseIdea]) -> dict:
-    """Dựng lại JSON hiển thị từ các hàng chuẩn sau quyết định của admin."""
-    return MappingResult(
-        ideas=[
-            MappedIdea(
-                original=idea.original,
-                normalized=idea.normalized,
-                code=idea.code.name if idea.code else None,
-                status=idea.mapping_status,
-                is_valid=idea.mapping_status == "VALID" and idea.code is not None,
-                reason=idea.reason,
-                line_index=idea.line_index,
-                functional_signature=idea.functional_signature or {},
-                curator_decision=idea.curator_decision,
-            )
-            for idea in sorted(ideas, key=lambda row: (row.line_index, row.id))
-        ]
-    ).model_dump()
 
 
 def _clean_rules(values: list[str] | None) -> list[str]:
@@ -1074,7 +1055,7 @@ def resolve_mapping_review(
             detail="Sổ mã vừa thay đổi. Hãy tải lại căn cứ trước khi xác nhận.",
         )
 
-    proposal = dict((idea.review_payload or {}).get("proposal") or {})
+    proposal = dict((idea.mapping_evidence or {}).get("proposal") or (idea.review_payload or {}).get("proposal") or {})
     selected_code: ItemCode | None = None
     now = datetime.now(timezone.utc)
     admin_id = getattr(admin, "id", None)
@@ -1240,8 +1221,6 @@ def resolve_mapping_review(
     response.processing_lease_until = None
     response.processing_error = ""
     refresh_item_scoring_state(db, item)
-    if item_is_ready_for_scoring(db, item):
-        refresh_final_frequency_scores(db, item_id)
     db.commit()
     return AdminMappingReviewResult(
         idea_id=idea.id,
@@ -1253,12 +1232,6 @@ def resolve_mapping_review(
     )
 
 
-def remap_item(item_id: str) -> int:
-    """Sổ mã append-only không cho phép thay đổi điểm đã chốt bằng remap thủ công."""
-    raise HTTPException(
-        status_code=409,
-        detail="Sổ mã đang chạy trực tiếp và bất biến; không hỗ trợ phân loại lại dữ liệu cũ.",
-    )
 
 
 def _refresh_after_admin_change(db: Session, item: ItemModel) -> None:
@@ -1457,8 +1430,6 @@ def patch_code(db: Session, item_id: str, code_id: str, patch: AdminCodePatch) -
             reject=code.validation_status == CodeValidationStatus.REJECTED,
         )
     _refresh_after_admin_change(db, item)
-    if item_is_ready_for_scoring(db, item):
-        reprocess_item_scores_in_session(db, item_id)
     db.commit()
     return get_codebook(db, item_id)
 
@@ -1532,8 +1503,6 @@ def merge_code(db: Session, item_id: str, source_id: str, target_id: str) -> Adm
         },
     )
     _refresh_after_admin_change(db, item)
-    if item_is_ready_for_scoring(db, item):
-        reprocess_item_scores_in_session(db, item_id)
     db.commit()
     return get_codebook(db, item_id)
 

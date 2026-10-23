@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, distinct, func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.config import settings
 from app.models.models import (
@@ -21,9 +21,9 @@ from app.models.models import (
 from app.pipeline.code_retrieval import core_signature_text, functional_key
 from app.pipeline.embedding import embedding_model as active_embedding_model
 from app.pipeline.embedding import local_embedding
-from app.pipeline.centroid import rebuild_confirmed_members
 from app.pipeline.dynamic_mapping import (
     _creation_goal_is_grounded,
+    _has_specific_boundaries,
     _has_reusable_scope,
     _stored_match_review_reason,
     normalize_code_name,
@@ -64,6 +64,7 @@ def list_curator_codes(db: Session, item_id: str) -> list[dict]:
             "prototype_vectors": row.prototype_vectors or [],
             "centroid_model": row.centroid_model,
             "drift_flag": row.drift_flag,
+            "centroid_dirty": row.centroid_dirty,
             "scope_history": row.scope_history or [],
             "scope_revision": row.scope_revision or 0,
         }
@@ -228,26 +229,7 @@ def _find_or_create_code(
 
 def _has_complete_boundaries(decision) -> bool:
     """Không tin gate tự khai nếu category thiếu biên bao gồm hoặc loại trừ."""
-    def specific(rule: str, *, inclusion: bool) -> bool:
-        normalized = normalize_code_name(rule)
-        tokens = normalized.split()
-        if len(tokens) < 4:
-            return False
-        if inclusion and normalized.startswith("co co che "):
-            return False
-        if not inclusion and normalized.startswith("khong dung de ") and len(tokens) <= 6:
-            return False
-        return True
-
-    return (
-        any(
-            specific(rule, inclusion=True) for rule in decision.inclusion_rules
-        )
-        and any(
-            specific(rule, inclusion=False) for rule in decision.exclusion_rules
-        )
-        and any(example.strip() for example in decision.positive_examples)
-    )
+    return _has_specific_boundaries(decision)
 
 
 def _relation_for_code(decision, code_id: str) -> str:
@@ -395,6 +377,41 @@ def _expand_existing_code(
     return target, changed_code_ids, ""
 
 
+def mapping_from_ideas(ideas) -> dict:
+    """Một cách dựng mapping dùng chung cho API, snapshot FINAL và cache lịch sử."""
+    return MappingResult(ideas=[MappedIdea(
+        idea_id=idea.id, coding_state=idea.coding_state,
+        original=idea.original, normalized=idea.normalized,
+        code=idea.code.name if idea.code else None, status=idea.mapping_status,
+        is_valid=idea.mapping_status == "VALID" and idea.code is not None,
+        reason=idea.reason, line_index=idea.line_index,
+        functional_signature=idea.functional_signature or {}, curator_decision=idea.curator_decision,
+    ) for idea in sorted(ideas, key=lambda row: (row.line_index, row.id))]).model_dump()
+
+
+def current_mapping(response: Response) -> dict:
+    """ResponseIdea là nguồn chuẩn; chỉ dùng JSON cũ cho bài chưa có hàng ý tưởng."""
+    db = object_session(response)
+    ideas = (db.scalars(select(ResponseIdea).where(ResponseIdea.response_id == response.id)).all()
+             if db is not None else response.ideas)
+    return mapping_from_ideas(ideas) if ideas else (response.mapping or {"ideas": []})
+
+
+def mapping_diagnostics(response: Response) -> dict:
+    """Chi tiết từng lượt ở audit; response chỉ giữ tham chiếu và tóm tắt mới nhất."""
+    summary = response.mapping_meta or {}
+    db = object_session(response)
+    audit = db.get(PipelineAudit, summary["latest_audit_id"]) if db and summary.get("latest_audit_id") else None
+    details = dict(audit.payload if audit is not None else summary)
+    if db is not None and summary.get("llm_failures"):
+        failures = []
+        for entry in summary["llm_failures"]:
+            failure = db.get(PipelineAudit, entry["audit_id"]) if entry.get("audit_id") else None
+            failures.append(failure.payload if failure is not None else entry)
+        details["llm_failures"] = failures
+    return details
+
+
 def synchronize_response_mappings(db: Session, item_id: str, response_id: str | None = None) -> None:
     """Đồng bộ JSON hiển thị từ ResponseIdea sau khi code tự mở rộng hoặc gộp."""
     query = select(Response).where(Response.item_id == item_id)
@@ -407,24 +424,7 @@ def synchronize_response_mappings(db: Session, item_id: str, response_id: str | 
             .where(ResponseIdea.response_id == row.id)
             .order_by(ResponseIdea.line_index, ResponseIdea.created_at, ResponseIdea.id)
         ).all()
-        row.mapping = MappingResult(
-            ideas=[
-                MappedIdea(
-                    idea_id=idea.id,
-                    coding_state=idea.coding_state,
-                    original=idea.original,
-                    normalized=idea.normalized,
-                    code=idea.code.name if idea.code else None,
-                    status=idea.mapping_status,
-                    is_valid=idea.mapping_status == "VALID" and idea.code is not None,
-                    reason=idea.reason,
-                    line_index=idea.line_index,
-                    functional_signature=idea.functional_signature or {},
-                    curator_decision=idea.curator_decision,
-                )
-                for idea in ideas
-            ]
-        ).model_dump()
+        row.mapping = mapping_from_ideas(ideas)
 
 
 def persist_mapping(
@@ -732,7 +732,6 @@ def persist_mapping(
                 ),
                 review_payload={
                     "proposed_decision": decision_name,
-                    "proposal": evidence.get("proposal") or {},
                     "codebook_epoch": item.codebook_epoch or 0,
                 },
             )
@@ -761,26 +760,13 @@ def persist_mapping(
         ).limit(1)) is not None
     for code_id in sorted(touched_code_ids):
         code = db.get(ItemCode, code_id)
-        members = db.execute(
-            select(ResponseIdea.embedding, ResponseIdea.embedding_model)
-            .join(Response, Response.id == ResponseIdea.response_id)
-            .where(
-                ResponseIdea.code_id == code_id,
-                ResponseIdea.mapping_status == "VALID",
-                Response.scoring_status != ResponseScoringStatus.EXCLUDED,
-            )
-        ).all()
-        rebuild_confirmed_members(
-            code,
-            [(embedding or [], model or "") for embedding, model in members],
-            drift_cosine_floor=settings.centroid_drift_cosine_floor,
-        )
+        code.centroid_dirty = True
     if scope_changed:
         synchronize_response_mappings(db, item.id)
     if replace_indices is not None:
         synchronize_response_mappings(db, item.id, response.id)
         mapped = MappingResult.model_validate(response.mapping).ideas
-    item.scores_dirty = True
+    item.calibration_dirty = True
     db.add(PipelineAudit(item_id=item.id, response_id=response.id, event="MAPPING_COMMIT", payload={
         "epoch": item.codebook_epoch, "ideas": [entry.model_dump() for entry in mapped],
         "pending": has_uncertain,
@@ -948,8 +934,3 @@ def originality_for_response(
         for idea in valid_ideas
     ]
     return fluency, len(flexibility_codes), flexibility_codes, per_idea, basis
-
-
-def refresh_final_frequency_scores(db: Session, item_id: str) -> int:
-    """Giữ tương thích script cũ; điểm FINAL và căn cứ đã chốt không tính lại."""
-    return 0

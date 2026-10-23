@@ -43,7 +43,7 @@ def main():
             raise RuntimeError("Có lượt mới sau backup; không xóa.")
         for table in ["pipeline_audits", "response_ideas", "item_codes", "responses", "survey_sessions"]:
             db.execute(text(f"DELETE FROM {table}"))
-        db.execute(text("UPDATE items SET codebook_epoch=0, scores_dirty=false, calibration_status='COLLECTING'"))
+        db.execute(text("UPDATE items SET codebook_epoch=0, calibration_dirty=false, calibration_status='COLLECTING'"))
         after = {table: db.scalar(text(f"SELECT count(*) FROM {table}")) for table in tables}
         assert all(after[table] == 0 for table in ["responses", "response_ideas", "item_codes"])
         assert all(after[table] == before[table] for table in ["participants", "items", "users"])

@@ -14,7 +14,7 @@ from app.models.models import Response, Item, PipelineAudit, ResponseScoringStat
 from app.schemas.schemas import ScoringResult, Item as ItemSchema
 from app.pipeline.creative_feedback import generate_creative_feedback
 from app.pipeline.llm import aggregate_usage
-from app.controllers.response_controller import _client
+from app.pipeline.clients import chat_client as _client
 
 
 def main():

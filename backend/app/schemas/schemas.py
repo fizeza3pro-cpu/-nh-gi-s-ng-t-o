@@ -175,7 +175,6 @@ class ScoreRequest(BaseModel):
     item_id: str
     request_id: UUID | None = None
     survey_session_id: UUID | None = None
-    wait_for_completion: bool = False
     responses: list[str] = Field(default_factory=list, max_length=10)
     raw_input: str = ""
 
@@ -196,6 +195,8 @@ class ScoreRequest(BaseModel):
 
 
 class ScoreResponse(BaseModel):
+    result_state: Literal["QUEUED", "MAPPING", "RESOLVING", "SCORING", "COLLECTING", "REVIEW", "FINAL", "EXCLUDED", "FAILED"] = "COLLECTING"
+    needs_processing: bool = False
     response_id: str
     item: Item
     raw_input: str

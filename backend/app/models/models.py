@@ -12,6 +12,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Index,
     JSON,
     String,
     Text,
@@ -121,7 +122,7 @@ class Item(Base):
     scoring_min_participants: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
     scoring_min_ideas: Mapped[int] = mapped_column(Integer, default=150, nullable=False)
     codebook_epoch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    scores_dirty: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    calibration_dirty: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     responses: Mapped[list["Response"]] = relationship(back_populates="item")
     dynamic_codes: Mapped[list["ItemCode"]] = relationship(
         back_populates="item", foreign_keys="ItemCode.item_id"
@@ -184,6 +185,7 @@ class Response(Base):
 
     __table_args__ = (
         UniqueConstraint("participant_id", "request_id", name="uq_response_participant_request"),
+        Index("ix_responses_worker_queue", "scoring_status", "processing_state", "created_at"),
     )
 
 
@@ -210,6 +212,7 @@ class ItemCode(Base):
     centroid_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     centroid_model: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     centroid_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    centroid_dirty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     scope_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     drift_flag: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     scope_history: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
@@ -252,6 +255,7 @@ class ResponseIdea(Base):
     """Một ý tưởng đã tách, kèm quyết định mapping có thể kiểm toán."""
 
     __tablename__ = "response_ideas"
+    __table_args__ = (Index("ix_response_ideas_code_status", "code_id", "mapping_status"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     response_id: Mapped[str] = mapped_column(
@@ -293,6 +297,7 @@ class SurveySession(Base):
     """Phiên 180 giây do máy chủ cấp; một phiên chỉ nộp được một response."""
 
     __tablename__ = "survey_sessions"
+    __table_args__ = (Index("ix_survey_sessions_participant_item_started", "participant_id", "item_id", "started_at"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     participant_id: Mapped[str] = mapped_column(String(36), ForeignKey("participants.id"), index=True)
     item_id: Mapped[str] = mapped_column(String(64), ForeignKey("items.id"), index=True)

@@ -23,14 +23,3 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
-
-
-def init_db() -> None:
-    """Tạo toàn bộ bảng theo model hiện có. Dùng cho dev/lần đầu setup.
-
-    Ở giai đoạn sau khi đã ổn định schema, nên chuyển sang dùng Alembic
-    (`alembic upgrade head`) thay vì gọi hàm này, để có lịch sử migration.
-    """
-    from app.models import models  # noqa: F401
-
-    Base.metadata.create_all(bind=engine)

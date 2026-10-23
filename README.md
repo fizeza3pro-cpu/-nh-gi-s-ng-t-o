@@ -198,7 +198,7 @@ CODE_CANDIDATE_LIMIT=3
 CODEBOOK_FULL_SCAN_LIMIT=20
 ```
 
-Embedding chỉ xếp hạng candidate và án lệ; Curator quyết định trên top-3, còn backend kiểm tra ngưỡng
+Embedding chỉ xếp hạng candidate và án lệ; Curator đối chiếu toàn bộ codebook nhỏ hoặc các ứng viên theo `NOVELTY_CANDIDATE_LIMIT`, còn backend kiểm tra ngưỡng
 MATCH, ranh giới code mới và collision trước khi ghi. Challenger chỉ xử lý ca mơ hồ hoặc mở rộng phạm vi.
 `EMBEDDING_PROVIDER=local` chỉ dành cho mock, test hoặc
 đối chứng vì vector băm không hiểu ngữ nghĩa tiếng Việt.
@@ -260,6 +260,34 @@ uv run python -m scripts.prepare_database
 Script chỉ tạo schema hiện hành, 12 đồ vật mặc định và stamp head khi DB hoàn toàn trống. DB đã có Alembic version chạy upgrade; DB có bảng nhưng chưa có version bị từ chối để tránh stamp nhầm. Không tạo tài khoản admin mặc định. Render dùng script này trong `preDeployCommand`; nếu gói hosting không hỗ trợ pre-deploy, chạy bước này từ quy trình phát hành trước khi khởi động app. Sao lưu và kiểm tra revision trước khi nâng DB cũ: lịch sử migration có các bước reset dữ liệu có chủ đích.
 
 Giới hạn tải: `LOGIN_REQUESTS_PER_MINUTE=20`, `PUBLIC_REQUESTS_PER_MINUTE=120` theo IP/mỗi tiến trình; `MAX_PENDING_RESPONSES_PER_PARTICIPANT=3` dùng khóa DB. Có thể điều chỉnh theo quy mô khảo sát chung mạng. Lớp IP limiter không dùng chung giữa replica, reset khi restart; với nhiều replica cần giới hạn chung ở gateway/WAF. Chỉ cấu hình tin proxy đã xác định; không tin tùy ý X-Forwarded-For từ Internet.
+
+## Làm gọn luồng xử lý — 22/10/2026
+
+- POST luôn commit bài vào hàng đợi rồi trả mã bài. Worker là đường duy nhất chạy mapping, resolver và scoring; không còn chấm trong request hoặc POST chờ hoàn tất. Giữ `ASYNC_PROCESSING_ENABLED=true` khi vận hành.
+- Client provider nằm trong `app/pipeline/clients.py`, mô phỏng dev/test trong `app/pipeline/mock.py`. Hàm điều phối phân code đổi tên thành `run_code_mapping()` để phân biệt với riêng lượt gọi LLM Curator.
+- `ResponseIdea` là nguồn mapping hiện tại; JSON `Response.mapping` còn là cache tương thích. Snapshot trong `scoring_meta.mapping_snapshot` giữ mapping lúc FINAL; không tự sửa điểm hoặc căn cứ đã chốt.
+- Metadata từng lượt ở `pipeline_audits`; `mapping_meta.latest_audit_id` trỏ đến lượt gần nhất. Debug theo `response_id`, `attempt_id` và `stage`. Admin và export tự đọc chi tiết qua tham chiếu, vẫn đọc được metadata cũ.
+- API trả `result_state` và `needs_processing` để frontend poll. Result kiểm tra API, bỏ cache kết quả `sessionStorage`. Giữ bản nháp `localStorage`, dọn khi mở lại sau 7 ngày quá hạn.
+- Migration `c0d2e4f6a891` đổi tên `items.scores_dirty` thành `calibration_dirty` bằng RENAME giữ dữ liệu và thêm index. Migration `c1e3f5a7b902` thêm `item_codes.centroid_dirty` để cập nhật centroid ở nền; retrieval không dùng centroid đang chờ cập nhật.
+
+Nâng schema trước khi khởi động backend bản này trên DB hiện hữu, theo quy trình chuẩn:
+
+```sh
+cd backend
+uv run python -m scripts.prepare_database
+```
+
+Phiên khảo sát 180 giây, transaction DB, claim token/lease và snapshot FINAL vẫn phục vụ vận hành. Các cột dữ liệu lịch sử được giữ để tránh mất căn cứ.
+
+Dọn dữ liệu tạm theo hạn lưu, mặc định chỉ thống kê:
+
+```sh
+uv run python -m scripts.prune_pipeline_storage --days 90
+# Thực hiện sau khi xem thống kê:
+uv run python -m scripts.prune_pipeline_storage --days 90 --apply
+```
+
+Lệnh dọn audit kỹ thuật cũ (giữ lượt mapping mới nhất), phiên quá hạn chưa nộp không có bài tham chiếu, và checkpoint tạm của bài FINAL. Giữ điểm, căn cứ, các ý, audit quyết định mapping và quyết định admin.
 
 ## Kiểm thử bản sửa
 

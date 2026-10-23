@@ -955,7 +955,7 @@ def _finalize_curator(item, ideas, curator, candidates, client, embedding_client
     return _attach_decision_embeddings(checked, embedding_client), meta
 
 
-def run_code_curator(
+def run_code_mapping(
     item: Item,
     ideas: IdeaExtractionResult,
     existing_codes: list[dict],
@@ -1003,7 +1003,7 @@ def run_code_curator(
         decisions, batches = [], []
         ordered = sorted(expected_indices)
         for offset in range(0, len(ordered), settings.mapping_batch_size):
-            partial, partial_meta = run_code_curator(
+            partial, partial_meta = run_code_mapping(
                 item, ideas, existing_codes, client, embedding_client,
                 idea_indices=set(ordered[offset:offset + settings.mapping_batch_size]),
                 _candidates=candidates, _skip_reconciliation=True,

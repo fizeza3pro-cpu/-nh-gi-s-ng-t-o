@@ -47,27 +47,21 @@ def pg_engine(monkeypatch):
         admin.dispose()
 
 
-def test_duplicate_wait_releases_item_lock_on_postgres(pg_engine, monkeypatch):
+def test_duplicate_submit_releases_item_lock_on_postgres(pg_engine):
     with Session(pg_engine) as db:
         participant = Participant(ai_usage_group="LOW")
         db.add(participant)
         db.commit()
         participant_id = participant.id
-    request = ScoreRequest(item_id="test-item", responses=["gõ nhịp"], request_id=uuid.uuid4(), wait_for_completion=True)
-
-    def wait_with_other_connection(db, response_id, _participant_id):
-        # Nếu request gốc giữ FOR UPDATE, NOWAIT trên connection khác sẽ báo lỗi.
-        with Session(pg_engine) as worker:
-            worker.scalar(select(Item).where(Item.id == "test-item").with_for_update(nowait=True))
-            return response_controller._to_response(worker.get(Response, response_id))
-
-    monkeypatch.setattr(response_controller, "_wait_for_response_completion", wait_with_other_connection)
+    request = ScoreRequest(item_id="test-item", responses=["gõ nhịp"], request_id=uuid.uuid4())
     with Session(pg_engine) as db:
         first = response_controller.create_response(db, request, db.get(Participant, participant_id))
     with Session(pg_engine) as db:
         second = response_controller.create_response(db, request, db.get(Participant, participant_id))
         assert first.response_id == second.response_id
         assert db.scalar(select(func.count(Response.id))) == 1
+        with Session(pg_engine) as worker:
+            worker.scalar(select(Item).where(Item.id == "test-item").with_for_update(nowait=True))
 
 
 def test_simultaneous_profile_creation_has_no_server_error(pg_engine):

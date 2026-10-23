@@ -14,9 +14,14 @@ const key = (itemId: string) => `aut:draft:v1:${getParticipantId()}:${itemId}`;
 export function readDraft(itemId: string): SurveyDraft | null {
   try {
     const value = JSON.parse(localStorage.getItem(key(itemId)) || "null");
+    if (value && typeof value.deadline === "number" && Date.now() - value.deadline >= 7 * 24 * 60 * 60 * 1000) {
+      clearDraft(itemId);
+      return null;
+    }
     return value && Array.isArray(value.ideas) && value.ideas.length === 10 &&
       value.ideas.every((idea: unknown) => typeof idea === "string") &&
       typeof value.deadline === "number" && typeof value.sessionId === "string" &&
+      Number.isFinite(value.deadline) && Date.now() - value.deadline < 7 * 24 * 60 * 60 * 1000 &&
       typeof value.requestId === "string" &&
       (value.submittedAnswers === undefined || (Array.isArray(value.submittedAnswers) &&
         value.submittedAnswers.length <= 10 && value.submittedAnswers.every((idea: unknown) => typeof idea === "string"))) &&

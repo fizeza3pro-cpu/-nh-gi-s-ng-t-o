@@ -7,6 +7,7 @@ const ACTIVE_PROCESSING_STATES = new Set<ScoreResponse["processing_state"]>([
 ]);
 
 export function responseNeedsProcessing(response: ScoreResponse): boolean {
+  if (typeof response.needs_processing === "boolean") return response.needs_processing;
   if (response.processing_state === "FAILED") return false;
   return (
     ACTIVE_PROCESSING_STATES.has(response.processing_state) ||

@@ -4,7 +4,7 @@ import { ArrowRight, Clock3, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableViewport } from "@/components/ui/table";
-import { api, cacheResponse, readCachedResponse } from "@/lib/api";
+import { api } from "@/lib/api";
 import { responseNeedsProcessing } from "@/lib/response-status";
 import { cn } from "@/lib/utils";
 import type { IdeaStatus, ScoreResponse } from "@/lib/types";
@@ -96,10 +96,7 @@ export default function Result() {
   const navigatedResponse = navigationState?.response;
   const openedFromHistory = navigationState?.source === "history";
   const openedFromSubmission = navigationState?.source === "submission";
-  const initialResponse = !openedFromHistory
-    ? (navigatedResponse ??
-      (responseId && !adminView ? readCachedResponse(responseId) : null))
-    : null;
+  const initialResponse = !adminView && !openedFromHistory ? navigatedResponse ?? null : null;
   const [resp, setResp] = useState<ScoreResponse | null>(() => initialResponse);
   const [loading, setLoading] = useState(() => !initialResponse);
   const [pollError, setPollError] = useState(false);
@@ -118,19 +115,7 @@ export default function Result() {
     setPollError(false);
     setFetchError(null);
 
-    if (
-      openedFromSubmission &&
-      navigatedResponse &&
-      !responseNeedsProcessing(navigatedResponse)
-    ) {
-      setResp(navigatedResponse);
-      setLoading(false);
-      return;
-    }
-
-    const immediate =
-      navigatedResponse ??
-      (adminView || openedFromHistory ? null : readCachedResponse(responseId));
+    const immediate = !adminView && !openedFromHistory ? navigatedResponse : null;
     if (immediate) {
       setResp(immediate);
       setLoading(false);
@@ -144,7 +129,6 @@ export default function Result() {
             setFetchError(null);
             setResp(data);
             setLoading(false);
-            if (!adminView) cacheResponse(data);
             if (responseNeedsProcessing(data)) {
               delay = Math.min(delay * 1.4, 10000);
               timer = setTimeout(poll, delay);

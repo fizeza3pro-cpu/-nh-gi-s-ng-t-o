@@ -16,7 +16,7 @@ from app.config import settings
 from app.controllers import response_worker
 from app.db import SessionLocal
 from app.models.models import Item, PipelineAudit, Response, ResponseIdea, ResponseScoringStatus
-from app.pipeline.codebook_service import refresh_final_frequency_scores, refresh_item_scoring_state
+from app.pipeline.codebook_service import refresh_item_scoring_state
 
 
 def has_curator_failure(value):
@@ -101,8 +101,7 @@ def main():
             row = db.get(Response, response_id)
             item = db.scalar(select(Item).where(Item.id == row.item_id).with_for_update())
             refresh_item_scoring_state(db, item)
-            refresh_final_frequency_scores(db, item.id)
-            item.scores_dirty = False
+            item.calibration_dirty = False
             db.commit()
         token = claim(response_id, kind="scoring")
         if token:

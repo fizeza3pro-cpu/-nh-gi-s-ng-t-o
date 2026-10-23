@@ -39,7 +39,7 @@ def _nearest_codes(members: list[dict], centroid: list[float], model: str, codes
         vectors = []
         if code.get("embedding_model") == model:
             vectors.append(_vector(code.get("embedding") or [], model))
-        if code.get("centroid_model") == model and not code.get("drift_flag"):
+        if code.get("centroid_model") == model and not code.get("drift_flag") and not code.get("centroid_dirty"):
             vectors.extend(
                 _vector(vector, model)
                 for vector in [code.get("centroid") or [], *(code.get("prototype_vectors") or [])]

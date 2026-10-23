@@ -53,7 +53,9 @@ export function getParticipantIdentity(): ParticipantIdentity | null {
   if (!participantId || !raw) return null;
   try {
     const participant = JSON.parse(raw) as ParticipantIdentity;
-    const hasAiGroup = participant.ai_usage_group === "LOW" || participant.ai_usage_group === "HIGH";
+    const hasAiGroup =
+      participant.ai_usage_group === "LOW" ||
+      participant.ai_usage_group === "HIGH";
     return participant.id === participantId && hasAiGroup ? participant : null;
   } catch {
     return null;
@@ -73,7 +75,9 @@ function rememberParticipant<T extends { id: string }>(participant: T): T {
   return participant;
 }
 
-function participantHeaders(extra?: Record<string, string>): Record<string, string> {
+function participantHeaders(
+  extra?: Record<string, string>,
+): Record<string, string> {
   const participantId = getParticipantId();
   const token = getParticipantIdentity()?.access_token;
   return {
@@ -83,14 +87,19 @@ function participantHeaders(extra?: Record<string, string>): Record<string, stri
   };
 }
 
-async function fetchSurvey(url: string, options?: RequestInit): Promise<Response> {
+async function fetchSurvey(
+  url: string,
+  options?: RequestInit,
+): Promise<Response> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 30_000);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error("Chưa nhận được xác nhận từ máy chủ. Nội dung được giữ nguyên để thử lại.");
+      throw new Error(
+        "Chưa nhận được xác nhận từ máy chủ. Nội dung được giữ nguyên để thử lại.",
+      );
     }
     throw error;
   } finally {
@@ -99,7 +108,11 @@ async function fetchSurvey(url: string, options?: RequestInit): Promise<Response
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public code?: string) {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+  ) {
     super(message);
     this.name = "ApiError";
   }
@@ -117,7 +130,8 @@ async function handle<T>(res: Response): Promise<T> {
         message = data.detail.message;
         code = data.detail.code;
       } else if (Array.isArray(data?.detail)) {
-        message = "Thông tin gửi lên chưa hợp lệ. Vui lòng kiểm tra lại các trường đã nhập.";
+        message =
+          "Thông tin gửi lên chưa hợp lệ. Vui lòng kiểm tra lại các trường đã nhập.";
       }
     } catch {
       if (text) message = text;
@@ -152,7 +166,7 @@ export const api = {
     fetch(`${BASE}/auth/me`, { headers: authHeaders() }).then(handle<User>),
 
   // --- Khảo sát công khai ---
-  listItems: () => fetch(`${BASE}/items`).then(handle<Item[]>),
+  listItems: () => fetch(`${BASE}/items`).then(handle<Item[]>), // lấy list item từ be
 
   getItem: (id: string) => fetch(`${BASE}/items/${id}`).then(handle<Item>),
 
@@ -171,7 +185,11 @@ export const api = {
     return result;
   },
 
-  createParticipant: async (email: string, profile: ParticipantProfile, recoveryToken?: string) => {
+  createParticipant: async (
+    email: string,
+    profile: ParticipantProfile,
+    recoveryToken?: string,
+  ) => {
     const participantId = getParticipantId();
     const participant = await fetch(`${BASE}/participants`, {
       method: "POST",
@@ -186,16 +204,32 @@ export const api = {
     return rememberParticipant(participant);
   },
 
-  adminIssueParticipantToken: (participantId: string) => fetch(`${BASE}/admin/participants/${participantId}/access-token`, {
-    method: "POST", headers: authHeaders(),
-  }).then(handle<ParticipantIdentity>),
+  adminIssueParticipantToken: (participantId: string) =>
+    fetch(`${BASE}/admin/participants/${participantId}/access-token`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handle<ParticipantIdentity>),
 
-  startSurveySession: (itemId: string) => fetchSurvey(`${BASE}/survey-sessions`, {
-    method: "POST", headers: participantHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ item_id: itemId, consent: true }),
-  }).then(handle<{ id: string; started_at: string; deadline_at: string; server_now: string }>),
+  startSurveySession: (itemId: string) =>
+    fetchSurvey(`${BASE}/survey-sessions`, {
+      method: "POST",
+      headers: participantHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ item_id: itemId, consent: true }),
+    }).then(
+      handle<{
+        id: string;
+        started_at: string;
+        deadline_at: string;
+        server_now: string;
+      }>,
+    ),
 
-  score: (itemId: string, responses: string[], requestId: string, sessionId?: string) =>
+  score: (
+    itemId: string,
+    responses: string[],
+    requestId: string,
+    sessionId?: string,
+  ) =>
     fetchSurvey(`${BASE}/score`, {
       method: "POST",
       headers: participantHeaders({ "Content-Type": "application/json" }),
@@ -204,7 +238,6 @@ export const api = {
         responses,
         request_id: requestId,
         survey_session_id: sessionId,
-        wait_for_completion: false,
       }),
     }).then(handle<ScoreResponse>),
 
@@ -214,10 +247,14 @@ export const api = {
     ),
 
   getResponse: (id: string) =>
-    fetchSurvey(`${BASE}/responses/${id}`, { headers: participantHeaders() }).then(handle<ScoreResponse>),
+    fetchSurvey(`${BASE}/responses/${id}`, {
+      headers: participantHeaders(),
+    }).then(handle<ScoreResponse>),
 
   adminGetResponse: (id: string) =>
-    fetch(`${BASE}/admin/responses/${id}`, { headers: authHeaders() }).then(handle<ScoreResponse>),
+    fetch(`${BASE}/admin/responses/${id}`, { headers: authHeaders() }).then(
+      handle<ScoreResponse>,
+    ),
 
   adminRetryResponse: (id: string) =>
     fetch(`${BASE}/admin/responses/${id}/retry`, {
@@ -226,18 +263,26 @@ export const api = {
     }).then(handle<{ response_id: string; processing_state: string }>),
 
   participantResponses: () =>
-    fetch(`${BASE}/participants/me/responses`, { headers: participantHeaders() }).then(
-      handle<ResponseSummary[]>,
-    ),
+    fetch(`${BASE}/participants/me/responses`, {
+      headers: participantHeaders(),
+    }).then(handle<ResponseSummary[]>),
 
   // --- Admin (cần role admin, backend tự chặn 403 nếu không đủ quyền) ---
-  adminResearchReport: (options: { source?: string; itemId?: string; itemIds?: string[]; signal?: AbortSignal } = {}) => {
+  adminResearchReport: (
+    options: {
+      source?: string;
+      itemId?: string;
+      itemIds?: string[];
+      signal?: AbortSignal;
+    } = {},
+  ) => {
     const query = new URLSearchParams();
     if (options.source) query.set("data_source", options.source);
     if (options.itemId) query.set("item_id", options.itemId);
-    options.itemIds?.forEach(id => query.append("item_ids", id));
+    options.itemIds?.forEach((id) => query.append("item_ids", id));
     return fetch(`${BASE}/admin/reports/research?${query}`, {
-      headers: authHeaders(), signal: options.signal,
+      headers: authHeaders(),
+      signal: options.signal,
     }).then(handle<AdminResearchReport>);
   },
 
@@ -247,9 +292,12 @@ export const api = {
     ),
 
   adminDownloadResponsesCsv: async (format: "csv" | "json" = "csv") => {
-    const response = await fetch(`${BASE}/admin/exports/${format === "json" ? "analysis.json" : "responses.csv"}`, {
-      headers: authHeaders(),
-    });
+    const response = await fetch(
+      `${BASE}/admin/exports/${format === "json" ? "analysis.json" : "responses.csv"}`,
+      {
+        headers: authHeaders(),
+      },
+    );
     if (!response.ok) {
       let message = `Lỗi ${response.status}`;
       try {
@@ -271,9 +319,19 @@ export const api = {
     URL.revokeObjectURL(url);
   },
 
-  adminPipelineAudits: (itemId: string) => fetch(`${BASE}/admin/items/${itemId}/pipeline-audits`, {
-    headers: authHeaders(),
-  }).then(handle<Array<{ id: string; event: string; created_at: string; payload: Record<string, unknown> }>>),
+  adminPipelineAudits: (itemId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/pipeline-audits`, {
+      headers: authHeaders(),
+    }).then(
+      handle<
+        Array<{
+          id: string;
+          event: string;
+          created_at: string;
+          payload: Record<string, unknown>;
+        }>
+      >,
+    ),
 
   adminListParticipants: () =>
     fetch(`${BASE}/admin/participants`, { headers: authHeaders() }).then(
@@ -281,9 +339,9 @@ export const api = {
     ),
 
   adminParticipantDetail: (participantId: string) =>
-    fetch(`${BASE}/admin/participants/${participantId}`, { headers: authHeaders() }).then(
-      handle<AdminParticipantDetail>,
-    ),
+    fetch(`${BASE}/admin/participants/${participantId}`, {
+      headers: authHeaders(),
+    }).then(handle<AdminParticipantDetail>),
 
   adminListCodebooks: () =>
     fetch(`${BASE}/admin/items/codebooks`, { headers: authHeaders() }).then(
@@ -317,9 +375,12 @@ export const api = {
     }).then(handle<AdminCuratorAudit>),
 
   adminMappingReviews: (itemId: string) =>
-    fetch(`${BASE}/admin/items/${itemId}/mapping-reviews?review_status=PENDING`, {
-      headers: authHeaders(),
-    }).then(handle<AdminMappingReviewList>),
+    fetch(
+      `${BASE}/admin/items/${itemId}/mapping-reviews?review_status=PENDING`,
+      {
+        headers: authHeaders(),
+      },
+    ).then(handle<AdminMappingReviewList>),
 
   adminResolveMappingReview: (
     itemId: string,
@@ -331,31 +392,4 @@ export const api = {
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
     }).then(handle<AdminMappingReviewResult>),
-
 };
-
-const SESSION_KEY = "aut:last-response";
-
-export function cacheResponse(resp: ScoreResponse) {
-  try {
-    sessionStorage.setItem(
-      `${SESSION_KEY}:${resp.response_id}`,
-      JSON.stringify({ participantId: getParticipantId(), response: resp }),
-    );
-  } catch {
-    /* ignore */
-  }
-}
-
-export function readCachedResponse(id: string): ScoreResponse | null {
-  try {
-    const raw = sessionStorage.getItem(`${SESSION_KEY}:${id}`);
-    if (!raw) return null;
-    const cached = JSON.parse(raw) as { participantId?: string; response?: ScoreResponse };
-    return cached.participantId && cached.participantId === getParticipantId()
-      ? cached.response ?? null
-      : null;
-  } catch {
-    return null;
-  }
-}

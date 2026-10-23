@@ -12,7 +12,7 @@ import hashlib
 from sqlalchemy import delete, func, inspect, select
 
 from app.config import settings
-from app.controllers.response_controller import reprocess_item_scores_in_session
+from app.controllers import response_worker
 from app.db import SessionLocal
 from app.models.models import (
     CodeMaturityStatus,
@@ -173,10 +173,22 @@ def main() -> None:
 
         db.flush()
         refresh_item_scoring_state(db, item)
+        db.commit()
+        pending_ids = db.scalars(select(Response.id).where(Response.item_id == ITEM_ID,
+            Response.scoring_status == ResponseScoringStatus.COLLECTING)).all()
         previous_mock_mode = settings.mock_mode
         settings.mock_mode = True
         try:
-            scored = reprocess_item_scores_in_session(db, ITEM_ID)
+            scored = 0
+            for response_id in pending_ids:
+                token = hashlib.sha256(response_id.encode()).hexdigest()[:36]
+                with SessionLocal() as job_db:
+                    job = job_db.get(Response, response_id)
+                    job.processing_claim_token = token
+                    job_db.commit()
+                response_worker._run_scoring(response_id, token)
+                scored += 1
+            db.expire_all()
         finally:
             settings.mock_mode = previous_mock_mode
         db.commit()

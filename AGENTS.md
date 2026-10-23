@@ -75,11 +75,11 @@ backend/
   app/
     main.py                  # khởi tạo FastAPI, mount router, CORS
     config.py                 # Settings (đọc từ .env qua pydantic-settings)
-    db.py                     # engine, SessionLocal, Base, get_db(), init_db()
+    db.py                     # engine, SessionLocal, Base, get_db(); schema qua scripts.prepare_database
     controllers/
       auth_controller.py       # đăng ký/đăng nhập — SẼ RÚT GỌN CHỈ CÒN ADMIN
       item_controller.py       # đọc danh sách đồ vật (Item)
-      response_controller.py   # nghiệp vụ chấm bài + lưu response
+      response_controller.py   # nhận bài vào hàng đợi và đọc kết quả; response_worker.py xử lý
     core/
       deps.py                  # FastAPI Depends: get_current_user, require_admin...
       security.py               # hash password, tạo/giải JWT
@@ -100,7 +100,7 @@ frontend/
   src/
     main.tsx · App.tsx            # router + AuthProvider
     lib/
-      api.ts                      # API client fetch(), quản lý token, cache response (sessionStorage)
+      api.ts                      # API client fetch(), quản lý token
       types.ts                     # type khớp với backend schemas.py
     components/
       auth/                       # Login admin, AdminRoute, auth-context
@@ -109,7 +109,7 @@ frontend/
     pages/
       Home.tsx                     # landing + chọn đồ vật
       Test.tsx                     # màn hình làm bài (đồng hồ 180s + textarea)
-      Result.tsx                    # kết quả 1 lượt (đọc từ sessionStorage cache trước, API sau)
+      Result.tsx                    # kết quả 1 lượt: dữ liệu điều hướng ban đầu và poll API
       AdminOverview.tsx           # tiến độ dữ liệu và hiệu chỉnh codebook
       AdminCodebooks.tsx          # quản lý codebook động theo đồ vật
 
@@ -222,5 +222,13 @@ Các quy tắc sau thay thế mô tả cũ tương ứng bên trên:
 - Mỗi dòng trả lời được xét độc lập: ý lặp nguyên văn hoặc cùng công dụng vẫn `VALID` nếu đủ căn cứ chức năng. Không sinh `DUPLICATE` cho lượt xử lý mới; ý vô nghĩa/lạc đề vẫn `INVALID`.
 - Các ý lặp hợp lệ đi qua embedding, Curator và scoring như mọi ý khác; có thể dùng chung code và được tính riêng vào số ý/tần suất. Flexibility vẫn đếm code khác nhau.
 - Checkpoint Extraction cũ chứa `DUPLICATE` phải được phân tích lại trước khi tiếp tục. Giữ tương thích nhãn cũ để đọc lịch sử; không tự sửa dữ liệu đã lưu hoặc điểm `FINAL`.
+
+## Luồng vận hành sau refactor ngày 22/10/2026
+
+- POST commit hàng đợi, worker là đường xử lý duy nhất. Không khôi phục chấm đồng bộ hoặc retry phụ trong controller. Client provider ở `pipeline/clients.py`, mock ở `pipeline/mock.py`.
+- `run_code_mapping()` điều phối retrieval, Curator, Challenger và kiểm chứng. Mapping/scoring vẫn tách biệt.
+- Mapping hiện tại lấy từ `ResponseIdea`, mapping FINAL lấy snapshot bất biến. Metadata chi tiết ở audit; response giữ tham chiếu và tóm tắt. Không bỏ cột lịch sử khi chưa chuyển dữ liệu.
+- Schema cần migrations `c0d2e4f6a891` (RENAME `scores_dirty` thành `calibration_dirty`, thêm index) và `c1e3f5a7b902` (`centroid_dirty`). Centroid cập nhật ở nền, không dùng tâm đang dirty trong retrieval.
+- Frontend dùng `needs_processing` để poll; không lưu kết quả trong `sessionStorage`. Giữ bản nháp và phiên khảo sát 180 giây.
 
 ---

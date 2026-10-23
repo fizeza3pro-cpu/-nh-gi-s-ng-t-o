@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.controllers import response_controller, survey_controller
@@ -18,13 +18,12 @@ def start_session(payload: SurveySessionRequest, db: Session = Depends(get_db), 
 
 
 @router.post("/api/score", response_model=ScoreResponse, dependencies=[Depends(limit_public_write)])
-def score(
-    req: ScoreRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    participant: ParticipantModel = Depends(get_participant),
+def score(                  #response_model: kiểu trả về fe           #dependencies: midderwere, ở đây check số lần spam để chặn
+    req: ScoreRequest,  #các res của người dùng
+    db: Session = Depends(get_db), #db
+    participant: ParticipantModel = Depends(get_participant), #user
 ) -> ScoreResponse:
-    return response_controller.create_response(db, req, participant, background_tasks)
+    return response_controller.create_response(db, req, participant)
 
 
 @router.get("/api/responses", response_model=list[ResponseSummary])

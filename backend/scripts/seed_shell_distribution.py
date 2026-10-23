@@ -16,7 +16,7 @@ from app.db import SessionLocal
 from app.models.models import Item, ItemCode, Participant, Response, ResponseIdea, ResponseScoringStatus, PipelineAudit
 from app.pipeline.shell_reference import plan_shell_reference
 from app.pipeline.codebook_service import (
-    originality_for_response, refresh_item_scoring_state, refresh_final_frequency_scores,
+    originality_for_response, refresh_item_scoring_state,
     qualifying_participant_count, qualifying_idea_count, _code_live_counts,
     item_is_ready_for_scoring,
 )
@@ -147,8 +147,7 @@ def populate(db, *, item_id="vo_dan", corpus=CORPUS, counts=None, variants=None,
         row.scoring_status = ResponseScoringStatus.FINAL
         row.scored_at = datetime.now(timezone.utc)
     db.flush()
-    refresh_final_frequency_scores(db, item.id)
-    item.scores_dirty = True
+    item.calibration_dirty = True
     db.add(PipelineAudit(item_id=item.id, event="SYNTHETIC_CORPUS_IMPORTED", payload={
         "corpus": corpus, "participants": 5, "responses": 15, "ideas": 150,
         "previous_min_participants": old_threshold, "min_participants": 5,

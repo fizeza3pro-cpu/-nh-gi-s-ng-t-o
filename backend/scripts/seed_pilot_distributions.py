@@ -49,7 +49,7 @@ def main():
     if settings.mock_mode:
         raise RuntimeError("Không nạp embedding giả vào DB thật; tắt MOCK_MODE trước khi --apply.")
     # Chỉ gửi chữ ký mã tự biên soạn, không gửi bài hay hồ sơ của người tham gia.
-    from app.controllers.response_controller import _embedding_client
+    from app.pipeline.clients import embedding_client as _embedding_client
     specs = [spec for group in missing.values() for spec in group]
     batch = embed_texts([core_signature_text(spec["functional_signature"]) for spec in specs], _embedding_client())
     if len(batch.vectors) != len(specs):

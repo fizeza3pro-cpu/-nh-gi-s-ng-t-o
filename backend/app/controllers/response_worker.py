@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models.models import Item, ItemCalibrationStatus, Response, ResponseIdea, ResponseScoringStatus, PipelineAudit
+from app.models.models import Item, ItemCode, ItemCalibrationStatus, Response, ResponseIdea, ResponseScoringStatus, PipelineAudit
+from app.pipeline.centroid import rebuild_confirmed_members
 from app.pipeline.codebook_service import (
     calibration_source_filter,
     item_is_ready_for_scoring,
@@ -22,15 +23,16 @@ from app.pipeline.codebook_service import (
     originality_for_response,
     persist_mapping,
     synchronize_response_mappings,
-    refresh_final_frequency_scores,
     refresh_item_scoring_state,
+    current_mapping,
 )
-from app.pipeline.dynamic_mapping import run_code_curator, run_idea_extraction
+from app.pipeline.dynamic_mapping import run_code_mapping, run_idea_extraction
 from app.pipeline.scoring import run_scoring
 from app.schemas.schemas import Item as ItemSchema
 from app.schemas.schemas import CuratorResult, ScoringResult, IdeaExtractionResult
 
-from app.controllers import response_controller as responses
+from app.pipeline import mock as mock_pipeline
+from app.pipeline.clients import chat_client, embedding_client as make_embedding_client
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,15 @@ logger = logging.getLogger(__name__)
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _release_claim(row: Response) -> None:
+    """Kết thúc một bước thành công; không nhầm DONE với đã có điểm FINAL."""
+    row.processing_state = "DONE"
+    row.processing_claim_token = None
+    row.processing_lease_until = None
+    row.processing_attempts = 0
+    row.processing_error = ""
 
 
 def _claim(kind: str) -> tuple[str, str] | None:
@@ -82,6 +93,10 @@ def _claim(kind: str) -> tuple[str, str] | None:
         row.processing_claim_token = token
         row.processing_attempts += 1
         row.processing_lease_until = now + timedelta(seconds=settings.processing_lease_seconds)
+        db.add(PipelineAudit(item_id=row.item_id, response_id=row.id, event="JOB_STARTED", payload={
+            "attempt_id": token, "stage": kind, "technical_attempt": row.processing_attempts,
+            "resolution_attempt": row.resolution_attempts,
+        }))
         db.commit()
         return row.id, token
 
@@ -141,15 +156,15 @@ def _guard_stale_creations(curator: CuratorResult, new_code_ids: set[str]) -> Cu
 
 def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> None:
     """Chỉ giữ khóa item lúc kiểm tra epoch và ghi quyết định cuối."""
-    with SessionLocal() as db:
+    with SessionLocal() as db: #mở một phiên làm việc (Session) với cơ sở dữ liệu và tự động đóng kết nối đó lại sau khi các câu lệnh bên trong chạy xong.
         row = db.get(Response, response_id)
-        if row is None or row.processing_claim_token != token:
+        if row is None or row.processing_claim_token != token or row.scoring_status == ResponseScoringStatus.FINAL:
             return
-        item_row = db.get(Item, row.item_id)
-        item = ItemSchema(id=item_row.id, name=item_row.name, description=item_row.description)
-        raw = row.raw_input
+        item_row = db.get(Item, row.item_id) #lấy item từ item_id của res (join)
+        item = ItemSchema(id=item_row.id, name=item_row.name, description=item_row.description) #khởi tạo object Item
+        raw = row.raw_input #chính là các ý đc nối với nhau
         input_lines = row.input_lines or raw.splitlines()
-        checkpoint = row.mapping_checkpoint or {}
+        checkpoint = row.mapping_checkpoint or {} #ở đây nó là dạng có nhiều phần tử bên trong
         pending_indices = set(db.scalars(select(ResponseIdea.line_index).where(
             ResponseIdea.response_id == row.id, ResponseIdea.mapping_status == "VALID",
             ResponseIdea.code_id.is_(None),
@@ -159,15 +174,15 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
     original_code_ids = {code["id"] for code in codes}
     new_code_ids: set[str] = set()
 
-    client = None if settings.mock_mode else responses._client()
-    embedding_client = None if settings.mock_mode else responses._embedding_client()
+    client = None if settings.mock_mode else chat_client() #khởi tạo đối tượng OpenAI (gọi api đến llm)
+    embedding_client = None if settings.mock_mode else make_embedding_client() #khởi tạo đối tượng OpenAI (gọi api đến llm embeding)
     if settings.mock_mode:
-        extraction, curator = responses._mock_mapping(item, raw, codes)
+        extraction, curator = mock_pipeline.run_mapping(item, raw, codes)
         extraction_meta = {"mock": True}
         curator_meta = {"mock": True}
     else:
-        input_digest = hashlib.sha256(json.dumps(input_lines, ensure_ascii=False).encode()).hexdigest()
-        if (checkpoint.get("extraction") and checkpoint.get("input_digest") == input_digest
+        input_digest = hashlib.sha256(json.dumps(input_lines, ensure_ascii=False).encode()).hexdigest() # tạo sig
+        if (checkpoint.get("extraction") and checkpoint.get("input_digest") == input_digest #đã extraction và sig phải giống nhau
                 and not checkpoint.get("needs_extraction_repair")
                 and not any(idea.get("status") == "DUPLICATE" for idea in checkpoint["extraction"].get("ideas", []))):
             extraction = IdeaExtractionResult.model_validate(checkpoint["extraction"])
@@ -186,7 +201,7 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
                     "needs_extraction_repair": any(idea.review_required for idea in extraction.ideas),
                 }
                 db.commit()
-        curator, curator_meta = run_code_curator(
+        curator, curator_meta = run_code_mapping(
             item, extraction, codes, client, embedding_client, idea_indices=pending_indices,
         )
 
@@ -213,23 +228,27 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
                     replace_indices=pending_indices,
                 )
                 row.mapping = mapping.model_dump()
-                row.mapping_meta = {
+                attempt_metadata = {
+                    "attempt_id": token,
                     "idea_extraction": extraction_meta,
                     "code_curator": curator_meta,
                     "codebook_epoch_read": epoch,
                     "codebook_epoch_committed": item_row.codebook_epoch,
                     "stale_rechecks": recheck,
                 }
-                db.add(PipelineAudit(item_id=item.id, response_id=row.id, event="PIPELINE_ATTEMPT", payload=row.mapping_meta))
+                audit = PipelineAudit(item_id=item.id, response_id=row.id, event="PIPELINE_ATTEMPT", payload=attempt_metadata)
+                db.add(audit)
+                db.flush()
+                row.mapping_meta = {
+                    "latest_audit_id": audit.id, "attempt_id": token,
+                    "codebook_epoch_read": epoch, "codebook_epoch_committed": item_row.codebook_epoch,
+                    "stale_rechecks": recheck,
+                }
                 row.scoring_status = (
                     ResponseScoringStatus.PENDING_REVIEW
                     if has_uncertain else ResponseScoringStatus.COLLECTING
                 )
-                row.processing_state = "DONE"
-                row.processing_claim_token = None
-                row.processing_lease_until = None
-                row.processing_attempts = 0
-                row.processing_error = ""
+                _release_claim(row)
                 row.mapping_completed_at = None if has_uncertain else _now()
                 row.resolution_epoch = item_row.codebook_epoch
                 row.mapping_checkpoint = {**(row.mapping_checkpoint or {}),
@@ -255,10 +274,10 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
 
         # Kết luận "ngoài codebook" ở epoch cũ không còn giá trị.
         if settings.mock_mode:
-            extraction, curator = responses._mock_mapping(item, raw, codes)
+            extraction, curator = mock_pipeline.run_mapping(item, raw, codes)
             curator_meta = {"mock": True, "rechecked_epoch": epoch}
         else:
-            curator, curator_meta = run_code_curator(
+            curator, curator_meta = run_code_mapping(
                 item, extraction, codes, client, embedding_client, idea_indices=pending_indices,
             )
     raise RuntimeError("Codebook đổi liên tục; sẽ thử lại từ bản mới.")
@@ -267,12 +286,29 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
 def _recount_one_item() -> bool:
     """Gộp các thay đổi tần suất thành một lần tính, không gọi LLM trong khóa."""
     with SessionLocal() as db:
-        item = db.scalar(select(Item).where(Item.scores_dirty.is_(True)).order_by(Item.id).limit(1).with_for_update(skip_locked=True))
+        item = db.scalar(select(Item).where(Item.calibration_dirty.is_(True)).order_by(Item.id).limit(1).with_for_update(skip_locked=True))
         if item is None:
             return False
         refresh_item_scoring_state(db, item)
-        refresh_final_frequency_scores(db, item.id)
-        item.scores_dirty = False
+        item.calibration_dirty = False
+        db.commit()
+        return True
+
+
+def _refresh_one_centroid() -> bool:
+    """Gom cập nhật vector ở nền, không quét mọi member trong transaction lưu bài."""
+    with SessionLocal() as db:
+        code = db.scalar(select(ItemCode).where(ItemCode.centroid_dirty.is_(True))
+                         .order_by(ItemCode.id).limit(1).with_for_update(skip_locked=True))
+        if code is None:
+            return False
+        members = db.execute(select(ResponseIdea.embedding, ResponseIdea.embedding_model)
+            .join(Response, Response.id == ResponseIdea.response_id)
+            .where(ResponseIdea.code_id == code.id, ResponseIdea.mapping_status == "VALID",
+                   Response.scoring_status != ResponseScoringStatus.EXCLUDED)).all()
+        rebuild_confirmed_members(code, [(vector or [], model or "") for vector, model in members],
+                                  drift_cosine_floor=settings.centroid_drift_cosine_floor)
+        code.centroid_dirty = False
         db.commit()
         return True
 
@@ -317,13 +353,10 @@ def _run_scoring(response_id: str, token: str) -> None:
     """Gọi LLM ngoài transaction; khi lưu dùng tần suất mới nhất."""
     with SessionLocal() as db:
         row = db.get(Response, response_id)
-        if row is None or row.processing_claim_token != token:
+        if row is None or row.processing_claim_token != token or row.scoring_status == ResponseScoringStatus.FINAL:
             return
         if not item_is_ready_for_scoring(db, row.item):
-            row.processing_state = "DONE"
-            row.processing_claim_token = None
-            row.processing_lease_until = None
-            row.processing_attempts = 0
+            _release_claim(row)
             refresh_item_scoring_state(db, row.item)
             db.commit()
             return
@@ -331,21 +364,18 @@ def _run_scoring(response_id: str, token: str) -> None:
         item = ItemSchema(id=row.item.id, name=row.item.name, description=row.item.description)
 
     if settings.mock_mode:
-        scoring, scoring_meta = responses._mock_scoring(fluency, flexibility, codes, initial_ideas)
+        scoring, scoring_meta = mock_pipeline.run_scoring(fluency, flexibility, codes, initial_ideas)
     else:
         scoring, scoring_meta = run_scoring(
-            item, fluency, flexibility, codes, initial_ideas, responses._client()
+            item, fluency, flexibility, codes, initial_ideas, chat_client()
         )
 
     with SessionLocal() as db:
         row = db.scalar(select(Response).where(Response.id == response_id).with_for_update())
-        if row is None or row.processing_claim_token != token:
+        if row is None or row.processing_claim_token != token or row.scoring_status == ResponseScoringStatus.FINAL:
             return
         if not item_is_ready_for_scoring(db, row.item):
-            row.processing_state = "DONE"
-            row.processing_claim_token = None
-            row.processing_lease_until = None
-            row.processing_attempts = 0
+            _release_claim(row)
             refresh_item_scoring_state(db, row.item)
             db.commit()
             return
@@ -354,10 +384,7 @@ def _run_scoring(response_id: str, token: str) -> None:
         current_keys = {(idea.idea_id or (idea.original, idea.normalized)) for idea in current_ideas}
         if current_keys != set(old_scores):
             # Mapping đổi trong lúc LLM chấm: lượt kế tiếp sẽ chấm lại từ đầu.
-            row.processing_state = "DONE"
-            row.processing_claim_token = None
-            row.processing_lease_until = None
-            row.processing_attempts = 0
+            _release_claim(row)
             db.commit()
             return
         merged_ideas = [
@@ -385,7 +412,7 @@ def _run_scoring(response_id: str, token: str) -> None:
             "calculated_at": scored_at.isoformat(),
             "frequency_basis": basis,
             "score_policy": "FINAL_FROZEN_V1",
-            "mapping_snapshot": row.mapping,
+            "mapping_snapshot": current_mapping(row),
             "codebook_epoch": row.item.codebook_epoch,
             "history": list((row.scoring_meta or {}).get("history", [])),
         }
@@ -395,11 +422,11 @@ def _run_scoring(response_id: str, token: str) -> None:
         row.elaboration = final.elaboration
         row.scoring_status = ResponseScoringStatus.FINAL
         row.scored_at = scored_at
-        row.processing_state = "DONE"
-        row.processing_claim_token = None
-        row.processing_lease_until = None
-        row.processing_attempts = 0
-        row.processing_error = ""
+        row.mapping_checkpoint = {}
+        db.add(PipelineAudit(item_id=row.item_id, response_id=row.id, event="SCORING_COMMIT", payload={
+            "attempt_id": token, "score_policy": "FINAL_FROZEN_V1", "scored_at": scored_at.isoformat(),
+        }))
+        _release_claim(row)
         db.commit()
 
 
@@ -421,12 +448,18 @@ def _record_failure(response_id: str, token: str, kind: str, error: Exception) -
         row.processing_state = "FAILED" if exhausted else ("QUEUED" if kind == "mapping" else "DONE")
         row.processing_error = type(error).__name__
         failure_meta = getattr(error, "metadata", None)
-        if isinstance(failure_meta, dict) and failure_meta:
-            db.add(PipelineAudit(item_id=row.item_id, response_id=row.id, event="PIPELINE_FAILURE",
-                                 payload={"kind": kind, **failure_meta}))
+        if not isinstance(failure_meta, dict):
+            failure_meta = {}
+        failure_meta = {"stage": kind, "error_type": type(error).__name__, **(failure_meta or {})}
+        if failure_meta:
+            audit = PipelineAudit(item_id=row.item_id, response_id=row.id, event="PIPELINE_FAILURE",
+                                  payload={"kind": kind, "attempt_id": token, **failure_meta})
+            db.add(audit)
+            db.flush()
             target = dict(row.mapping_meta or {}) if kind in {"mapping", "resolution"} else dict(row.scoring_meta or {})
             failures = list(target.get("llm_failures", []))
-            failures.append(failure_meta)
+            failures.append({"audit_id": audit.id, "attempt_id": token,
+                             **{key: failure_meta.get(key) for key in ("stage", "error_type", "error_category", "retryable")}})
             target["llm_failures"] = failures[-5:]
             if kind in {"mapping", "resolution"}:
                 row.mapping_meta = target
@@ -464,6 +497,7 @@ def run_one_job(*, prefer_scoring: bool = False) -> bool:
     # Luân phiên ưu tiên để dòng bài mới không làm các bài đã mapping chờ điểm mãi.
     if prefer_scoring:
         _recount_one_item()
+        _refresh_one_centroid()
     kinds = ("resolution", "scoring", "mapping") if prefer_scoring else ("mapping", "scoring", "resolution")
     claimed = None
     for kind in kinds:
@@ -472,7 +506,7 @@ def run_one_job(*, prefer_scoring: bool = False) -> bool:
             break
     if claimed is None:
         from app.controllers.code_audit_worker import run_one_audit
-        return _recount_one_item() or _expire_exhausted() or _wake_one_unresolved() or run_one_audit()
+        return _recount_one_item() or _expire_exhausted() or _wake_one_unresolved() or _refresh_one_centroid() or run_one_audit()
     response_id, token = claimed
     heartbeat_stop = threading.Event()
     heartbeat = None
@@ -496,7 +530,7 @@ def run_one_job(*, prefer_scoring: bool = False) -> bool:
 def start_workers(stop: threading.Event) -> list[threading.Thread]:
     """Khởi động worker polling; job vẫn nằm trong DB khi tiến trình restart."""
     def loop(index: int) -> None:
-        prefer_scoring = bool(index % 2)
+        prefer_scoring = bool(index % 2)  #worker chẵn mapping, lẻ chấm điểm
         while not stop.is_set():
             try:
                 worked = run_one_job(prefer_scoring=prefer_scoring)

@@ -12,7 +12,8 @@ from app.config import settings
 from app.models.models import Item, Response, Participant
 from app.pipeline.codebook_service import (
     _eligible_query, _code_live_counts, list_curator_codes,
-    refresh_final_frequency_scores, refresh_item_scoring_state,
+    current_mapping, mapping_diagnostics,
+    refresh_item_scoring_state,
 )
 
 
@@ -25,8 +26,7 @@ def prepare_export(db):
         raise HTTPException(status_code=409, detail="Còn bài đang xử lý. Hãy xuất lại khi hàng đợi hoàn tất để có một mốc nhất quán.")
     for item in items:
         refresh_item_scoring_state(db, item)
-        refresh_final_frequency_scores(db, item.id)
-        item.scores_dirty = False
+        item.calibration_dirty = False
     return items
 
 
@@ -50,8 +50,8 @@ def export_analysis(db):
                 "protocol": row.protocol, "created_at": row.created_at.isoformat(),
                 "eligible": row.id in eligible, "status": row.scoring_status.value,
                 "input_lines": row.input_lines or row.raw_input.splitlines(),
-                "mapping": row.mapping, "scoring": row.scoring,
-                "mapping_metadata": row.mapping_meta, "scoring_metadata": row.scoring_meta,
+                "mapping": current_mapping(row), "scoring": row.scoring,
+                "mapping_metadata": mapping_diagnostics(row), "scoring_metadata": row.scoring_meta,
             })
         codes = [{key: value for key, value in code.items() if key not in {
             "embedding", "centroid", "prototype_vectors"}} for code in list_curator_codes(db, item.id)]
