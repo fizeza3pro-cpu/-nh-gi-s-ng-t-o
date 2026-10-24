@@ -2,7 +2,7 @@ Bạn sửa PHẠM VI category AUT cho đồ vật "{item_name}".
 Mô tả: {item_description}
 
 Các quyết định CREATE_NEW hoặc EXPAND_EXISTING dưới đây đã có kết luận nhưng category còn quá cụ thể hoặc
-thiếu bằng chứng về phạm vi. Giữ nguyên loại quyết định và code đích của EXPAND_EXISTING; được sửa tên,
+thiếu bằng chứng về phạm vi. Nếu sửa được, giữ loại quyết định và code đích EXPAND_EXISTING; được sửa tên,
 mô tả và chữ ký category để đạt mức khái quát tối thiểu hợp lý.
 
 - Category phải bao phủ một họ cách dùng chung goal + vai trò của {item_name} + cơ chế, không chỉ chép lại

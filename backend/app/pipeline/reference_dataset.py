@@ -130,13 +130,14 @@ def reference_cases_json(
     prompt_cases: list[dict[str, Any]] = []
     for case in cases:
         compact = {
+            "item": case.get("item", ""),
             "input": case["input"],
             "expected": case["expected"],
             "principle": case["principle"],
         }
         candidate = [*prompt_cases, compact]
         encoded = json.dumps(candidate, ensure_ascii=False, separators=(",", ":"))
-        if prompt_cases and len(encoded) > settings.reference_cases_max_chars:
-            break
+        if len(encoded) > settings.reference_cases_max_chars:
+            continue
         prompt_cases = candidate
     return json.dumps(prompt_cases, ensure_ascii=False, separators=(",", ":"))

@@ -110,6 +110,7 @@ class Settings(BaseSettings):
     llm_aux_max_tokens: int = Field(default=3072, ge=512, le=16384)
     llm_max_retries: int = Field(default=1, ge=0, le=3)
     store_raw_llm_response: bool = False
+    # Bật tâm trung bình để hỗ trợ vector định nghĩa mã; không dùng vector ý đại diện.
     centroid_retrieval_enabled: bool = False
     centroid_drift_cosine_floor: float = Field(default=0.7, ge=-1.0, le=1.0)
     cluster_proposal_similarity_floor: float = Field(default=0.9, ge=0.0, le=1.0)

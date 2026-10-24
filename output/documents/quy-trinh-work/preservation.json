@@ -1,0 +1,9 @@
+{
+  "source_sha256": "950731c082c2dda0d419c4e487f068d1ed677a6eb5830021dbcf57a375d0ca4c",
+  "changed_parts": [
+    "word/document.xml"
+  ],
+  "preserved_original_paragraphs": 59,
+  "only_removed_empty_trailing_paragraphs": 11,
+  "output": "D:\\AUT-demo\\AUT-demo\\AUT-demo\\output\\documents\\Quy-trinh-hoan-thien.docx"
+}

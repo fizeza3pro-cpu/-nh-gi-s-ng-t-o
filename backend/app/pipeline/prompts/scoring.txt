@@ -17,7 +17,7 @@ Với từng ý, chỉ xác định bốn loại chi tiết sau:
 4. goal: mục đích, kết quả hoặc vấn đề cụ thể mà cách dùng hướng tới.
 
 QUY TẮC BẮT BUỘC:
-- Chấm trên ORIGINAL; NORMALIZED và CODE chỉ giúp hiểu công dụng.
+- Trích xuất trên ORIGINAL; NORMALIZED và CODE chỉ giúp hiểu công dụng.
 - Mỗi loại chi tiết chỉ được ghi nhận tối đa một lần.
 - `present` chỉ được là true khi `evidence` là một đoạn trích NGUYÊN VĂN,
   liên tục và xuất hiện trong ORIGINAL.

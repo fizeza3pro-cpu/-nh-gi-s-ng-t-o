@@ -1,0 +1,1580 @@
+{
+  "config": {
+    "centroid_enabled": false,
+    "drift_floor": 0.7
+  },
+  "simulation": {
+    "scenarios": [
+      {
+        "id": "T01",
+        "description": "Mã đúng có định nghĩa xa nhưng các ý đúng gần câu mới",
+        "off": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 3,
+            "centroid_dirty": false,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 3,
+            "centroid_dirty": false,
+            "retrieval_score": 1.0,
+            "semantic_similarity": 1.0,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_selected_on": null,
+        "gate_top_off": null,
+        "gate_top_on": null
+      },
+      {
+        "id": "T02",
+        "description": "Một ý gán nhầm tương đối gần nhóm kéo prototype sai lên",
+        "off": [
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.85,
+            "semantic_similarity": 0.8,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "sai",
+            "name": "sai",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 4,
+            "centroid_dirty": false,
+            "retrieval_score": 0.7,
+            "semantic_similarity": 0.6,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "sai",
+            "name": "sai",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 4,
+            "centroid_dirty": false,
+            "retrieval_score": 0.997146,
+            "semantic_similarity": 0.996195,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.85,
+            "semantic_similarity": 0.8,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": null,
+        "gate_selected_on": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_top_off": null,
+        "gate_top_on": null
+      },
+      {
+        "id": "T03",
+        "description": "Hai nhóm cùng được tăng điểm làm margin mã đúng hẹp lại",
+        "off": [
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.925,
+            "semantic_similarity": 0.9,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.775,
+            "semantic_similarity": 0.7,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.963292,
+            "semantic_similarity": 0.951057,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.929731,
+            "semantic_similarity": 0.906308,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": null,
+        "gate_selected_on": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.034 < 0.080",
+        "gate_top_off": null,
+        "gate_top_on": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.034 < 0.080"
+      },
+      {
+        "id": "T04",
+        "description": "Nhóm lệch mạnh bị drift guard chặn",
+        "off": [
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.85,
+            "semantic_similarity": 0.8,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "sai",
+            "name": "sai",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 2,
+            "centroid_dirty": false,
+            "retrieval_score": 0.7,
+            "semantic_similarity": 0.6,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.85,
+            "semantic_similarity": 0.8,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "sai",
+            "name": "sai",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 2,
+            "centroid_dirty": false,
+            "retrieval_score": 0.7,
+            "semantic_similarity": 0.6,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": null,
+        "gate_selected_on": null,
+        "gate_top_off": null,
+        "gate_top_on": null
+      },
+      {
+        "id": "T05",
+        "description": "Tâm đang dirty không được dùng",
+        "off": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 2,
+            "centroid_dirty": true,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 2,
+            "centroid_dirty": true,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_selected_on": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_top_off": null,
+        "gate_top_on": null
+      },
+      {
+        "id": "T06",
+        "description": "Tâm thuộc model khác không được dùng",
+        "off": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 2,
+            "centroid_dirty": false,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 2,
+            "centroid_dirty": false,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_selected_on": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_top_off": null,
+        "gate_top_on": null
+      },
+      {
+        "id": "T07",
+        "description": "Nhóm chỉ một ý cũng được dùng ngay, chưa có ngưỡng số thành viên",
+        "off": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "một-ý",
+            "name": "một-ý",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "một-ý",
+            "name": "một-ý",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 1.0,
+            "semantic_similarity": 1.0,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_selected_on": null,
+        "gate_top_off": null,
+        "gate_top_on": null
+      },
+      {
+        "id": "T08",
+        "description": "Vector cao không vượt được goal/structural thấp ở ghép trực tiếp",
+        "off": [
+          {
+            "id": "gần-vector",
+            "name": "gần-vector",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.43125,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 0.0,
+              "object_role": 0.25,
+              "mechanism": 0.0,
+              "weighted": 0.075
+            }
+          },
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.16875,
+            "semantic_similarity": 0.2,
+            "signature_similarity": {
+              "goal": 0.0,
+              "object_role": 0.25,
+              "mechanism": 0.0,
+              "weighted": 0.075
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "gần-vector",
+            "name": "gần-vector",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.76875,
+            "semantic_similarity": 1.0,
+            "signature_similarity": {
+              "goal": 0.0,
+              "object_role": 0.25,
+              "mechanism": 0.0,
+              "weighted": 0.075
+            }
+          },
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.16875,
+            "semantic_similarity": 0.2,
+            "signature_similarity": {
+              "goal": 0.0,
+              "object_role": 0.25,
+              "mechanism": 0.0,
+              "weighted": 0.075
+            }
+          }
+        ],
+        "gate_selected_off": "Tín hiệu MATCH chưa đạt ngưỡng: retrieval=0.431 < 0.600, semantic=0.550 < 0.700, goal=0.000 < 0.200, structural=0.075 < 0.200",
+        "gate_selected_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.000 < 0.200, structural=0.075 < 0.200",
+        "gate_top_off": "Tín hiệu MATCH chưa đạt ngưỡng: retrieval=0.431 < 0.600, semantic=0.550 < 0.700, goal=0.000 < 0.200, structural=0.075 < 0.200",
+        "gate_top_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.000 < 0.200, structural=0.075 < 0.200"
+      },
+      {
+        "id": "T09",
+        "description": "Mã không có thành viên hợp lệ không được tăng điểm",
+        "off": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "rỗng",
+            "name": "rỗng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "rỗng",
+            "name": "rỗng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_selected_on": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_top_off": null,
+        "gate_top_on": null
+      },
+      {
+        "id": "T10",
+        "description": "Cờ drift đã bật không tự xoá sau khi nhóm được làm sạch",
+        "off": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "on": [
+          {
+            "id": "khác",
+            "name": "khác",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 0,
+            "centroid_dirty": false,
+            "retrieval_score": 0.8125,
+            "semantic_similarity": 0.75,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          },
+          {
+            "id": "đúng",
+            "name": "đúng",
+            "functional_signature": {
+              "goal": "chứa chất lỏng",
+              "object_role": "vật chứa",
+              "mechanism": "khoang chứa giữ chất lỏng"
+            },
+            "centroid_count": 1,
+            "centroid_dirty": false,
+            "retrieval_score": 0.6625,
+            "semantic_similarity": 0.55,
+            "signature_similarity": {
+              "goal": 1.0,
+              "object_role": 1.0,
+              "mechanism": 1.0,
+              "weighted": 1.0
+            }
+          }
+        ],
+        "gate_selected_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_selected_on": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_top_off": null,
+        "gate_top_on": null
+      }
+    ],
+    "assertion_groups_passed": 12,
+    "limitation": "Vector nhân tạo kiểm tra logic truy xuất/ngưỡng; không đo độ chính xác ngữ nghĩa LLM."
+  },
+  "replay": {
+    "health": {
+      "total_codes": 154,
+      "eligible_loaded_codes": 123,
+      "centroid_present": 106,
+      "dirty": 0,
+      "drift": 0
+    },
+    "real_only_members": false,
+    "counts": {
+      "evaluated": 220,
+      "with_distinct_other_members": 158,
+      "top1_agreement_off": 197,
+      "top1_agreement_on": 203,
+      "top1_agreement_mean_only": 202,
+      "in_candidates_off": 219,
+      "in_candidates_on": 220,
+      "top1_changed": 8,
+      "candidate_set_changed": 189,
+      "new_reference_top1": 6,
+      "lost_reference_top1": 0,
+      "auto_signal_pass_off": 135,
+      "auto_signal_pass_on": 138,
+      "auto_signal_pass_mean_only": 138,
+      "signal_new_pass_on": 4,
+      "signal_lost_pass_on": 1,
+      "skip_synthetic_query": 600
+    },
+    "per_item": {
+      "Vỏ đạn": {
+        "evaluated": 97,
+        "with_distinct_other_members": 75,
+        "top1_agreement_off": 84,
+        "top1_agreement_on": 88,
+        "top1_agreement_mean_only": 88,
+        "in_candidates_off": 96,
+        "in_candidates_on": 97,
+        "top1_changed": 6,
+        "candidate_set_changed": 93,
+        "new_reference_top1": 4,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 56,
+        "auto_signal_pass_on": 59,
+        "auto_signal_pass_mean_only": 59,
+        "signal_new_pass_on": 4,
+        "signal_lost_pass_on": 1
+      },
+      "Balo quân nhu": {
+        "evaluated": 5,
+        "with_distinct_other_members": 3,
+        "top1_agreement_off": 5,
+        "top1_agreement_on": 5,
+        "top1_agreement_mean_only": 5,
+        "in_candidates_off": 5,
+        "in_candidates_on": 5,
+        "top1_changed": 0,
+        "candidate_set_changed": 0,
+        "new_reference_top1": 0,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 5,
+        "auto_signal_pass_on": 5,
+        "auto_signal_pass_mean_only": 5,
+        "signal_new_pass_on": 0,
+        "signal_lost_pass_on": 0
+      },
+      "Cuộn chỉ": {
+        "evaluated": 53,
+        "with_distinct_other_members": 33,
+        "top1_agreement_off": 51,
+        "top1_agreement_on": 52,
+        "top1_agreement_mean_only": 52,
+        "in_candidates_off": 53,
+        "in_candidates_on": 53,
+        "top1_changed": 1,
+        "candidate_set_changed": 51,
+        "new_reference_top1": 1,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 39,
+        "auto_signal_pass_on": 39,
+        "auto_signal_pass_mean_only": 39,
+        "signal_new_pass_on": 0,
+        "signal_lost_pass_on": 0
+      },
+      "Mũ cối": {
+        "evaluated": 48,
+        "with_distinct_other_members": 36,
+        "top1_agreement_off": 40,
+        "top1_agreement_on": 41,
+        "top1_agreement_mean_only": 40,
+        "in_candidates_off": 48,
+        "in_candidates_on": 48,
+        "top1_changed": 1,
+        "candidate_set_changed": 45,
+        "new_reference_top1": 1,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 22,
+        "auto_signal_pass_on": 22,
+        "auto_signal_pass_mean_only": 22,
+        "signal_new_pass_on": 0,
+        "signal_lost_pass_on": 0
+      },
+      "Xẻng công binh": {
+        "evaluated": 17,
+        "with_distinct_other_members": 11,
+        "top1_agreement_off": 17,
+        "top1_agreement_on": 17,
+        "top1_agreement_mean_only": 17,
+        "in_candidates_off": 17,
+        "in_candidates_on": 17,
+        "top1_changed": 0,
+        "candidate_set_changed": 0,
+        "new_reference_top1": 0,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 13,
+        "auto_signal_pass_on": 13,
+        "auto_signal_pass_mean_only": 13,
+        "signal_new_pass_on": 0,
+        "signal_lost_pass_on": 0
+      }
+    },
+    "examples": [
+      {
+        "item": "Vỏ đạn",
+        "idea": "đính lên trang phục cho đẹp",
+        "reference": "Dùng vỏ đạn làm phụ kiện trang trí đính lên đồ vật",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn làm phụ kiện trang trí đính lên đồ vật",
+        "top1_on": "Dùng vỏ đạn làm phụ kiện trang trí đính lên đồ vật",
+        "gate_off": null,
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.038 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm vòng tay",
+        "reference": "Gia công vỏ đạn thành trang sức đeo trên người",
+        "rank_off": 2,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn làm phụ kiện trang trí đính lên đồ vật",
+        "top1_on": "Gia công vỏ đạn thành trang sức đeo trên người",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.100 < 0.200, structural=0.147 < 0.200, margin=0.053 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm đồng hồ đeo tay",
+        "reference": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "top1_on": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "gate_off": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.038 < 0.080",
+        "gate_on": null
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm vật chèn giấy",
+        "reference": "Vỏ đạn làm vật chặn và đối trọng",
+        "rank_off": 3,
+        "rank_on": 4,
+        "top1_off": "Vỏ đạn làm khung giữ ảnh",
+        "top1_on": "Tái nạp đạn từ vỏ đạn cũ",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 4 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "dùng để doạ người khác",
+        "reference": "Vỏ đạn làm biểu tượng truyền thông điệp",
+        "rank_off": 2,
+        "rank_on": 5,
+        "top1_off": "Dùng vỏ đạn làm đạo cụ kích thích hoặc đe dọa trong hoạt động tình dục",
+        "top1_on": "Dùng vỏ đạn làm đạo cụ kích thích hoặc đe dọa trong hoạt động tình dục",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 5 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "cho hồ phan vân long ăn",
+        "reference": "Dùng vỏ đạn làm vật chứa đựng",
+        "rank_off": 2,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn trong chế biến thức ăn",
+        "top1_on": "Dùng vỏ đạn làm vật chứa đựng",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.000 < 0.200, margin=0.070 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm chảo xào lấu bằng vỏ đạn",
+        "reference": "Dùng vỏ đạn trong chế biến thức ăn",
+        "rank_off": 3,
+        "rank_on": 2,
+        "top1_off": "Vỏ đạn làm phần tử truyền nhiệt",
+        "top1_on": "Vỏ đạn làm phần tử truyền nhiệt",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 2 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "ném để chọc chó",
+        "reference": "Dùng vỏ đạn làm vật ném gây tác động",
+        "rank_off": 3,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn làm đồ chơi nhai/mài răng cho vật nuôi",
+        "top1_on": "Dùng vỏ đạn làm vật ném gây tác động",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.000 < 0.200, margin=0.073 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "Dùng làm đạn",
+        "reference": "Tái nạp đạn từ vỏ đạn cũ",
+        "rank_off": null,
+        "rank_on": 6,
+        "top1_off": "Dùng vỏ đạn làm nguyên liệu chế tác tổng hợp",
+        "top1_on": "Dùng vỏ đạn làm nguyên liệu chế tác tổng hợp",
+        "gate_off": "Không tính được tín hiệu retrieval cho code được chọn.",
+        "gate_on": "Code được chọn chỉ đứng hạng 6 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "Dùng đựng thuốc",
+        "reference": "Dùng vỏ đạn làm vật chứa đựng",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn làm vật chứa đựng",
+        "top1_on": "Dùng vỏ đạn làm vật chứa đựng",
+        "gate_off": "Tín hiệu MATCH chưa đạt ngưỡng: retrieval=0.593 < 0.600",
+        "gate_on": null
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "Dùng để cắt",
+        "reference": "Gia công vỏ đạn thành dụng cụ kim loại nhỏ",
+        "rank_off": 2,
+        "rank_on": 3,
+        "top1_off": "Dùng vỏ đạn làm nguyên liệu chế tác tổng hợp",
+        "top1_on": "Gia công vỏ đạn thành vũ khí",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 3 trong retrieval."
+      },
+      {
+        "item": "Cuộn chỉ",
+        "idea": "Dùng làm dây treo cây cảnh mini theo kiểu macramé.",
+        "reference": "Sợi chỉ dùng để đan, tạo nút macramé",
+        "rank_off": 3,
+        "rank_on": 5,
+        "top1_off": "Sợi chỉ dùng để treo vật",
+        "top1_on": "Sợi chỉ dùng để treo vật",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 5 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "dùng trang trí",
+        "reference": "Vỏ đạn làm vật trưng bày trang trí",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Vỏ đạn làm vật trưng bày trang trí",
+        "top1_on": "Vỏ đạn làm vật trưng bày trang trí",
+        "gate_off": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.079 < 0.080",
+        "gate_on": null
+      },
+      {
+        "item": "Cuộn chỉ",
+        "idea": "dây diều",
+        "reference": "Sợi chỉ dùng làm dây điều khiển đồ chơi bay",
+        "rank_off": 3,
+        "rank_on": 1,
+        "top1_off": "Sợi chỉ dùng để treo vật",
+        "top1_on": "Sợi chỉ dùng làm dây điều khiển đồ chơi bay",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.000 < 0.200, structural=0.176 < 0.200, margin=0.061 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "dùng làm đồng hồ treo trường",
+        "reference": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "rank_off": 10,
+        "rank_on": 1,
+        "top1_off": "Gia công vỏ đạn thành trang sức đeo trên người",
+        "top1_on": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "gate_off": "Code được chọn chỉ đứng hạng 10 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.154 < 0.200, structural=0.100 < 0.200, margin=0.079 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm quà tặng trẻ con",
+        "reference": "Tặng vỏ đạn làm quà lưu niệm",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Tặng vỏ đạn làm quà lưu niệm",
+        "top1_on": "Tặng vỏ đạn làm quà lưu niệm",
+        "gate_off": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.001 < 0.080",
+        "gate_on": null
+      },
+      {
+        "item": "Mũ cối",
+        "idea": "dùng để ch nắng",
+        "reference": "Mũ cối làm mái che cho vật nhỏ",
+        "rank_off": 2,
+        "rank_on": 3,
+        "top1_off": "Che chắn cho người",
+        "top1_on": "Che chắn cho người",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 3 trong retrieval."
+      },
+      {
+        "item": "Mũ cối",
+        "idea": "có thể bịt miệng mũ lại, sơn màu thêm chi tiết là thành UFO",
+        "reference": "Mũ cối làm vật trang trí",
+        "rank_off": 2,
+        "rank_on": 1,
+        "top1_off": "Mũ cối làm khuôn tạo hình",
+        "top1_on": "Mũ cối làm vật trang trí",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: retrieval=0.553 < 0.600, semantic=0.685 < 0.700, structural=0.155 < 0.200, margin=0.003 < 0.080"
+      },
+      {
+        "item": "Mũ cối",
+        "idea": "dùng để che nắng che mưa",
+        "reference": "Che chắn cho người",
+        "rank_off": 2,
+        "rank_on": 3,
+        "top1_off": "Mũ cối làm mái che cho vật nhỏ",
+        "top1_on": "Mũ cối làm mái che cho vật nhỏ",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 3 trong retrieval."
+      }
+    ],
+    "source_counts": {
+      "PILOT": 220,
+      "SYNTHETIC": 600
+    },
+    "limitations": [
+      "Không gọi LLM hoặc embedding API; chỉ phát lại vector và chữ ký đã lưu.",
+      "Loại query cùng câu hoặc cùng vector khỏi thành viên mã tham chiếu để tránh tự khớp.",
+      "Mã được gán hiện tại là tham chiếu có thể sai; top1 agreement không phải độ chính xác.",
+      "Snapshot mã hiện tại có thông tin hình thành từ lịch sử, chưa phải thí nghiệm tiến cứu theo thời gian.",
+      "Tập thành viên đối thủ theo dữ liệu hiện tại có thể có nguồn SYNTHETIC; thống kê nguồn được lưu.",
+      "Không đánh giá quyết định cuối của Curator/Challenger hoặc điểm FINAL."
+    ]
+  },
+  "replay_real_only_members": {
+    "health": {
+      "total_codes": 154,
+      "eligible_loaded_codes": 123,
+      "centroid_present": 106,
+      "dirty": 0,
+      "drift": 0
+    },
+    "real_only_members": true,
+    "counts": {
+      "evaluated": 220,
+      "with_distinct_other_members": 158,
+      "top1_agreement_off": 197,
+      "top1_agreement_on": 203,
+      "top1_agreement_mean_only": 202,
+      "in_candidates_off": 219,
+      "in_candidates_on": 220,
+      "top1_changed": 8,
+      "candidate_set_changed": 189,
+      "new_reference_top1": 6,
+      "lost_reference_top1": 0,
+      "auto_signal_pass_off": 135,
+      "auto_signal_pass_on": 138,
+      "auto_signal_pass_mean_only": 138,
+      "signal_new_pass_on": 4,
+      "signal_lost_pass_on": 1,
+      "skip_synthetic_query": 600
+    },
+    "per_item": {
+      "Vỏ đạn": {
+        "evaluated": 97,
+        "with_distinct_other_members": 75,
+        "top1_agreement_off": 84,
+        "top1_agreement_on": 88,
+        "top1_agreement_mean_only": 88,
+        "in_candidates_off": 96,
+        "in_candidates_on": 97,
+        "top1_changed": 6,
+        "candidate_set_changed": 93,
+        "new_reference_top1": 4,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 56,
+        "auto_signal_pass_on": 59,
+        "auto_signal_pass_mean_only": 59,
+        "signal_new_pass_on": 4,
+        "signal_lost_pass_on": 1
+      },
+      "Balo quân nhu": {
+        "evaluated": 5,
+        "with_distinct_other_members": 3,
+        "top1_agreement_off": 5,
+        "top1_agreement_on": 5,
+        "top1_agreement_mean_only": 5,
+        "in_candidates_off": 5,
+        "in_candidates_on": 5,
+        "top1_changed": 0,
+        "candidate_set_changed": 0,
+        "new_reference_top1": 0,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 5,
+        "auto_signal_pass_on": 5,
+        "auto_signal_pass_mean_only": 5,
+        "signal_new_pass_on": 0,
+        "signal_lost_pass_on": 0
+      },
+      "Cuộn chỉ": {
+        "evaluated": 53,
+        "with_distinct_other_members": 33,
+        "top1_agreement_off": 51,
+        "top1_agreement_on": 52,
+        "top1_agreement_mean_only": 52,
+        "in_candidates_off": 53,
+        "in_candidates_on": 53,
+        "top1_changed": 1,
+        "candidate_set_changed": 51,
+        "new_reference_top1": 1,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 39,
+        "auto_signal_pass_on": 39,
+        "auto_signal_pass_mean_only": 39,
+        "signal_new_pass_on": 0,
+        "signal_lost_pass_on": 0
+      },
+      "Mũ cối": {
+        "evaluated": 48,
+        "with_distinct_other_members": 36,
+        "top1_agreement_off": 40,
+        "top1_agreement_on": 41,
+        "top1_agreement_mean_only": 40,
+        "in_candidates_off": 48,
+        "in_candidates_on": 48,
+        "top1_changed": 1,
+        "candidate_set_changed": 45,
+        "new_reference_top1": 1,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 22,
+        "auto_signal_pass_on": 22,
+        "auto_signal_pass_mean_only": 22,
+        "signal_new_pass_on": 0,
+        "signal_lost_pass_on": 0
+      },
+      "Xẻng công binh": {
+        "evaluated": 17,
+        "with_distinct_other_members": 11,
+        "top1_agreement_off": 17,
+        "top1_agreement_on": 17,
+        "top1_agreement_mean_only": 17,
+        "in_candidates_off": 17,
+        "in_candidates_on": 17,
+        "top1_changed": 0,
+        "candidate_set_changed": 0,
+        "new_reference_top1": 0,
+        "lost_reference_top1": 0,
+        "auto_signal_pass_off": 13,
+        "auto_signal_pass_on": 13,
+        "auto_signal_pass_mean_only": 13,
+        "signal_new_pass_on": 0,
+        "signal_lost_pass_on": 0
+      }
+    },
+    "examples": [
+      {
+        "item": "Vỏ đạn",
+        "idea": "đính lên trang phục cho đẹp",
+        "reference": "Dùng vỏ đạn làm phụ kiện trang trí đính lên đồ vật",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn làm phụ kiện trang trí đính lên đồ vật",
+        "top1_on": "Dùng vỏ đạn làm phụ kiện trang trí đính lên đồ vật",
+        "gate_off": null,
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.038 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm vòng tay",
+        "reference": "Gia công vỏ đạn thành trang sức đeo trên người",
+        "rank_off": 2,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn làm phụ kiện trang trí đính lên đồ vật",
+        "top1_on": "Gia công vỏ đạn thành trang sức đeo trên người",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.100 < 0.200, structural=0.147 < 0.200, margin=0.053 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm đồng hồ đeo tay",
+        "reference": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "top1_on": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "gate_off": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.038 < 0.080",
+        "gate_on": null
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm vật chèn giấy",
+        "reference": "Vỏ đạn làm vật chặn và đối trọng",
+        "rank_off": 3,
+        "rank_on": 4,
+        "top1_off": "Vỏ đạn làm khung giữ ảnh",
+        "top1_on": "Tái nạp đạn từ vỏ đạn cũ",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 4 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "dùng để doạ người khác",
+        "reference": "Vỏ đạn làm biểu tượng truyền thông điệp",
+        "rank_off": 2,
+        "rank_on": 5,
+        "top1_off": "Dùng vỏ đạn làm đạo cụ kích thích hoặc đe dọa trong hoạt động tình dục",
+        "top1_on": "Dùng vỏ đạn làm đạo cụ kích thích hoặc đe dọa trong hoạt động tình dục",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 5 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "cho hồ phan vân long ăn",
+        "reference": "Dùng vỏ đạn làm vật chứa đựng",
+        "rank_off": 2,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn trong chế biến thức ăn",
+        "top1_on": "Dùng vỏ đạn làm vật chứa đựng",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.000 < 0.200, margin=0.070 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm chảo xào lấu bằng vỏ đạn",
+        "reference": "Dùng vỏ đạn trong chế biến thức ăn",
+        "rank_off": 3,
+        "rank_on": 2,
+        "top1_off": "Vỏ đạn làm phần tử truyền nhiệt",
+        "top1_on": "Vỏ đạn làm phần tử truyền nhiệt",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 2 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "ném để chọc chó",
+        "reference": "Dùng vỏ đạn làm vật ném gây tác động",
+        "rank_off": 3,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn làm đồ chơi nhai/mài răng cho vật nuôi",
+        "top1_on": "Dùng vỏ đạn làm vật ném gây tác động",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.000 < 0.200, margin=0.073 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "Dùng làm đạn",
+        "reference": "Tái nạp đạn từ vỏ đạn cũ",
+        "rank_off": null,
+        "rank_on": 6,
+        "top1_off": "Dùng vỏ đạn làm nguyên liệu chế tác tổng hợp",
+        "top1_on": "Dùng vỏ đạn làm nguyên liệu chế tác tổng hợp",
+        "gate_off": "Không tính được tín hiệu retrieval cho code được chọn.",
+        "gate_on": "Code được chọn chỉ đứng hạng 6 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "Dùng đựng thuốc",
+        "reference": "Dùng vỏ đạn làm vật chứa đựng",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Dùng vỏ đạn làm vật chứa đựng",
+        "top1_on": "Dùng vỏ đạn làm vật chứa đựng",
+        "gate_off": "Tín hiệu MATCH chưa đạt ngưỡng: retrieval=0.593 < 0.600",
+        "gate_on": null
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "Dùng để cắt",
+        "reference": "Gia công vỏ đạn thành dụng cụ kim loại nhỏ",
+        "rank_off": 2,
+        "rank_on": 3,
+        "top1_off": "Dùng vỏ đạn làm nguyên liệu chế tác tổng hợp",
+        "top1_on": "Gia công vỏ đạn thành vũ khí",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 3 trong retrieval."
+      },
+      {
+        "item": "Cuộn chỉ",
+        "idea": "Dùng làm dây treo cây cảnh mini theo kiểu macramé.",
+        "reference": "Sợi chỉ dùng để đan, tạo nút macramé",
+        "rank_off": 3,
+        "rank_on": 5,
+        "top1_off": "Sợi chỉ dùng để treo vật",
+        "top1_on": "Sợi chỉ dùng để treo vật",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 5 trong retrieval."
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "dùng trang trí",
+        "reference": "Vỏ đạn làm vật trưng bày trang trí",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Vỏ đạn làm vật trưng bày trang trí",
+        "top1_on": "Vỏ đạn làm vật trưng bày trang trí",
+        "gate_off": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.079 < 0.080",
+        "gate_on": null
+      },
+      {
+        "item": "Cuộn chỉ",
+        "idea": "dây diều",
+        "reference": "Sợi chỉ dùng làm dây điều khiển đồ chơi bay",
+        "rank_off": 3,
+        "rank_on": 1,
+        "top1_off": "Sợi chỉ dùng để treo vật",
+        "top1_on": "Sợi chỉ dùng làm dây điều khiển đồ chơi bay",
+        "gate_off": "Code được chọn chỉ đứng hạng 3 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.000 < 0.200, structural=0.176 < 0.200, margin=0.061 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "dùng làm đồng hồ treo trường",
+        "reference": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "rank_off": 10,
+        "rank_on": 1,
+        "top1_off": "Gia công vỏ đạn thành trang sức đeo trên người",
+        "top1_on": "Gia công vỏ đạn làm vỏ chứa bộ máy thiết bị nhỏ",
+        "gate_off": "Code được chọn chỉ đứng hạng 10 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: goal=0.154 < 0.200, structural=0.100 < 0.200, margin=0.079 < 0.080"
+      },
+      {
+        "item": "Vỏ đạn",
+        "idea": "làm quà tặng trẻ con",
+        "reference": "Tặng vỏ đạn làm quà lưu niệm",
+        "rank_off": 1,
+        "rank_on": 1,
+        "top1_off": "Tặng vỏ đạn làm quà lưu niệm",
+        "top1_on": "Tặng vỏ đạn làm quà lưu niệm",
+        "gate_off": "Tín hiệu MATCH chưa đạt ngưỡng: margin=0.001 < 0.080",
+        "gate_on": null
+      },
+      {
+        "item": "Mũ cối",
+        "idea": "dùng để ch nắng",
+        "reference": "Mũ cối làm mái che cho vật nhỏ",
+        "rank_off": 2,
+        "rank_on": 3,
+        "top1_off": "Che chắn cho người",
+        "top1_on": "Che chắn cho người",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 3 trong retrieval."
+      },
+      {
+        "item": "Mũ cối",
+        "idea": "có thể bịt miệng mũ lại, sơn màu thêm chi tiết là thành UFO",
+        "reference": "Mũ cối làm vật trang trí",
+        "rank_off": 2,
+        "rank_on": 1,
+        "top1_off": "Mũ cối làm khuôn tạo hình",
+        "top1_on": "Mũ cối làm vật trang trí",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Tín hiệu MATCH chưa đạt ngưỡng: retrieval=0.553 < 0.600, semantic=0.685 < 0.700, structural=0.155 < 0.200, margin=0.003 < 0.080"
+      },
+      {
+        "item": "Mũ cối",
+        "idea": "dùng để che nắng che mưa",
+        "reference": "Che chắn cho người",
+        "rank_off": 2,
+        "rank_on": 3,
+        "top1_off": "Mũ cối làm mái che cho vật nhỏ",
+        "top1_on": "Mũ cối làm mái che cho vật nhỏ",
+        "gate_off": "Code được chọn chỉ đứng hạng 2 trong retrieval.",
+        "gate_on": "Code được chọn chỉ đứng hạng 3 trong retrieval."
+      }
+    ],
+    "source_counts": {
+      "PILOT": 220,
+      "SYNTHETIC": 600
+    },
+    "limitations": [
+      "Không gọi LLM hoặc embedding API; chỉ phát lại vector và chữ ký đã lưu.",
+      "Loại query cùng câu hoặc cùng vector khỏi thành viên mã tham chiếu để tránh tự khớp.",
+      "Mã được gán hiện tại là tham chiếu có thể sai; top1 agreement không phải độ chính xác.",
+      "Snapshot mã hiện tại có thông tin hình thành từ lịch sử, chưa phải thí nghiệm tiến cứu theo thời gian.",
+      "Tập thành viên đối thủ theo dữ liệu hiện tại có thể có nguồn SYNTHETIC; thống kê nguồn được lưu.",
+      "Không đánh giá quyết định cuối của Curator/Challenger hoặc điểm FINAL."
+    ]
+  }
+}

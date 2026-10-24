@@ -1,0 +1,2 @@
+Reference: ban-goc.docx, SHA256 950731c082c2dda0d419c4e487f068d1ed677a6eb5830021dbcf57a375d0ca4c
+Letter portrait, margins 2.54 cm, Times New Roman 14 pt. Preserve original written paragraphs 0–58 and all package parts except appended document.xml. Continue after “Các xử lý ở bước này” in Curator. Added headings bold black 14 pt, tables 12 pt. Only empty trailing paragraphs removed. Source file outside workspace not edited.

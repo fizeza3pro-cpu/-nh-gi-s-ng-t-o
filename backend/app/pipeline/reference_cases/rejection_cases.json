@@ -4,7 +4,9 @@
     "stage": "extraction",
     "item": "Đũa",
     "input": {
-      "responses": ["Rất sáng tạo và hữu ích"]
+      "responses": [
+        "Rất sáng tạo và hữu ích"
+      ]
     },
     "expected": {
       "ideas": [
@@ -27,10 +29,10 @@
       "candidate_codes": []
     },
     "expected": {
-      "decision": "INVALID",
-      "target_object_confirmed": false
+      "decision": "UNCERTAIN",
+      "code_relation": "UNCERTAIN"
     },
-    "principle": "Curator phải chặn lần hai khi Extraction để lọt công dụng của đồ vật khác."
+    "principle": "Extraction có dấu hiệu dùng nhầm đồ vật: Curator trả UNCERTAIN để kiểm tra lại căn cứ, không tự cứu ý hoặc tạo mã."
   },
   {
     "id": "CH-UNCERTAIN-OVER-SPLIT-01",
@@ -49,8 +51,7 @@
     },
     "expected": {
       "decision": "MATCH_EXISTING",
-      "existing_code_id": "EXAMPLE-STOP",
-      "failed_policy_gates": ["no_existing_code_covers", "functionally_distinct", "granularity_consistent"]
+      "existing_code_id": "EXAMPLE-STOP"
     },
     "principle": "Không tạo category hẹp theo căn phòng hoặc đúng một target khi code chức năng hiện tại đã bao phủ."
   },
@@ -63,8 +64,7 @@
       "nearest_codes": []
     },
     "expected": {
-      "decision": "UNCERTAIN",
-      "failed_policy_gates": ["functionally_distinct", "paraphrase_stable", "counterexample_passed"]
+      "decision": "UNCERTAIN"
     },
     "principle": "Độ hiếm hoặc lời khẳng định sáng tạo không đủ chứng minh mục đích, vai trò và cơ chế của một code mới."
   }

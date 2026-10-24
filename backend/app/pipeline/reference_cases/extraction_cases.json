@@ -4,7 +4,9 @@
     "stage": "extraction",
     "item": "Gạch",
     "input": {
-      "responses": ["Nung viên gạch rồi đặt dưới chân để sưởi"]
+      "responses": [
+        "Nung viên gạch rồi đặt dưới chân để sưởi"
+      ]
     },
     "expected": {
       "ideas": [
@@ -28,7 +30,9 @@
     "stage": "extraction",
     "item": "Dây thừng",
     "input": {
-      "responses": ["Gấp giấy báo để bọc quà"]
+      "responses": [
+        "Gấp giấy báo để bọc quà"
+      ]
     },
     "expected": {
       "ideas": [
@@ -48,7 +52,10 @@
     "stage": "extraction",
     "item": "Chai nhựa",
     "input": {
-      "responses": ["Đục lỗ nắp chai để tưới cây", "Làm bình tưới hoa bằng chai có lỗ nhỏ"]
+      "responses": [
+        "Đục lỗ nắp chai để tưới cây",
+        "Làm bình tưới hoa bằng chai có lỗ nhỏ"
+      ]
     },
     "expected": {
       "ideas": [
@@ -80,26 +87,41 @@
     "stage": "extraction",
     "item": "Đũa",
     "input": {
-      "responses": ["Dùng đũa làm nẹp ngón tay", "Dùng đũa làm que dựng cây non"]
+      "responses": [
+        "Dùng đũa làm nẹp ngón tay",
+        "Dùng đũa làm que dựng cây non"
+      ]
     },
     "expected": {
       "ideas": [
-        {"line_index": 0, "status": "VALID"},
-        {"line_index": 1, "status": "VALID"}
+        {
+          "line_index": 0,
+          "status": "VALID"
+        },
+        {
+          "line_index": 1,
+          "status": "VALID"
+        }
       ]
     },
-    "principle": "Cùng dùng đồ vật làm thanh đỡ nhưng khác mục đích và hệ vật được cố định thì có thể là hai ý hợp lệ, không tự động coi là trùng."
+    "principle": "Đánh giá từng dòng độc lập; cả hai ý có công dụng hợp lệ. Việc cùng hay khác category do bước phân nhóm quyết định, không loại ý vì lặp."
   },
   {
     "id": "EX-VALID-COMMON-01",
     "stage": "extraction",
     "item": "Kẹp giấy",
     "input": {
-      "responses": ["Kẹp các tờ hóa đơn lại với nhau"]
+      "responses": [
+        "Kẹp các tờ hóa đơn lại với nhau"
+      ]
     },
     "expected": {
       "ideas": [
-        {"line_index": 0, "status": "VALID", "uses_target_object": true}
+        {
+          "line_index": 0,
+          "status": "VALID",
+          "uses_target_object": true
+        }
       ]
     },
     "principle": "Công dụng thông thường vẫn VALID; độ phổ biến chỉ liên quan Originality, không phải adequacy."
@@ -109,7 +131,9 @@
     "stage": "extraction",
     "item": "Vỏ đạn",
     "input": {
-      "responses": ["Nhồi thuốc súng vào để bắn"]
+      "responses": [
+        "Nhồi thuốc súng vào để bắn"
+      ]
     },
     "expected": {
       "ideas": [
@@ -129,4 +153,3 @@
     "principle": "Tên vỏ đạn được hiểu ngầm từ đề AUT; tính nguy hiểm không làm một công dụng có nghĩa thành INVALID."
   }
 ]
-

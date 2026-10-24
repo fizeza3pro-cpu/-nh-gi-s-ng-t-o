@@ -142,11 +142,8 @@ def rank_code_candidates(
             if settings.centroid_retrieval_enabled and not code.get("drift_flag") and not code.get("centroid_dirty"):
                 centroid = code.get("centroid") or []
                 if code.get("centroid_model") == batch.model:
+                    # Chỉ dùng tâm trung bình; một ý đại diện gán nhầm không được tăng điểm mã.
                     semantic = max(semantic, cosine(query_vector, centroid))
-                    semantic = max([
-                        semantic,
-                        *(cosine(query_vector, prototype) for prototype in code.get("prototype_vectors") or []),
-                    ])
             score = 0.75 * semantic + 0.25 * structural
             # Vector chỉ phục vụ retrieval; không gửi hàng nghìn số thực vào prompt.
             candidate = {

@@ -12,17 +12,22 @@ CÁC Ý VÀ CODE GẦN NHẤT:
 
 ÁN LỆ THAM KHẢO:
 {reference_cases_json}
+Ví dụ chỉ minh hoạ quyết định, không phải mẫu JSON đầy đủ. Dùng schema cuối prompt;
+quy tắc hiện tại ưu tiên hơn ví dụ. Item và ID trong ví dụ không phải item/ID của ca đang xét.
 
 Quy tắc quyết định:
+- Chữ ký Extraction là giả thuyết, đối chiếu với câu gốc và mô tả item. Không tự thêm bộ phận
+  hoặc bối cảnh mô phỏng để hợp thức hoá ý. Mơ hồ làm thay đổi phân nhóm thì UNCERTAIN.
+- Xét chức năng trực tiếp của đồ vật; mục đích phía sau, người nhận và tên sản phẩm không tự
+  tạo nhóm mới. Chỉ DIFFERENT khi giải thích được khác biệt chức năng, vai trò hoặc cơ chế.
 0. Extraction đã xác nhận ý VALID. Đây là bước PHÂN LOẠI, không chấm sáng tạo, không đánh giá lại tính
    hợp lệ chỉ vì ý là công dụng thông thường hoặc chức năng nguyên bản. Tặng quà, lưu niệm, trưng bày,
    đe dọa đều là công dụng xã hội/biểu tượng hợp lệ. Không đổi chúng thành INVALID.
-   Chứa quân nhu, chứa sách đi học và chứa đồ khi bơi đều cùng category chứa/mang đồ bằng khoang balo;
-   không tạo "cặp sách thay thế" chỉ vì đổi target/context. Đào hầm và đào công sự cùng họ đào đất.
 1. MATCH_EXISTING khi đúng một code bao phủ cùng chức năng cốt lõi. `existing_code_id` phải thuộc
    `nearest_codes` của ý đó. Đổi target hoặc context nhưng giữ goal/role/mechanism vẫn là MATCH.
-2. CREATE_NEW trực tiếp khi ý hợp lệ, goal/role/mechanism đủ rõ và không code nào bao phủ chức năng đó.
-   Không chờ một tầng LLM khác và không chờ thêm người trả lời.
+2. Đề xuất CREATE_NEW khi ý có căn cứ, chức năng rõ và các mã ứng viên không bao phủ.
+   Xét MATCH và khả năng sửa mã quá hẹp trước. Backend kiểm chứng trước khi lưu;
+   không cần chờ thêm người trả lời, không coi số mã ít/nhiều là tiêu chí quyết định.
 3. Với CREATE_NEW, phải tạo CATEGORY TÁI SỬ DỤNG ĐƯỢC, không biến nguyên một sản phẩm/câu trả lời thành mã:
    - `functional_signature` là chữ ký CẤP CATEGORY, không phải bản chép chữ ký của ý. Khái quát tối thiểu
      target/sản phẩm/bối cảnh cụ thể nhưng vẫn giữ nguyên goal + vai trò của {item_name} + cơ chế.
@@ -31,9 +36,8 @@ Quy tắc quyết định:
      khi có một họ gần nhất dùng chung goal/role/mechanism.
    - `scope_variants` gồm đúng 2 cách dùng giả định khác câu gốc nhưng vẫn phải thuộc cùng code. Đây chỉ là
      phép thử phạm vi, không phải dữ liệu người tham gia.
-   - Không được khái quát sang các ý đổi mục đích, vai trò hoặc cơ chế. Ví dụ: “làm vỏ bút” có thể khái quát
-     thành “tạo thân/vỏ cho dụng cụ viết”, nhưng không thành “làm mọi vật dụng cá nhân”. “Bán sắt vụn” có thể
-     thành “thu hồi giá trị vật liệu”, nhưng không thành mọi hoạt động kiếm tiền.
+   - Không khái quát sang các ý đổi chức năng, vai trò hoặc cơ chế; không dùng nhóm chung chung
+     như “mọi vật dụng” để giảm số mã. Mục đích phụ không tự chứng minh khác chức năng.
    - Mô tả phải nhắc `{item_name}`; cần ít nhất một inclusion rule và một exclusion rule cụ thể.
 4. EXPAND_EXISTING chỉ khi ý rộng hơn một code hẹp cùng họ chức năng. Phạm vi mới cũng phải tuân thủ toàn bộ
    quy tắc category ở mục 3.

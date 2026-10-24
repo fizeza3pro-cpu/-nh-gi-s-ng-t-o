@@ -269,6 +269,7 @@ Giới hạn tải: `LOGIN_REQUESTS_PER_MINUTE=20`, `PUBLIC_REQUESTS_PER_MINUTE=
 - Metadata từng lượt ở `pipeline_audits`; `mapping_meta.latest_audit_id` trỏ đến lượt gần nhất. Debug theo `response_id`, `attempt_id` và `stage`. Admin và export tự đọc chi tiết qua tham chiếu, vẫn đọc được metadata cũ.
 - API trả `result_state` và `needs_processing` để frontend poll. Result kiểm tra API, bỏ cache kết quả `sessionStorage`. Giữ bản nháp `localStorage`, dọn khi mở lại sau 7 ngày quá hạn.
 - Migration `c0d2e4f6a891` đổi tên `items.scores_dirty` thành `calibration_dirty` bằng RENAME giữ dữ liệu và thêm index. Migration `c1e3f5a7b902` thêm `item_codes.centroid_dirty` để cập nhật centroid ở nền; retrieval không dùng centroid đang chờ cập nhật.
+- Bật hỗ trợ centroid bằng `CENTROID_RETRIEVAL_ENABLED=true` trong `backend/.env` (hoặc biến môi trường của dịch vụ khi deploy), rồi khởi động lại backend và worker. Retrieval lấy độ tương đồng lớn hơn giữa vector định nghĩa mã và tâm trung bình, không dùng vector ý đại diện (`prototype_vectors`). Tâm phải cùng model, không dirty và không có cảnh báo drift; các bước kiểm chứng MATCH vẫn giữ nguyên. Đặt `false` để chỉ dùng vector định nghĩa mã.
 
 Nâng schema trước khi khởi động backend bản này trên DB hiện hữu, theo quy trình chuẩn:
 

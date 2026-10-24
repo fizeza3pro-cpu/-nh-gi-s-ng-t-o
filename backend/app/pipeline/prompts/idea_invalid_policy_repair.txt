@@ -18,8 +18,12 @@ Không tự thêm vật trung gian, đổi công dụng, bịa thuộc tính ho�
 Với vật kim loại, “cho chó ăn”/“làm thức ăn” thiếu cơ sở dinh dưỡng, không được suy thành bát đựng thức ăn;
 “làm bát đựng thức ăn” có vai trò chứa đựng nên có thể VALID. Tặng quà có chức năng xã hội nên vẫn VALID.
 
-Nếu VALID, trả đủ `uses_target_object=true`, `object_used="{item_name}"`, `target_object_role` và
-`functional_signature` có goal + object_role + mechanism. Không được bỏ sót line_index.
+Nếu VALID, trả `uses_target_object=true`, `object_used="{item_name}"`, vai trò và chữ ký có căn cứ.
+Không điền trường chưa rõ chỉ để đủ chữ ký. Không được bỏ sót line_index.
+
+Không mặc nhiên thêm thành phần thường đi kèm vào đồ vật. Vật phụ có thể tham gia khi có
+căn cứ, nhưng không thay đồ vật mục tiêu thực hiện toàn bộ công dụng. Không buộc cứu ý bằng
+chữ ký đầy đủ do tự suy diễn. Trường chưa xác định được để rỗng và nêu lý do.
 
 Chỉ trả JSON theo cấu trúc IdeaExtractionResult với khóa `ideas`.
 Giữ nguyên original và line_index; mỗi index đầu vào đúng một lần, không đánh số lại.

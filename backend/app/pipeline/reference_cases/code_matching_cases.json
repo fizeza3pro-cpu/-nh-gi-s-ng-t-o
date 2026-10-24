@@ -63,8 +63,12 @@
       "code_relation": "DIFFERENT",
       "code_name": "Tạo âm thanh bằng chai nhựa",
       "code_description": "Dùng chai nhựa như buồng cộng hưởng để tạo âm thanh.",
-      "inclusion_rules": ["Chai nhựa trực tiếp tạo hoặc khuếch đại âm thanh nhờ dao động không khí."],
-      "exclusion_rules": ["Không gồm công dụng chỉ dùng khoang chai để chứa vật chất."]
+      "inclusion_rules": [
+        "Chai nhựa trực tiếp tạo hoặc khuếch đại âm thanh nhờ dao động không khí."
+      ],
+      "exclusion_rules": [
+        "Không gồm công dụng chỉ dùng khoang chai để chứa vật chất."
+      ]
     },
     "principle": "Tạo cộng hưởng âm khác chức năng chứa vật chất nên Curator tạo trực tiếp một category có ranh giới rõ."
   },
@@ -75,8 +79,16 @@
     "input": {
       "response": "Dùng để giữ đồ vật",
       "candidate_codes": [
-        {"id": "EXAMPLE-CLAMP", "name": "Kẹp giữ", "definition": "Ép hai phía để giữ vật"},
-        {"id": "EXAMPLE-PROP", "name": "Chống đỡ", "definition": "Chịu lực để đỡ vật"}
+        {
+          "id": "EXAMPLE-CLAMP",
+          "name": "Kẹp giữ",
+          "definition": "Ép hai phía để giữ vật"
+        },
+        {
+          "id": "EXAMPLE-PROP",
+          "name": "Chống đỡ",
+          "definition": "Chịu lực để đỡ vật"
+        }
       ]
     },
     "expected": {
@@ -127,4 +139,3 @@
     "principle": "Ý mới cùng họ chức năng nhưng bao quát nhiều sản phẩm đeo hơn nên phải mở rộng code hẹp, không tạo code chồng lấn."
   }
 ]
-

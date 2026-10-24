@@ -6,8 +6,16 @@
     "input": {
       "response": "Nung gạch rồi dùng nhiệt của nó để sưởi chân",
       "nearest_codes": [
-        {"id": "EXAMPLE-WEIGHT", "name": "Tạo tải trọng", "mechanism": "khối lượng và trọng lực"},
-        {"id": "EXAMPLE-BUILD", "name": "Vật liệu xây", "mechanism": "xếp và liên kết thành kết cấu"}
+        {
+          "id": "EXAMPLE-WEIGHT",
+          "name": "Tạo tải trọng",
+          "mechanism": "khối lượng và trọng lực"
+        },
+        {
+          "id": "EXAMPLE-BUILD",
+          "name": "Vật liệu xây",
+          "mechanism": "xếp và liên kết thành kết cấu"
+        }
       ]
     },
     "expected": {
@@ -16,15 +24,7 @@
         "goal": "giữ ấm",
         "object_role": "vật tích nhiệt",
         "mechanism": "hấp thụ và giải phóng nhiệt"
-      },
-      "required_policy_gates": [
-        "response_is_valid",
-        "no_existing_code_covers",
-        "functionally_distinct",
-        "granularity_consistent",
-        "paraphrase_stable",
-        "counterexample_passed"
-      ]
+      }
     },
     "principle": "Chỉ tạo khi mục đích, vai trò và cơ chế đều tạo thành category ổn định mà các code gần nhất không bao phủ."
   },
@@ -68,8 +68,16 @@
     "input": {
       "response": "Thổi ngang miệng chai để tạo tiếng sáo",
       "nearest_codes": [
-        {"id": "EXAMPLE-CONTAINER", "name": "Vật chứa", "mechanism": "giữ vật chất trong khoang"},
-        {"id": "EXAMPLE-FUNNEL", "name": "Dẫn chất lỏng", "mechanism": "dòng chảy qua miệng chai"}
+        {
+          "id": "EXAMPLE-CONTAINER",
+          "name": "Vật chứa",
+          "mechanism": "giữ vật chất trong khoang"
+        },
+        {
+          "id": "EXAMPLE-FUNNEL",
+          "name": "Dẫn chất lỏng",
+          "mechanism": "dòng chảy qua miệng chai"
+        }
       ]
     },
     "expected": {
@@ -90,8 +98,14 @@
       "response": "Làm đồ trang sức",
       "adjudicator_decision": "EXPAND_EXISTING",
       "nearest_codes": [
-        {"id": "EXAMPLE-BRACELET", "name": "Làm vòng đeo tay từ vỏ đạn"},
-        {"id": "EXAMPLE-DISPLAY", "name": "Làm vật trưng bày từ vỏ đạn"}
+        {
+          "id": "EXAMPLE-BRACELET",
+          "name": "Làm vòng đeo tay từ vỏ đạn"
+        },
+        {
+          "id": "EXAMPLE-DISPLAY",
+          "name": "Làm vật trưng bày từ vỏ đạn"
+        }
       ]
     },
     "expected": {
@@ -99,16 +113,8 @@
       "code_relation": "IDEA_BROADER_THAN_CODE",
       "existing_code_id": "EXAMPLE-BRACELET",
       "code_name": "Làm đồ trang sức hoặc phụ kiện đeo từ vỏ đạn",
-      "absorbed_code_ids": [],
-      "passed_scope_gates": [
-        "same_functional_family",
-        "broader_scope_justified",
-        "previous_examples_preserved",
-        "hard_negatives_excluded",
-        "no_overlap_after_change"
-      ]
+      "absorbed_code_ids": []
     },
     "principle": "Mở rộng code vòng tay thành nhóm trang sức vẫn giữ ví dụ cũ và loại đồ trưng bày không đeo; không tạo code rộng song song."
   }
 ]
-

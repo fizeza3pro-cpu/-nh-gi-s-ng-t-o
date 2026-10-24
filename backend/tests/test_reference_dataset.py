@@ -186,3 +186,23 @@ def test_reference_prompt_is_compact_and_omits_redundant_stage():
 
     assert '"stage"' not in selected
     assert "\n" not in selected
+
+
+def test_reference_budget_skips_oversized_first_case(monkeypatch):
+    """Ví dụ đầu quá dài không được vượt ngân sách hoặc chặn ví dụ nhỏ phía sau."""
+    from app.pipeline import reference_dataset
+    cases = [
+        {"item": "Gạch", "input": {"text": "x" * 5000}, "expected": {}, "principle": "a"},
+        {"item": "Đũa", "input": {"text": "kê đồ"}, "expected": {}, "principle": "b"},
+    ]
+    monkeypatch.setattr(reference_dataset, "select_reference_cases", lambda *a, **kw: cases)
+    monkeypatch.setattr(settings, "reference_cases_max_chars", 400)
+    result = reference_cases_json("extraction", item_name="Gạch", query_texts=[], limit=2)
+    assert len(result) <= 400
+    assert [case["item"] for case in json.loads(result)] == ["Đũa"]
+
+
+def test_reference_conflicting_extraction_uses_review():
+    """Án lệ phân loại không phủ định contract đưa mâu thuẫn Extraction về review."""
+    case = next(c for c in load_reference_cases() if c["id"] == "CU-INVALID-WRONG-OBJECT-01")
+    assert case["expected"]["decision"] == "UNCERTAIN"

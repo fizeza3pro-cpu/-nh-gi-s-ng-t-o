@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 
+from app.config import settings
 from app.pipeline.code_retrieval import cosine, normalize_text, signature_similarity
 from app.pipeline.centroid import unit_vector
 
@@ -39,11 +40,13 @@ def _nearest_codes(members: list[dict], centroid: list[float], model: str, codes
         vectors = []
         if code.get("embedding_model") == model:
             vectors.append(_vector(code.get("embedding") or [], model))
-        if code.get("centroid_model") == model and not code.get("drift_flag") and not code.get("centroid_dirty"):
-            vectors.extend(
-                _vector(vector, model)
-                for vector in [code.get("centroid") or [], *(code.get("prototype_vectors") or [])]
-            )
+        if (
+            settings.centroid_retrieval_enabled
+            and code.get("centroid_model") == model
+            and not code.get("drift_flag")
+            and not code.get("centroid_dirty")
+        ):
+            vectors.append(_vector(code.get("centroid") or [], model))
         similarities = [cosine(centroid, vector) for vector in vectors if len(vector) == len(centroid)]
         if not similarities:
             continue

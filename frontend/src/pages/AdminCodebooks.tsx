@@ -96,7 +96,7 @@ function CodeCard({ code }: { code: AdminCodebookCode }) {
   const [open, setOpen] = useState(false);
   return (
     <article className="border-b border-stone-200 last:border-b-0">
-      <button type="button" onClick={() => setOpen((value) => !value)} className="grid w-full gap-4 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-research/25 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_7rem_7rem] md:items-center md:px-7">
+      <button type="button" onClick={() => setOpen((value) => !value)} className="grid w-full gap-4 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-research/25 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_5rem_6rem_5rem] md:items-center md:px-7">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-serif text-xl text-stone-900">{code.name}</h3>
@@ -111,6 +111,10 @@ function CodeCard({ code }: { code: AdminCodebookCode }) {
         <div className="md:text-right">
           <p className="text-xs text-stone-400">Ý tưởng</p>
           <p className="mt-1 font-mono text-lg text-stone-900">{code.idea_count}</p>
+        </div>
+        <div className="md:text-right">
+          <p className="text-xs text-stone-400">Lượt trả lời</p>
+          <p className="mt-1 font-mono text-lg text-stone-900">{code.response_count}</p>
         </div>
         <div className="md:text-right">
           <p className="text-xs text-stone-400">Tần suất</p>

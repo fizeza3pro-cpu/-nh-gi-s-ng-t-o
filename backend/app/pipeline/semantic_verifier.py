@@ -13,7 +13,7 @@ _TEMPLATE = (Path(__file__).parent / "prompts/pair_verifier.txt").read_text(enco
 def verify_pair(item, original: str, code: dict, client):
     """Bằng chứng phải thuộc câu nguồn; không coi boolean model là đủ."""
     view = {key: code.get(key) for key in ("name", "description", "functional_signature", "inclusion_rules", "exclusion_rules")}
-    prompt = _TEMPLATE.format(item_name=item.name, source_json=json.dumps(original, ensure_ascii=False), code_json=json.dumps(view, ensure_ascii=False))
+    prompt = _TEMPLATE.format(item_name=item.name, item_description=item.description, source_json=json.dumps(original, ensure_ascii=False), code_json=json.dumps(view, ensure_ascii=False))
     data, meta = chat_json(
         client, model=settings.active_challenger_model,
         temperature=settings.code_curator_temperature, prompt=prompt,
@@ -31,7 +31,7 @@ def verify_pair(item, original: str, code: dict, client):
 def propose_scope(item, original, code, client):
     """Đề xuất sửa mã hẹp; worker còn phải kiểm chứng mọi member trước khi áp dụng."""
     prompt = (Path(__file__).parent / "prompts/scope_expansion.txt").read_text(encoding="utf-8").format(
-        item_name=item.name, source_json=json.dumps(original, ensure_ascii=False),
+        item_name=item.name, item_description=item.description, source_json=json.dumps(original, ensure_ascii=False),
         code_json=json.dumps({key: code.get(key) for key in (
             "id", "name", "description", "functional_signature", "inclusion_rules", "exclusion_rules", "positive_examples")}, ensure_ascii=False))
     data, meta = chat_json(client, model=settings.active_challenger_model,

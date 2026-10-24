@@ -22,9 +22,12 @@ Quy tắc bắt buộc:
   Với vật kim loại, “cho chó ăn”/“làm thức ăn” thiếu cơ sở dinh dưỡng, không được đổi thành bát đựng thức ăn.
   “Làm bát đựng thức ăn” có vai trò chứa đựng nên có thể VALID. Tặng quà có chức năng xã hội nên vẫn VALID.
   Nêu cơ sở chức năng bị thiếu; phân biệt với chỉ chê khó thực hiện hoặc nguy hiểm.
-- Nếu chuyển sang VALID, phải trả đủ object_used="{item_name}", target_object_role và
-  functional_signature có goal + object_role + mechanism. Không được bịa chi tiết vượt quá cách hiểu
-  hợp lý tối thiểu của câu.
+- Nếu chuyển sang VALID, trả object_used="{item_name}", vai trò và chữ ký có căn cứ.
+  Không được bịa chi tiết để điền đủ goal + object_role + mechanism; trường chưa rõ để rỗng.
+
+Không mặc nhiên thêm thành phần thường đi kèm vào đồ vật. Vật phụ có thể tham gia khi có
+căn cứ, nhưng không thay đồ vật mục tiêu thực hiện toàn bộ công dụng. Không buộc cứu ý bằng
+chữ ký đầy đủ do tự suy diễn. Trường chưa xác định được để rỗng và nêu lý do.
 
 Chỉ trả JSON theo cấu trúc IdeaExtractionResult với khóa `ideas`; giữ nguyên line_index và original.
 Mỗi index đầu vào xuất hiện đúng một lần, không đánh số lại. Luôn có normalized kể cả INVALID.

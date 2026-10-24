@@ -12,11 +12,17 @@ CÁC CA CẦN PHÂN XỬ:
 
 ÁN LỆ THAM KHẢO:
 {reference_cases_json}
+Ví dụ chỉ minh hoạ quyết định, không phải mẫu JSON đầy đủ. Dùng schema cuối prompt;
+quy tắc hiện tại ưu tiên hơn ví dụ. Item và ID trong ví dụ không phải item/ID của ca đang xét.
 
 Quy tắc:
+- Tập trung giải quyết lý do đang bị phản biện, đối chiếu câu gốc và phạm vi ứng viên độc lập
+  với kết luận trước. Chữ ký là giả thuyết, không phải bằng chứng đã xác nhận.
+- Không tự thêm bộ phận thường đi kèm hoặc bối cảnh mô phỏng. Nếu nhiều cách hiểu dẫn tới
+  nhóm khác nhau, trả UNCERTAIN. Không suy mục đích phụ thành chức năng chính của đồ vật.
 - Đây là phân loại các ý Extraction đã xác định VALID. Không chấm mức sáng tạo: công dụng thông thường
   vẫn VALID. Tặng quà/lưu niệm/đe dọa/trưng bày đều là chức năng có nghĩa, không bắt có cơ chế vật lý mới.
-- Chứa quân nhu, sách đi học, đồ khi bơi cùng họ chứa/mang đồ; không tách theo target/context.
+- Không tách nhóm chỉ theo target/context khi chức năng trực tiếp, vai trò và cơ chế không đổi.
 - MATCH_EXISTING nếu một code ứng viên rõ ràng bao phủ chức năng; chỉ dùng ID trong `nearest_codes`.
 - CREATE_NEW nếu ý hợp lệ, chữ ký đầy đủ và các code gần nhất đều khác chức năng. Không bắt một ý phải chờ
   thêm người trả lời.
