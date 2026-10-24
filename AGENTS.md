@@ -232,3 +232,13 @@ Các quy tắc sau thay thế mô tả cũ tương ứng bên trên:
 - Frontend dùng `needs_processing` để poll; không lưu kết quả trong `sessionStorage`. Giữ bản nháp và phiên khảo sát 180 giây.
 
 ---
+
+## Quyết định bổ sung ngày 24/10/2026 — contract mapping gọn
+
+- Chữ ký xử lý mới chỉ goal/object_role/mechanism; bỏ uses_target_object và target_object_role. LLM Extraction không chép original; backend gắn câu nguồn theo line_index. Các nhóm bằng chứng target/context của Elaboration vẫn giữ.
+- Không truy xuất án lệ bằng vector trong pipeline. INVALID được kết luận ở Extraction, không có invalid_verifier/policy_repair. Giữ kiểm tra schema, index và evidence bằng backend.
+- Contract Extraction mới chỉ VALID/INVALID. Đọc DUPLICATE lịch sử vẫn được; không tự replay checkpoint DUPLICATE cũ. Giữ checkpoint phục hồi lỗi kỹ thuật phiên bản 3.
+- Curator dùng catalog mã chung cho mỗi request, ứng viên vẫn riêng từng ý. Decision verifier chỉ chạy theo tín hiệu rủi ro cụ thể. Resolver chỉ được đặt lịch khi ngữ cảnh mã/phạm vi liên quan thay đổi, không tự gọi lại theo thời gian.
+- EXPAND thay định nghĩa, MERGE_EQUIVALENT chỉ gộp member và giữ vector định nghĩa mã đích. Ví dụ mã lân cận chưa được xác nhận không mặc định là phản ví dụ. Nhật ký mới ghi chính xác các ý chuyển.
+- Giữ nguyên queue, phiên khảo sát, claim/lease/heartbeat và raw_input/input_lines, tên hàm và module mock. FINAL tiếp tục bất biến.
+- Centroid hỗ trợ retrieval khi đủ điều kiện; không dùng vector ý đại diện để tăng similarity. Dọn key JSON cũ bằng scripts.cleanup_mapping_contract có backup; không viết lại bài FINAL hoặc audit lịch sử.

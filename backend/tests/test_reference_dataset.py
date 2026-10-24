@@ -85,8 +85,8 @@ def test_extraction_prompt_contains_retrieved_reference_cases():
 
     prompt = client.chat.completions.requests[0]["messages"][0]["content"]
     assert result.ideas[0].status == "VALID"
-    assert "VÍ DỤ THAM KHẢO ĐÃ ĐƯỢC GÁN NHÃN" in prompt
-    assert "Câu ngắn vẫn hợp lệ" in prompt
+    assert "VÍ DỤ THAM KHẢO" not in prompt
+    assert client.chat.completions.calls == 1
     assert meta["provider"] in {"byteplus", "groq", "cloudflare"}
 
 
@@ -196,8 +196,7 @@ def test_reference_budget_skips_oversized_first_case(monkeypatch):
         {"item": "Đũa", "input": {"text": "kê đồ"}, "expected": {}, "principle": "b"},
     ]
     monkeypatch.setattr(reference_dataset, "select_reference_cases", lambda *a, **kw: cases)
-    monkeypatch.setattr(settings, "reference_cases_max_chars", 400)
-    result = reference_cases_json("extraction", item_name="Gạch", query_texts=[], limit=2)
+    result = reference_cases_json("extraction", item_name="Gạch", query_texts=[], limit=2, max_chars=400)
     assert len(result) <= 400
     assert [case["item"] for case in json.loads(result)] == ["Đũa"]
 

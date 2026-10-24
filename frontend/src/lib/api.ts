@@ -323,14 +323,7 @@ export const api = {
     fetch(`${BASE}/admin/items/${itemId}/pipeline-audits`, {
       headers: authHeaders(),
     }).then(
-      handle<
-        Array<{
-          id: string;
-          event: string;
-          created_at: string;
-          payload: Record<string, unknown>;
-        }>
-      >,
+      handle<import("./types").AdminPipelineAudit[]>,
     ),
 
   adminListParticipants: () =>
@@ -368,6 +361,14 @@ export const api = {
     fetch(`${BASE}/admin/items/${itemId}/extraction-audit`, {
       headers: authHeaders(),
     }).then(handle<AdminExtractionAudit>),
+
+  adminCodeNeighbors: (itemId: string, codeId: string) =>
+    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}/neighbors`, { headers: authHeaders() })
+      .then(handle<import("./types").CodeNeighbor[]>),
+
+  adminCodeHistory: (itemId: string, codeId: string, page = 1) =>
+    fetch(`${BASE}/admin/items/${itemId}/codes/${codeId}/history?page=${page}`, { headers: authHeaders() })
+      .then(handle<{ entries: import("./types").ScopeHistoryEntry[]; total: number; page: number; page_count: number }>),
 
   adminCuratorAudit: (itemId: string) =>
     fetch(`${BASE}/admin/items/${itemId}/curator-audit`, {

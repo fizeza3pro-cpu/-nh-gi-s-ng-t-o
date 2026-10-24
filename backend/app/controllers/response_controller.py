@@ -34,7 +34,9 @@ def _to_response(row: ResponseModel) -> ScoreResponse:
                        and row.item.calibration_status == ItemCalibrationStatus.ACTIVE and not row.scoring
                        and row.data_source == settings.survey_data_source)
     resolving = (row.scoring_status == ResponseScoringStatus.PENDING_REVIEW
-                 and row.resolution_attempts < settings.resolver_max_attempts and row.processing_state != "FAILED")
+                 and row.resolution_attempts < settings.resolver_max_attempts
+                 and (row.processing_state == "RUNNING" or row.resolution_next_at is not None)
+                 and row.processing_state != "FAILED")
     if row.scoring_status in {ResponseScoringStatus.FINAL, ResponseScoringStatus.EXCLUDED}:
         result_state = row.scoring_status.value
     elif row.processing_state == "FAILED":
@@ -73,7 +75,7 @@ def _to_response(row: ResponseModel) -> ScoreResponse:
             else "Bài đã lưu nhưng xử lý chưa thành công. Vui lòng liên hệ quản trị viên để thử lại."
             if row.processing_state == "FAILED"
             else "AI chưa đủ căn cứ phân loại một số ý sau các lượt đối chiếu. Bài được giữ nguyên; các ý này chưa bị tính là 0."
-            if row.scoring_status == ResponseScoringStatus.PENDING_REVIEW and row.resolution_attempts >= settings.resolver_max_attempts
+            if row.scoring_status == ResponseScoringStatus.PENDING_REVIEW and not resolving
             else _status_message(row.scoring_status)
         ),
     )

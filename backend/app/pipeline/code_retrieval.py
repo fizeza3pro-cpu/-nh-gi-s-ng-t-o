@@ -100,7 +100,7 @@ def rank_code_candidates(
     valid_rows = [
         (index, idea)
         for index, idea in enumerate(extraction.ideas)
-        if idea.status == "VALID" and idea.uses_target_object
+        if idea.status == "VALID"
     ]
     if not valid_rows:
         return {}

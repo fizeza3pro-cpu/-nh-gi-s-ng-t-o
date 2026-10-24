@@ -1,0 +1,448 @@
+{
+  "response_id": null,
+  "data_source": "SELF_AUTHORED_FIXTURE",
+  "input_count": 10,
+  "code_count": 6,
+  "batch_size": 3,
+  "model": "deepseek-v4-1-flash-261017",
+  "thinking": "disabled",
+  "curator_model": "deepseek-v4-1-flash-261017",
+  "challenger_model": "deepseek-v4-1-flash-261017",
+  "evaluation": "self_authored_fixture_with_codebook",
+  "database_writes": false,
+  "independent_human_accuracy_measured": false,
+  "extraction": [
+    {
+      "line_index": 0,
+      "original": "Dùng balo chứa sách đi học",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Chứa sách phục vụ việc đi học",
+        "object_role": "Vật chứa",
+        "mechanism": "Khoang chứa của balo giữ sách bên trong"
+      }
+    },
+    {
+      "line_index": 1,
+      "original": "Dùng balo mang quần áo đi du lịch",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Mang quần áo phục vụ du lịch",
+        "object_role": "Vật chứa và mang",
+        "mechanism": "Khoang chứa cùng quai đeo giữ và mang quần áo"
+      }
+    },
+    {
+      "line_index": 2,
+      "original": "Dùng balo làm gối kê đầu khi nghỉ",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Kê đầu khi nghỉ",
+        "object_role": "Vật kê",
+        "mechanism": "Thân balo có khoang chứa tạo khối đỡ đầu"
+      }
+    },
+    {
+      "line_index": 3,
+      "original": "Dùng balo làm vật kê lưng khi ngồi",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Kê lưng khi ngồi",
+        "object_role": "Vật kê",
+        "mechanism": "Thân balo có khoang chứa tạo khối đỡ lưng"
+      }
+    },
+    {
+      "line_index": 4,
+      "original": "Đặt balo trước cửa để chặn cửa",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Chặn cửa không cho mở/di chuyển",
+        "object_role": "Vật chặn",
+        "mechanism": "Thân balo có khoang chứa tạo khối đặt trước cửa"
+      }
+    },
+    {
+      "line_index": 5,
+      "original": "Đặt balo lên giấy để giấy khỏi bay",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Giữ giấy không bị bay",
+        "object_role": "Vật đè",
+        "mechanism": "Trọng lượng thân balo có khoang chứa đè lên giấy"
+      }
+    },
+    {
+      "line_index": 6,
+      "original": "Dùng balo làm quà tặng",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Tặng làm quà",
+        "object_role": "Vật phẩm được tặng",
+        "mechanism": "Balo là vật có khoang chứa và quai đeo dùng để trao tặng"
+      }
+    },
+    {
+      "line_index": 7,
+      "original": "Giữ balo làm vật kỷ niệm",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Lưu giữ làm kỷ niệm",
+        "object_role": "Vật kỷ niệm",
+        "mechanism": "Balo được giữ lại làm vật gắn với ký ức"
+      }
+    },
+    {
+      "line_index": 8,
+      "original": "Dùng balo làm đạo cụ biểu diễn",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Dùng trong biểu diễn",
+        "object_role": "Đạo cụ",
+        "mechanism": "Balo được sử dụng như vật phẩm trong tiết mục biểu diễn"
+      }
+    },
+    {
+      "line_index": 9,
+      "original": "Dùng balo làm vật trang trí trong phòng",
+      "status": "VALID",
+      "reason": "",
+      "functional_signature": {
+        "goal": "Trang trí phòng",
+        "object_role": "Vật trang trí",
+        "mechanism": "Balo được đặt/bày trong phòng để tạo hình thức trang trí"
+      }
+    }
+  ],
+  "extraction_statuses": {
+    "VALID": 10
+  },
+  "decisions": {
+    "MATCH_EXISTING": 9,
+    "CREATE_NEW": 1
+  },
+  "completed_through_scoring": true,
+  "ideas": [
+    {
+      "original": "Dùng balo chứa sách đi học",
+      "decision": "MATCH_EXISTING",
+      "code_id": "contain",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Chứa sách trong khoang balo để mang đi học đúng chức năng chứa/mang đồ của mã contain; mục đích đi học chỉ là ngữ cảnh hẹp hơn, không đổi vai trò vật chứa và cơ chế khoang chứa."
+    },
+    {
+      "original": "Dùng balo mang quần áo đi du lịch",
+      "decision": "MATCH_EXISTING",
+      "code_id": "contain",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Mang quần áo bằng khoang chứa và quai đeo đúng chức năng chứa hoặc mang đồ của mã contain; du lịch chỉ là bối cảnh, không đổi nhóm."
+    },
+    {
+      "original": "Dùng balo làm gối kê đầu khi nghỉ",
+      "decision": "MATCH_EXISTING",
+      "code_id": "support",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Dùng thân balo làm khối đỡ đầu khi nghỉ đúng chức năng kê/tựa cơ thể của mã support; đối tượng kê là đầu thay vì phần cơ thể khác không đổi chức năng trực tiếp, vai trò vật kê và cơ chế tạo điểm tựa."
+    },
+    {
+      "original": "Dùng balo làm vật kê lưng khi ngồi",
+      "decision": "MATCH_EXISTING",
+      "code_id": "support",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Balo dùng thân làm điểm tựa/kê lưng khi ngồi, đúng chức năng kê đỡ cơ thể của mã support; khác người nhận/bối cảnh không đổi nhóm."
+    },
+    {
+      "original": "Đặt balo trước cửa để chặn cửa",
+      "decision": "MATCH_EXISTING",
+      "code_id": "fix",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Balo dùng thân và trọng lượng đặt trước cửa để giữ cửa không dịch chuyển, đúng chức năng chặn giữ vật của mã fix."
+    },
+    {
+      "original": "Đặt balo lên giấy để giấy khỏi bay",
+      "decision": "MATCH_EXISTING",
+      "code_id": "fix",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Balo dùng trọng lượng thân đè lên giấy để giấy khỏi bay, đúng chức năng đè giữ vật của mã fix."
+    },
+    {
+      "original": "Dùng balo làm quà tặng",
+      "decision": "MATCH_EXISTING",
+      "code_id": "gift",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Balo được trao nguyên chiếc làm quà tặng, đúng định nghĩa mã gift."
+    },
+    {
+      "original": "Giữ balo làm vật kỷ niệm",
+      "decision": "MATCH_EXISTING",
+      "code_id": "memory",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Balo được giữ lại làm vật gắn với ký ức, đúng định nghĩa mã memory."
+    },
+    {
+      "original": "Dùng balo làm đạo cụ biểu diễn",
+      "decision": "CREATE_NEW",
+      "code_id": null,
+      "code_name": "Đạo cụ biểu diễn",
+      "proposal_group": "",
+      "reason": "Dùng balo làm đạo cụ trong tiết mục biểu diễn, khác decor (bày trang trí) và các mã còn lại."
+    },
+    {
+      "original": "Dùng balo làm vật trang trí trong phòng",
+      "decision": "MATCH_EXISTING",
+      "code_id": "decor",
+      "code_name": null,
+      "proposal_group": "",
+      "reason": "Balo được bày/đặt trong phòng để tạo hình thức trang trí, đúng chức năng trang trí không gian của mã decor."
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 24285,
+    "completion_tokens": 4412,
+    "total_tokens": 28697,
+    "reasoning_tokens": 0,
+    "cached_tokens": 2176
+  },
+  "calls": [
+    {
+      "id": "3af72c04-2e85-4606-b258-16dd2056b17f:0",
+      "stage": "idea_extraction",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 999,
+        "completion_tokens": 1311,
+        "total_tokens": 2310,
+        "reasoning_tokens": 0,
+        "cached_tokens": 896
+      },
+      "usage_known": true,
+      "latency_ms": 6829.27,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "072c9abdcbe9bba7d2fada67e35a879de0bd90e6597f80e7bb1dba245d86fb25",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 6024
+    },
+    {
+      "id": "97990136-17f4-42f6-aa53-2e8994375695:0",
+      "stage": "code_curator",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 3400,
+        "completion_tokens": 244,
+        "total_tokens": 3644,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 1839.46,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "2b81d68794e826492ef50a8bfe924dd0d2aedaa7d0dd40cd3ca45bb1ca5bac09",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 3124
+    },
+    {
+      "id": "63796db6-d2d4-43e2-bf7a-af4793cfa592:0",
+      "stage": "code_challenger",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 3227,
+        "completion_tokens": 330,
+        "total_tokens": 3557,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 2354.19,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "46573ed32f8c5c14d53a9dc8320af81a82457b081ab3e8f4383e1769c882dc69",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 3072
+    },
+    {
+      "id": "bf0b46dc-3081-414e-a9b2-75372c6c9419:0",
+      "stage": "code_curator",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 3412,
+        "completion_tokens": 245,
+        "total_tokens": 3657,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 1931.9,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "7ae70cc4292a6d0ebfe3cdaaf98a0aaf09b3146e05a530c24d984628b45533ec",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 3124
+    },
+    {
+      "id": "8f4ab8f0-fea7-49c5-a163-dd64d630d399:0",
+      "stage": "code_challenger",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 3297,
+        "completion_tokens": 260,
+        "total_tokens": 3557,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 1903.81,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "70e1ec9ffdeb1dec4c3206d1626296b6e3c0438810b214063b50e7d18b8cc526",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 3072
+    },
+    {
+      "id": "8629e52a-dcad-462c-aa00-37361445569b:0",
+      "stage": "pair_verifier",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 790,
+        "completion_tokens": 104,
+        "total_tokens": 894,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 1231.69,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "ea71c011d4359744900e3273c6a9d56cfe7a453a4795b35c9e23c67d3426dd0b",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 768
+    },
+    {
+      "id": "b4dfe1f0-8e53-43c0-b966-7d7530f311a9:0",
+      "stage": "pair_verifier",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 789,
+        "completion_tokens": 99,
+        "total_tokens": 888,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 1528.6,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "2553323868a5aba0183b96336f7da9e44069ecb7756a606e66bdfd5a113e659b",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 768
+    },
+    {
+      "id": "5597162a-086e-4c90-adbd-ba8c2ba6ec3d:0",
+      "stage": "code_curator",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 3411,
+        "completion_tokens": 395,
+        "total_tokens": 3806,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 2595.09,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "f1ebc318881754c4a10dbde9b81ed51837f9e60eee780f89fd7db6446a6b1bee",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 3124
+    },
+    {
+      "id": "601935fe-1b8e-4c5e-baf7-40640bc57f9d:0",
+      "stage": "code_curator",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 2368,
+        "completion_tokens": 80,
+        "total_tokens": 2448,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 1251.5,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "0390b9e4e6e4a857b1e38494217a957204434824bfe9ac3a14e98541bddb93b3",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 1724
+    },
+    {
+      "id": "4a6a0f45-c23e-4909-88e4-c1f90cb22dab:0",
+      "stage": "scoring",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 1307,
+        "completion_tokens": 1140,
+        "total_tokens": 2447,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": true,
+      "latency_ms": 4557.39,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "3512533abd65f2281ddc36676986ce81c4f684fb598ff5044578c29a6830ff52",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 4096
+    },
+    {
+      "id": "f1873298-9f9c-4efc-b214-7eed8c6f631f:0",
+      "stage": "creative_feedback",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 1285,
+        "completion_tokens": 204,
+        "total_tokens": 1489,
+        "reasoning_tokens": 0,
+        "cached_tokens": 1280
+      },
+      "usage_known": true,
+      "latency_ms": 1886.69,
+      "status": "OK",
+      "finish_reason": "stop",
+      "prompt_hash": "a3a119d40cb5e72e33312d6c48f225feef0a5a475737768dbafb5cabe530ff15",
+      "thinking_type": "disabled",
+      "reasoning_effort": "minimal",
+      "max_tokens": 1024
+    }
+  ],
+  "provider_requests": 11,
+  "budget_limit_hit": false,
+  "elapsed_seconds": 30.75
+}

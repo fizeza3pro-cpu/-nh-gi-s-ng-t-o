@@ -13,7 +13,7 @@ def fixtures():
                          inferred_signature_fields=["object_role", "mechanism"])
     decision = CuratorDecision(idea_index=0, decision="CREATE_NEW", confidence=.95,
                               code_name="Kim châm cứu", code_relation="DIFFERENT")
-    candidate = {"id": "known", "name": "Khâu nối", "description": "Sợi chỉ nối vải"}
+    candidate = {"semantic_similarity": .9, "signature_similarity": {"weighted": .6}, "id": "known", "name": "Khâu nối", "description": "Sợi chỉ nối vải"}
     return item, IdeaExtractionResult(ideas=[idea]), CuratorResult(decisions=[decision]), {0: [candidate]}
 
 

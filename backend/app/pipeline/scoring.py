@@ -54,7 +54,7 @@ def _analyze_once(
         prompt=prompt,
         provider=settings.llm_provider,
         reasoning_effort=settings.active_reasoning_effort,
-        max_tokens=settings.max_tokens_for("scoring"),
+        max_tokens=settings.max_tokens_for("scoring", len(valid_ideas)),
         max_retries=settings.llm_max_retries,
         stage="scoring",
         include_raw_response=settings.store_raw_llm_response,

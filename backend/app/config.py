@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     # --- BytePlus ModelArk ---
     byteplus_api_key: str = ""
     byteplus_base_url: str = "https://ark.ap-southeast.bytepluses.com/api/v3"
-    byteplus_model: str = "deepseek-v4-1-flash-economy-261017"
+    byteplus_model: str = "deepseek-v4-flash-260425"
     byteplus_code_curator_model: str | None = None
     byteplus_challenger_model: str | None = None
-    # DeepSeek V4 260425 mặc định suy luận sâu nếu bỏ trống. `minimal` tắt
-    # reasoning cho tác vụ JSON ngắn, tránh trả tiền cho chuỗi suy luận ẩn.
+    # Mức reasoning chỉ là một tham số; DeepSeek v4 cần thêm byteplus_thinking
+    # để bật/tắt reasoning rõ ràng, tránh chiếm ngân sách output JSON.
     byteplus_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "minimal"
 
     # --- Groq ---
@@ -80,9 +80,6 @@ class Settings(BaseSettings):
     challenged_match_retrieval_floor: float = Field(default=0.50, ge=0.0, le=1.0)
     challenged_match_semantic_floor: float = Field(default=0.70, ge=0.0, le=1.0)
     challenged_match_margin_floor: float = Field(default=0.08, ge=0.0, le=1.0)
-    reference_cases_enabled: bool = True
-    reference_cases_limit: int = Field(default=2, ge=0, le=8)
-    reference_cases_max_chars: int = Field(default=2200, ge=400, le=8000)
     scoring_min_participants: int = 24
     scoring_min_ideas: int = 150
     # Bật worker tự động khi khởi động app; POST luôn lưu hàng đợi.
@@ -94,7 +91,7 @@ class Settings(BaseSettings):
     codebook_recheck_limit: int = Field(default=3, ge=1, le=10)
     resolver_max_attempts: int = Field(default=3, ge=1, le=6)
     resolver_retry_seconds: int = Field(default=15, ge=1, le=600)
-    mapping_batch_size: int = Field(default=3, ge=1, le=10)
+    mapping_batch_size: int = Field(default=5, ge=1, le=10)
     novelty_candidate_limit: int = Field(default=12, ge=3, le=30)
     llm_timeout_seconds: float = Field(default=60, ge=5, le=180)
     survey_grace_seconds: int = Field(default=60, ge=0, le=300)
@@ -103,12 +100,13 @@ class Settings(BaseSettings):
     survey_data_source: Literal["PILOT", "SURVEY"] = "PILOT"
     auto_code_audit_enabled: bool = True
     scope_audit_max_cases: int = Field(default=80, ge=8, le=500)
-    llm_extraction_max_tokens: int = Field(default=3072, ge=512, le=16384)
-    llm_curator_max_tokens: int = Field(default=3072, ge=512, le=16384)
+    llm_extraction_max_tokens: int = Field(default=6144, ge=512, le=16384)
+    llm_curator_max_tokens: int = Field(default=4096, ge=512, le=16384)
     llm_challenger_max_tokens: int = Field(default=3072, ge=512, le=16384)
-    llm_scoring_max_tokens: int = Field(default=3072, ge=512, le=16384)
+    llm_scoring_max_tokens: int = Field(default=4096, ge=512, le=16384)
     llm_aux_max_tokens: int = Field(default=3072, ge=512, le=16384)
     llm_max_retries: int = Field(default=1, ge=0, le=3)
+    byteplus_thinking: Literal["enabled", "disabled"] = "disabled"
     store_raw_llm_response: bool = False
     # Bật tâm trung bình để hỗ trợ vector định nghĩa mã; không dùng vector ý đại diện.
     centroid_retrieval_enabled: bool = False
@@ -201,7 +199,7 @@ class Settings(BaseSettings):
         return None
 
 
-    def max_tokens_for(self, stage: str) -> int:
+    def max_tokens_for(self, stage: str, idea_count: int | None = None) -> int:
         """Giới hạn output theo stage, đồng thời tôn trọng trần của Cloudflare."""
         configured = {
             "idea_extraction": self.llm_extraction_max_tokens,
@@ -209,7 +207,12 @@ class Settings(BaseSettings):
             "code_challenger": self.llm_challenger_max_tokens,
             "scoring": self.llm_scoring_max_tokens,
             "creative_feedback": min(self.llm_aux_max_tokens, 1024),
+            "pair_verifier": min(self.llm_aux_max_tokens, 768),
+            "scope_proposal": min(self.llm_aux_max_tokens, 1536),
         }.get(stage, self.llm_aux_max_tokens)
+        if idea_count is not None:
+            per_idea = 500 if stage == "idea_extraction" else 700
+            configured = min(configured, max(1024, 1024 + per_idea * idea_count))
         if self.llm_provider == "cloudflare":
             return min(configured, self.cloudflare_max_tokens)
         return configured

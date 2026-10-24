@@ -111,12 +111,9 @@ class FunctionalSignature(BaseModel):
     goal: str = ""
     object_role: str = ""
     mechanism: str = ""
-    transformation: str = ""
-    target: str = ""
-    context: str = ""
 
     @field_validator(
-        "goal", "object_role", "mechanism", "transformation", "target", "context", mode="before"
+        "goal", "object_role", "mechanism", mode="before"
     )
     @classmethod
     def normalize_nullable_text(cls, value):
@@ -228,13 +225,11 @@ class ResponseSummary(BaseModel):
 class ExtractedIdea(BaseModel):
     """Ý sau tầng tách/chuẩn hoá, trước khi Code Curator quyết định code."""
 
-    original: str
+    original: str = ""
     idea_id: str = ""
     normalized: str
-    status: Literal["VALID", "INVALID", "DUPLICATE"]
-    uses_target_object: bool = False
+    status: Literal["VALID", "INVALID"]
     object_used: str = ""
-    target_object_role: str = ""
     reason: str = ""
     line_index: int = Field(default=0, ge=0, le=9)
     duplicate_of_index: int | None = Field(default=None, ge=0, le=9)
@@ -244,12 +239,12 @@ class ExtractedIdea(BaseModel):
     inferred_signature_fields: list[
         Literal["goal", "object_role", "mechanism"]
     ] = Field(default_factory=list)
-    # Backend đưa ca bị loại bằng tiêu chí sai sang resolver tự động.
+    # Chỉ backend được gắn khi có mâu thuẫn cần admin phân xử.
     review_required: bool = False
     embedding: list[float] = Field(default_factory=list, exclude=True)
     embedding_model: str = Field(default="", exclude=True)
 
-    @field_validator("object_used", "target_object_role", "reason", mode="before")
+    @field_validator("object_used", "reason", mode="before")
     @classmethod
     def normalize_nullable_reason(cls, value):
         """LLM đôi khi trả JSON null thay vì chuỗi rỗng cho trường không áp dụng."""
@@ -286,8 +281,6 @@ class CuratorDecision(BaseModel):
     existing_code_id: str | None = None
     code_name: str | None = None
     code_description: str = ""
-    target_object_confirmed: bool = False
-    target_object_role: str = ""
     confidence: float = Field(ge=0, le=1)
     reason: str = ""
     functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
@@ -308,7 +301,7 @@ class CuratorDecision(BaseModel):
     embedding: list[float] = Field(default_factory=list, exclude=True)
     embedding_model: str = Field(default="", exclude=True)
 
-    @field_validator("code_description", "target_object_role", "reason", mode="before")
+    @field_validator("code_description", "reason", mode="before")
     @classmethod
     def normalize_nullable_text(cls, value):
         """Chấp nhận `null` ở các mô tả tuỳ chọn do LLM sinh."""
@@ -629,6 +622,7 @@ class AdminCodebookCode(BaseModel):
     scope_revision: int = 0
     drift_flag: bool = False
     scope_history: list[dict] = Field(default_factory=list)
+    scope_history_count: int = 0
 
 
 class AdminCodeOption(BaseModel):

@@ -113,6 +113,18 @@ def extraction_audit(
     return admin_controller.get_extraction_audit(db, item_id)
 
 
+@router.get("/items/{item_id}/codes/{code_id}/neighbors")
+def code_neighbors(item_id: str, code_id: str, limit: int = Query(default=5, ge=1, le=10),
+                   db: Session = Depends(get_db)):
+    return admin_controller.code_neighbors(db, item_id, code_id, limit)
+
+
+@router.get("/items/{item_id}/codes/{code_id}/history")
+def code_history(item_id: str, code_id: str, page: int = Query(default=1, ge=1),
+                 page_size: int = Query(default=5, ge=1, le=10), db: Session = Depends(get_db)):
+    return admin_controller.code_history(db, item_id, code_id, page, page_size)
+
+
 @router.get("/items/{item_id}/curator-audit", response_model=AdminCuratorAudit)
 def curator_audit(
     item_id: str, db: Session = Depends(get_db)

@@ -51,5 +51,4 @@ def health() -> dict:
             if settings.embedding_provider == "cloudflare"
             else "local-hash-v1"
         ),
-        "reference_cases_enabled": settings.reference_cases_enabled,
     }

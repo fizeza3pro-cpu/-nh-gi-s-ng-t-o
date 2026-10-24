@@ -117,6 +117,7 @@ def reference_cases_json(
     item_name: str,
     query_texts: list[str],
     limit: int,
+    max_chars: int = 2200,
     embedding_client: OpenAI | None = None,
 ) -> str:
     """Nén án lệ liên quan vào một ngân sách ký tự cố định cho prompt."""
@@ -137,7 +138,7 @@ def reference_cases_json(
         }
         candidate = [*prompt_cases, compact]
         encoded = json.dumps(candidate, ensure_ascii=False, separators=(",", ":"))
-        if len(encoded) > settings.reference_cases_max_chars:
+        if len(encoded) > max_chars:
             continue
         prompt_cases = candidate
     return json.dumps(prompt_cases, ensure_ascii=False, separators=(",", ":"))

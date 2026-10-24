@@ -303,3 +303,14 @@ npm run build
 ```
 
 ---
+
+
+### Contract mapping ngày 24/10/2026
+
+Extraction chỉ trả chữ ký `goal/object_role/mechanism`, không trả các trường vai trò trùng hoặc chép lại original. Backend kiểm tra index và trích dẫn. Các ý INVALID không gọi thêm verifier; không tìm án lệ bằng vector. Curator dùng catalog chung theo request và verifier chọn lọc theo rủi ro. Resolver chờ mã/phạm vi liên quan mới hoặc admin phân xử. Queue và phiên 180 giây giữ nguyên.
+
+`LLM_EXTRACTION_MAX_TOKENS=6144`, `LLM_CURATOR_MAX_TOKENS=4096`, `LLM_SCORING_MAX_TOKENS=4096` là trần output khởi điểm. Khi cắt JSON, thử phục hồi một lần có giới hạn; không nhận đầu ra thiếu dòng là thành công. BytePlus DeepSeek v4 dùng `BYTEPLUS_THINKING=disabled` mặc định (có thể đổi `enabled`), gửi rõ tham số thinking thay vì chỉ reasoning_effort. Khởi động lại backend/worker sau khi đổi. Token thực tế xem trong admin, tách audit nền; mục tiêu 20k/bài phải được đo trên tập nghiệm thu, không phải bảo đảm từ cấu hình.
+
+Mở rộng và gộp mã có nhật ký riêng, lưu phạm vi trước/sau và danh sách ý chuyển. Snapshot FINAL giữ nguyên. Các key bỏ nằm trong JSON, không phải cột SQL; không cần DROP COLUMN. Nếu cần dọn dữ liệu đang làm việc, chạy `uv run python -m scripts.cleanup_mapping_contract` để xem trước, rồi thêm `--apply --backup <đường-dẫn-file-mới.json>` để áp dụng với backup. Script giữ nguyên ý thuộc FINAL, bài đã có scored_at và audit lịch sử; không tự reset dữ liệu hoặc chấm lại bài cũ.
+
+`MAPPING_BATCH_SIZE=5` là cấu hình mặc định sau phép thử lô 3/5/10 trên bộ câu và mã tự biên soạn. Giữ lô 10 là lựa chọn đánh giá, chưa áp dụng mặc định. Số token trên fixture không chứng minh trung bình <=20k với dữ liệu thực; xem báo cáo triển khai ngày 24/10/2026.

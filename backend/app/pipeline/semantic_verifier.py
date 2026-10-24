@@ -18,9 +18,12 @@ def verify_pair(item, original: str, code: dict, client):
         client, model=settings.active_challenger_model,
         temperature=settings.code_curator_temperature, prompt=prompt,
         provider=settings.llm_provider, reasoning_effort=settings.active_reasoning_effort,
-        max_tokens=768, max_retries=settings.llm_max_retries, stage="pair_verifier",
+        max_tokens=settings.max_tokens_for("pair_verifier", 1), max_retries=settings.llm_max_retries, stage="pair_verifier",
     )
-    verdict = PairVerdict.model_validate(data)
+    try:
+        verdict = PairVerdict.model_validate(data)
+    except ValueError as exc:
+        raise LLMJSONError("Phân xử cặp sai contract.", metadata=meta) from exc
     if verdict.source_text != original or not verdict.evidence.strip() or verdict.evidence.casefold() not in original.casefold():
         raise LLMJSONError("Phân xử cặp không giữ đúng câu và bằng chứng nguồn.", metadata=meta)
     meta["source_digest"] = hashlib.sha256(original.encode()).hexdigest()
@@ -36,9 +39,12 @@ def propose_scope(item, original, code, client):
             "id", "name", "description", "functional_signature", "inclusion_rules", "exclusion_rules", "positive_examples")}, ensure_ascii=False))
     data, meta = chat_json(client, model=settings.active_challenger_model,
         temperature=settings.code_curator_temperature, prompt=prompt, provider=settings.llm_provider,
-        reasoning_effort=settings.active_reasoning_effort, max_tokens=1536,
+        reasoning_effort=settings.active_reasoning_effort, max_tokens=settings.max_tokens_for("scope_proposal", 1),
         max_retries=settings.llm_max_retries, stage="scope_proposal")
-    decision = CuratorDecision.model_validate(data)
+    try:
+        decision = CuratorDecision.model_validate(data)
+    except ValueError as exc:
+        raise LLMJSONError("Đề xuất phạm vi sai contract.", metadata=meta) from exc
     if decision.source_text != original or decision.existing_code_id != code["id"]:
         raise LLMJSONError("Đề xuất scope lệch nguồn hoặc code đích.", metadata=meta)
     return decision.model_copy(update={"decision": "EXPAND_EXISTING", "code_relation": "IDEA_BROADER_THAN_CODE",

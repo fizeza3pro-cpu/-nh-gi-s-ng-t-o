@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.db import SessionLocal
 from app.models.models import Item, ItemCode, Response, ResponseIdea, PipelineAudit
-from app.pipeline.codebook_service import list_curator_codes, _expand_existing_code, synchronize_response_mappings
+from app.pipeline.codebook_service import list_curator_codes, _merge_equivalent_codes, synchronize_response_mappings
 from app.pipeline.code_retrieval import cosine, signature_similarity
 from app.pipeline.centroid import rebuild_confirmed_members
 from app.pipeline.scope_audit import verify_expansions, guard_members
@@ -68,17 +68,21 @@ def run_one_audit():
         original = source["positive_examples"][0]
         verdict, metadata = verify_pair(item, original, target, client)
         if verdict.relation in {"SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE"} and verdict.goal_match and verdict.role_match and not verdict.exclusion_hit:
-            decision = CuratorDecision(idea_index=0, decision="EXPAND_EXISTING", existing_code_id=target["id"],
-                code_relation="IDEA_BROADER_THAN_CODE", code_name=target["name"], code_description=target["description"],
+            decision = CuratorDecision(idea_index=0, decision="MATCH_EXISTING", existing_code_id=target["id"],
+                code_relation=verdict.relation, code_name=target["name"], code_description=target["description"],
                 functional_signature=target["functional_signature"], inclusion_rules=target["inclusion_rules"],
                 exclusion_rules=target["exclusion_rules"], positive_examples=[original], absorbed_code_ids=[source["id"]],
                 confidence=0.9, reviewed_by_challenger=True,
-                existing_code_evaluations=[{"code_id": code_id, "relation": "IDEA_BROADER_THAN_CODE"} for code_id in [source["id"], target["id"]]],
+                existing_code_evaluations=[{"code_id": source["id"], "relation": verdict.relation}],
                 reason="Audit tự động xác nhận các member cùng phạm vi mã đích; giữ canonical ID và redirect mã nguồn.")
             extraction = IdeaExtractionResult(ideas=[ExtractedIdea(original=original, normalized=original, status="VALID")])
             accepted, checks, guards = verify_expansions(SessionLocal, item, extraction,
-                CuratorResult(decisions=[decision]), codes, client)
+                CuratorResult(decisions=[decision]), codes, client, merging=True)
             metadata = {"pair": metadata, "scope_audits": checks}
+            if any(check.get("outcome") == "TECHNICAL_ERROR" for check in checks):
+                reason = "TECHNICAL_ERROR"
+            elif any(check.get("outcome") == "BUDGET_EXCEEDED" for check in checks):
+                reason = "BUDGET_EXCEEDED"
     except Exception as exc:
         metadata = {"error_type": type(exc).__name__, "metadata": getattr(exc, "metadata", {})}
         reason = "Lỗi kỹ thuật audit; không thay đổi mã."
@@ -87,24 +91,26 @@ def run_one_audit():
         event = db.get(PipelineAudit, audit_id)
         if current.codebook_epoch == epoch and accepted is not None:
             guarded = guard_members(db, accepted, guards).decisions[0]
-            if guarded.decision == "EXPAND_EXISTING":
-                response = db.scalar(select(Response).join(ResponseIdea, ResponseIdea.response_id == Response.id)
-                                     .where(ResponseIdea.code_id == source["id"]).limit(1))
+            if guarded.decision == "MATCH_EXISTING":
                 allowed = {code.id: code for code in db.scalars(select(ItemCode).where(ItemCode.item_id == item.id)).all()}
-                if response:
-                    target_row, changed, reason = _expand_existing_code(db, item=current, response=response, decision=guarded, allowed_codes=allowed)
-                    if target_row:
-                        for code_id in changed:
-                            members = db.execute(select(ResponseIdea.embedding, ResponseIdea.embedding_model)
-                                .where(ResponseIdea.code_id == code_id, ResponseIdea.mapping_status == "VALID")).all()
-                            rebuild_confirmed_members(allowed[code_id], [(vector or [], model or "") for vector, model in members],
-                                                      drift_cosine_floor=settings.centroid_drift_cosine_floor)
-                        synchronize_response_mappings(db, item.id)
-                        current.calibration_dirty = True
-                        reason = "MERGED"
+                if source["id"] in allowed and target["id"] in allowed:
+                    moved = _merge_equivalent_codes(db, item=current, source=allowed[source["id"]],
+                        target=allowed[target["id"]], reason=guarded.reason)
+                    metadata["moved_ideas"] = moved
+                    for code_id in (source["id"], target["id"]):
+                        members = db.execute(select(ResponseIdea.embedding, ResponseIdea.embedding_model)
+                            .join(Response, Response.id == ResponseIdea.response_id)
+                            .where(ResponseIdea.code_id == code_id, ResponseIdea.mapping_status == "VALID",
+                                   Response.scoring_status != "EXCLUDED")).all()
+                        rebuild_confirmed_members(allowed[code_id], [(vector or [], model or "") for vector, model in members],
+                                                  drift_cosine_floor=settings.centroid_drift_cosine_floor)
+                        allowed[code_id].centroid_dirty = False
+                    synchronize_response_mappings(db, item.id)
+                    current.calibration_dirty = True
+                    reason = "MERGED"
         elif current.codebook_epoch != epoch:
             reason = "STALE_EPOCH"
-        event.payload = {**event.payload, "status": "RETRY" if reason == "STALE_EPOCH" or "error_type" in metadata else "DONE",
+        event.payload = {**event.payload, "status": "RETRY" if reason in {"STALE_EPOCH", "TECHNICAL_ERROR"} or "error_type" in metadata else "DONE",
                          "reason": reason, "metadata": metadata}
         db.commit()
     return True

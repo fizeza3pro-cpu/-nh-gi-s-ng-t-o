@@ -31,18 +31,36 @@ class DecisionChecks(BaseModel):
     checks: list[DecisionCheck]
 
 
+def verification_reason(idea, decision, candidates) -> str | None:
+    """Chỉ kiểm chứng rủi ro cụ thể; không lặp một cặp đã có bằng chứng độc lập."""
+    if decision.pair_verified:
+        return None
+    entirely_inferred = set(idea.inferred_signature_fields) >= {"goal", "object_role", "mechanism"}
+    if decision.decision == "MATCH_EXISTING" and entirely_inferred:
+        return "fully_inferred_match"
+    if decision.decision == "CREATE_NEW":
+        if any(float(c.get("semantic_similarity") or 0) >= settings.auto_match_semantic_floor
+               and float((c.get("signature_similarity") or {}).get("weighted") or 0)
+                   >= settings.auto_match_structural_floor for c in candidates):
+            return "new_code_overlaps_candidate"
+        if entirely_inferred:
+            return "fully_inferred_creation"
+    return None
+
+
 def verify_decisions(item, ideas, curator, candidates, client):
-    """Kiểm tra mã mới và MATCH suy diễn toàn bộ; không tự tạo thêm mã ở bước này."""
+    """Chốt chọn lọc các ca có rủi ro; CREATE rõ ràng không phải gọi LLM lần hai."""
     from app.schemas.schemas import CuratorResult
 
-    selected = []
+    selected, triggers = [], {}
     for decision in curator.decisions:
         idea = ideas.ideas[decision.idea_index]
-        entirely_inferred = set(idea.inferred_signature_fields) >= {"goal", "object_role", "mechanism"}
-        if decision.decision == "CREATE_NEW" or (decision.decision == "MATCH_EXISTING" and entirely_inferred):
+        reason = verification_reason(idea, decision, candidates.get(decision.idea_index, []))
+        if reason:
             selected.append(decision)
+            triggers[decision.idea_index] = reason
     if not selected:
-        return curator, {"skipped": True, "reason": "no_new_or_inferred_decision"}
+        return curator, {"skipped": True, "reason": "no_verification_risk"}
 
     replacements = {}
     runs = []
@@ -74,7 +92,7 @@ def verify_decisions(item, ideas, curator, candidates, client):
                 client, model=settings.active_challenger_model, temperature=0,
                 prompt=prompt, provider=settings.llm_provider,
                 reasoning_effort=settings.active_reasoning_effort,
-                max_tokens=settings.max_tokens_for("code_challenger"), max_retries=0,
+                max_tokens=settings.max_tokens_for("code_challenger", len(batch)), max_retries=0,
                 stage="decision_verifier",
             )
             checks = DecisionChecks.model_validate(data).checks
@@ -109,7 +127,8 @@ def verify_decisions(item, ideas, curator, candidates, client):
                                   existing_code_id=match.code_id, code_name=offered[decision.idea_index][match.code_id]["name"],
                                   pair_verified=True, reason=match.reason, proposal_group="")
                 replacements[decision.idea_index] = decision.model_copy(update=update)
-            runs.append({**meta, "checks": [c.model_dump() for c in checks]})
+            runs.append({**meta, "checks": [c.model_dump() for c in checks],
+                         "offered_code_ids": {str(i): list(values) for i, values in offered.items()}})
         except (LLMJSONError, ValueError) as exc:
             runs.append({**(getattr(exc, "metadata", None) or meta), "failed": True, "error_type": type(exc).__name__})
             for decision in batch:
@@ -117,4 +136,4 @@ def verify_decisions(item, ideas, curator, candidates, client):
                     "decision": "UNCERTAIN", "code_relation": "UNCERTAIN", "existing_code_id": None,
                     "pair_verified": False, "reason": "Chưa hoàn tất đối chiếu căn cứ và phạm vi code.",
                 })
-    return CuratorResult(decisions=[replacements.get(d.idea_index, d) for d in curator.decisions]), {"runs": runs}
+    return CuratorResult(decisions=[replacements.get(d.idea_index, d) for d in curator.decisions]), {"runs": runs, "triggers": triggers}

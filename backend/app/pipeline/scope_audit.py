@@ -6,6 +6,7 @@ from app.config import settings
 from app.models.models import ResponseIdea
 from app.pipeline.llm import chat_json, LLMJSONError
 from app.schemas.schemas import CuratorResult, PairVerdict
+from app.pipeline.code_retrieval import signature_similarity
 
 
 def member_rows(db, ids):
@@ -14,32 +15,39 @@ def member_rows(db, ids):
     ).order_by(ResponseIdea.id)).all()
 
 
-def verify_expansions(session_factory, item, extraction, curator, codes, client):
-    """Mỗi chunk có tối đa 8 câu; thiếu bằng chứng thì không đổi scope."""
+def verify_expansions(session_factory, item, extraction, curator, codes, client, *, merging=False):
+    """Kiểm chứng member; ví dụ mã khác là ca kiểm tra chồng lấn, không mặc định đối lập."""
     decisions, audits, guards = [], [], {}
     for decision in curator.decisions:
-        if decision.decision != "EXPAND_EXISTING":
+        if decision.decision != "EXPAND_EXISTING" and not (merging and decision.decision == "MATCH_EXISTING"):
             decisions.append(decision)
             continue
-        target_ids = {decision.existing_code_id, *decision.absorbed_code_ids}
+        target_ids = {key for key in [decision.existing_code_id, *decision.absorbed_code_ids] if key}
         with session_factory() as db:
             members = member_rows(db, target_ids)
         positive = [source for _, source in members]
         positive.append(extraction.ideas[decision.idea_index].original)
-        negative = [source for code in codes if code["id"] not in target_ids
-                    for source in (code.get("positive_examples") or [])[:2]]
+        neighbors = sorted((code for code in codes if code["id"] not in target_ids), key=lambda code: (
+            -signature_similarity(decision.functional_signature, code.get("functional_signature") or {})["weighted"],
+            code["id"],
+        ))[:3]
+        negative = [source for code in neighbors for source in (code.get("positive_examples") or [])[:2]
+                    if source not in positive]
         cases = [(source, True) for source in dict.fromkeys(positive)] + [(source, False) for source in dict.fromkeys(negative)]
         view = {"name": decision.code_name, "description": decision.code_description,
                 "functional_signature": decision.functional_signature.model_dump(),
                 "inclusion_rules": decision.inclusion_rules, "exclusion_rules": decision.exclusion_rules}
-        valid = True
+        valid, overlaps = True, set()
+        operation = "MERGE_EQUIVALENT" if merging else "EXPAND"
         if len(cases) > settings.scope_audit_max_cases:
             decisions.append(decision.model_copy(update={"decision": "UNCERTAIN", "code_relation": "UNCERTAIN",
                 "reason": "Số bằng chứng vượt ngân sách audit phạm vi; giữ nguyên mã và dữ liệu."}))
-            audits.append({"budget_exceeded": True, "case_count": len(cases)})
+            audits.append({"operation": operation, "outcome": "BUDGET_EXCEEDED", "budget_exceeded": True, "case_count": len(cases)})
             continue
+        meta = {}
         try:
             for start in range(0, len(cases), 8):
+                meta = {}
                 batch = cases[start:start + 8]
                 prompt = (Path(__file__).parent / "prompts/scope_member_audit.txt").read_text(encoding="utf-8").format(
                     item_name=item.name, item_description=item.description,
@@ -48,29 +56,38 @@ def verify_expansions(session_factory, item, extraction, curator, codes, client)
                 )
                 data, meta = chat_json(client, model=settings.active_challenger_model,
                     temperature=settings.code_curator_temperature, prompt=prompt, provider=settings.llm_provider,
-                    reasoning_effort=settings.active_reasoning_effort, max_tokens=3072,
+                    reasoning_effort=settings.active_reasoning_effort, max_tokens=settings.max_tokens_for("scope_member_audit", len(batch)),
                     max_retries=settings.llm_max_retries, stage="scope_member_audit")
                 checks = [PairVerdict.model_validate(value) for value in data.get("checks", [])]
-                audits.append({**meta, "checks": [check.model_dump() for check in checks]})
+                audits.append({**meta, "operation": operation, "checks": [check.model_dump() for check in checks]})
                 if len(checks) != len(batch):
                     valid = False
                     break
                 for (source, expected), check in zip(batch, checks):
                     grounded = check.source_text == source and bool(check.evidence.strip()) and check.evidence.casefold() in source.casefold()
                     fits = check.relation in {"SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE"} and check.goal_match and check.role_match and not check.exclusion_hit
-                    distinct = check.relation == "DIFFERENT" or check.exclusion_hit
-                    valid = valid and grounded and (fits if expected else distinct)
+                    valid = valid and grounded and (fits if expected else True)
+                    if not expected and (fits or check.relation == "UNCERTAIN"):
+                        overlaps.update(code["id"] for code in neighbors
+                                        if source in (code.get("positive_examples") or []))
                 if not valid:
                     break
         except (LLMJSONError, ValueError) as exc:
-            audits.append({"failed": True, "error_type": type(exc).__name__})
+            audits.append({**(getattr(exc, "metadata", None) or meta), "failed": True,
+                           "operation": operation, "outcome": "TECHNICAL_ERROR", "error_type": type(exc).__name__})
             valid = False
+        if overlaps:
+            audits.append({"operation": operation, "outcome": "OVERLAP_DETECTED", "code_ids": sorted(overlaps)})
+            # Gộp không đổi scope đích: mã thứ ba cùng họ sẽ được xét riêng, không cản cặp này.
+            if not merging:
+                valid = False
         if valid:
             guards[decision.idea_index] = (target_ids, {key for key, _ in members})
             decisions.append(decision)
         else:
             decisions.append(decision.model_copy(update={"decision": "UNCERTAIN", "code_relation": "UNCERTAIN",
-                "reason": "Phạm vi mới chưa giữ đủ các ý cũ hoặc chưa tách được mã lân cận."}))
+                "reason": ("Phạm vi mới chồng mã lân cận chưa được kiểm chứng: " + ", ".join(sorted(overlaps))
+                           if overlaps else "Chưa xác nhận đủ member hoặc kiểm chứng gặp lỗi; giữ nguyên mã.")}))
     return CuratorResult(decisions=decisions), audits, guards
 
 

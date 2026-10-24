@@ -8,7 +8,7 @@ mô tả và chữ ký category để đạt mức khái quát tối thiểu h�
 - Category phải bao phủ một họ cách dùng chung goal + vai trò của {item_name} + cơ chế, không chỉ chép lại
   sản phẩm/câu nguồn.
 - Không được gom các cách dùng đổi mục đích, vai trò hoặc cơ chế.
-- `functional_signature` là cấp category; `target` và `context` để rỗng.
+- `functional_signature` là cấp category, chỉ có goal, object_role, mechanism.
 - `scope_variants` gồm đúng 2 cách dùng giả định khác câu nguồn nhưng vẫn thuộc cùng category. Chúng chỉ là
   phép thử, không phải dữ liệu quan sát.
 - `inclusion_rules` mô tả cụ thể goal + object_role + mechanism.
@@ -34,10 +34,7 @@ Chỉ trả JSON ngắn:
       "functional_signature": {{
         "goal": "<mục đích cấp nhóm>",
         "object_role": "<vai trò cấp nhóm>",
-        "mechanism": "<cơ chế cấp nhóm>",
-        "transformation": "",
-        "target": "",
-        "context": ""
+        "mechanism": "<cơ chế cấp nhóm>"
       }},
       "scope_variants": ["<biến thể 1>", "<biến thể 2>"],
       "inclusion_rules": ["<quy tắc bao gồm>"],

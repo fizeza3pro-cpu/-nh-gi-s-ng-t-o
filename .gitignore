@@ -3,3 +3,7 @@ backend/.validation.env
 .artifacts/
 .playwright-cli/
 output/playwright/
+
+.cache/mapping-contract-backup-*.json
+.cache/scope-analysis-*.json
+.cache/scope-response-audits-*.json

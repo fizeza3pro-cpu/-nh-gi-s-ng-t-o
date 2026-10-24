@@ -26,7 +26,9 @@ from app.pipeline.codebook_service import (
     refresh_item_scoring_state,
     current_mapping,
 )
-from app.pipeline.dynamic_mapping import run_code_mapping, run_idea_extraction
+from app.pipeline.dynamic_mapping import run_code_mapping, run_idea_extraction, EXTRACTION_CONTRACT_VERSION
+from app.pipeline.code_retrieval import cosine, signature_similarity
+from app.pipeline.llm import LLMJSONError
 from app.pipeline.scoring import run_scoring
 from app.schemas.schemas import Item as ItemSchema
 from app.schemas.schemas import CuratorResult, ScoringResult, IdeaExtractionResult
@@ -69,7 +71,7 @@ def _claim(kind: str) -> tuple[str, str] | None:
                 Response.scoring_status == ResponseScoringStatus.PENDING_REVIEW,
                 available,
                 Response.resolution_attempts < settings.resolver_max_attempts,
-                or_(Response.resolution_next_at.is_(None), Response.resolution_next_at <= now),
+                Response.resolution_next_at.is_not(None), Response.resolution_next_at <= now,
                 Response.processing_attempts < settings.processing_max_attempts,
             )
         else:
@@ -182,15 +184,19 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
         curator_meta = {"mock": True}
     else:
         input_digest = hashlib.sha256(json.dumps(input_lines, ensure_ascii=False).encode()).hexdigest() # tạo sig
-        if (checkpoint.get("extraction") and checkpoint.get("input_digest") == input_digest #đã extraction và sig phải giống nhau
-                and not checkpoint.get("needs_extraction_repair")
-                and not any(idea.get("status") == "DUPLICATE" for idea in checkpoint["extraction"].get("ideas", []))):
+        if checkpoint.get("extraction") and checkpoint.get("input_digest") == input_digest:
+            if (checkpoint.get("needs_extraction_repair") or any(
+                idea.get("status") not in {"VALID", "INVALID"}
+                for idea in checkpoint["extraction"].get("ideas", [])
+            )):
+                raise LLMJSONError("Checkpoint cũ cần xử lý riêng, không tự phân tích lại lịch sử.",
+                                   metadata={"retryable": False, "error_type": "LegacyExtractionCheckpoint"})
             extraction = IdeaExtractionResult.model_validate(checkpoint["extraction"])
             extraction_meta = checkpoint.get("extraction_meta", {})
         else:
-            saved_verification = checkpoint.get("pre_verification") if checkpoint.get("input_digest") == input_digest else None
-            extraction, extraction_meta = run_idea_extraction(item, input_lines, client, embedding_client,
-                **({"checkpoint": saved_verification} if saved_verification else {}))
+            partial = checkpoint.get("extraction_partial") if checkpoint.get("input_digest") == input_digest else None
+            extraction, extraction_meta = run_idea_extraction(item, input_lines, client,
+                **({"checkpoint": partial} if partial else {}))
             with SessionLocal() as db:
                 saved = db.scalar(select(Response).where(Response.id == response_id).with_for_update())
                 if saved.processing_claim_token != token:
@@ -198,13 +204,14 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
                 saved.mapping_checkpoint = {
                     **(saved.mapping_checkpoint or {}), "input_digest": input_digest,
                     "extraction": extraction.model_dump(), "extraction_meta": extraction_meta,
-                    "needs_extraction_repair": any(idea.review_required for idea in extraction.ideas),
+                    "contract_version": EXTRACTION_CONTRACT_VERSION,
                 }
                 db.commit()
         curator, curator_meta = run_code_mapping(
             item, extraction, codes, client, embedding_client, idea_indices=pending_indices,
         )
 
+    discarded_mapping_runs = []
     for recheck in range(settings.codebook_recheck_limit):
         from app.pipeline.scope_audit import verify_expansions, guard_members
         curator, scope_meta, scope_guards = verify_expansions(SessionLocal, item, extraction, curator, codes, client)
@@ -231,7 +238,7 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
                 attempt_metadata = {
                     "attempt_id": token,
                     "idea_extraction": extraction_meta,
-                    "code_curator": curator_meta,
+                    "code_curator": {"runs": [*discarded_mapping_runs, curator_meta]} if discarded_mapping_runs else curator_meta,
                     "codebook_epoch_read": epoch,
                     "codebook_epoch_committed": item_row.codebook_epoch,
                     "stale_rechecks": recheck,
@@ -255,8 +262,10 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
                     "compared_code_ids": [code["id"] for code in codes]}
                 if resolving:
                     row.resolution_attempts += 1
-                row.resolution_next_at = _now() + timedelta(seconds=settings.resolver_retry_seconds)
-                if has_uncertain and row.resolution_attempts >= settings.resolver_max_attempts:
+                row.resolution_next_at = None
+                if has_uncertain:
+                    row.mapping_checkpoint = {**row.mapping_checkpoint,
+                        "resolution_context": _resolution_context(db, row, codes)}
                     for pending in db.scalars(select(ResponseIdea).where(
                         ResponseIdea.response_id == row.id, ResponseIdea.code_id.is_(None),
                         ResponseIdea.mapping_status == "VALID",
@@ -272,6 +281,7 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
             codes = list_curator_codes(db, item.id)
             new_code_ids.update(code["id"] for code in codes if code["id"] not in original_code_ids)
 
+        discarded_mapping_runs.append(curator_meta)
         # Kết luận "ngoài codebook" ở epoch cũ không còn giá trị.
         if settings.mock_mode:
             extraction, curator = mock_pipeline.run_mapping(item, raw, codes)
@@ -280,7 +290,8 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
             curator, curator_meta = run_code_mapping(
                 item, extraction, codes, client, embedding_client, idea_indices=pending_indices,
             )
-    raise RuntimeError("Codebook đổi liên tục; sẽ thử lại từ bản mới.")
+    raise LLMJSONError("Codebook đổi liên tục; sẽ thử lại từ bản mới.", metadata={
+        "stage": "mapping_recheck", "retryable": True, "runs": [*discarded_mapping_runs, curator_meta]})
 
 
 def _recount_one_item() -> bool:
@@ -313,36 +324,51 @@ def _refresh_one_centroid() -> bool:
         return True
 
 
+def _resolution_context(db, row, codes) -> str:
+    """Chỉ thay phạm vi/mã liên quan mới là căn cứ mới; centroid nhích không đánh thức LLM."""
+    pending = db.scalars(select(ResponseIdea).where(ResponseIdea.response_id == row.id,
+        ResponseIdea.mapping_status == "VALID", ResponseIdea.code_id.is_(None))).all()
+    context = []
+    for idea in sorted(pending, key=lambda x: x.line_index):
+        related = []
+        for code in codes:
+            structural = signature_similarity(idea.functional_signature, code.get("functional_signature") or {})["weighted"]
+            semantic = (cosine(idea.embedding or [], code.get("embedding") or [])
+                        if idea.embedding_model and idea.embedding_model == code.get("embedding_model") else 0)
+            if structural >= 0.25 or semantic >= settings.auto_match_semantic_floor:
+                related.append({k: code.get(k) for k in ("id", "scope_revision", "name", "description",
+                    "functional_signature", "inclusion_rules", "exclusion_rules")})
+        context.append({"line_index": idea.line_index, "original": idea.original,
+                        "signature": idea.functional_signature,
+                        "codes": sorted(related, key=lambda x: x["id"])})
+    return hashlib.sha256(json.dumps(context, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
 def _wake_one_unresolved() -> bool:
-    """Thử thêm tối đa một lần khi có mã mới liên quan; không quét lại toàn bộ mapping."""
-    from app.pipeline.code_retrieval import signature_similarity
+    """Chỉ đặt lịch resolver khi có mã/phạm vi liên quan mới và còn ngân sách."""
     with SessionLocal() as db:
         rows = db.scalars(select(Response).join(Item, Item.id == Response.item_id).where(
             Response.scoring_status == ResponseScoringStatus.PENDING_REVIEW,
             Response.processing_state == "DONE",
-            Response.resolution_attempts >= settings.resolver_max_attempts,
+            Response.resolution_attempts < settings.resolver_max_attempts,
+            Response.resolution_next_at.is_(None),
             Response.resolution_epoch < Item.codebook_epoch,
         ).order_by(Response.created_at).limit(50).with_for_update(of=Response, skip_locked=True)).all()
         for row in rows:
             checkpoint = row.mapping_checkpoint or {}
-            if checkpoint.get("context_wakeup_used"):
-                continue
-            compared = set(checkpoint.get("compared_code_ids", []))
-            new_codes = [code for code in list_curator_codes(db, row.item_id) if code["id"] not in compared]
-            pending = db.scalars(select(ResponseIdea).where(ResponseIdea.response_id == row.id,
-                ResponseIdea.mapping_status == "VALID", ResponseIdea.code_id.is_(None))).all()
-            related = any(signature_similarity(idea.functional_signature, code["functional_signature"])["weighted"] >= 0.25
-                          for idea in pending for code in new_codes)
+            codes = list_curator_codes(db, row.item_id)
+            context = _resolution_context(db, row, codes)
             row.resolution_epoch = row.item.codebook_epoch
-            if not related:
+            previous = checkpoint.get("resolution_context")
+            row.mapping_checkpoint = {**checkpoint, "resolution_context": context}
+            if previous is None or previous == context:
                 continue
-            row.mapping_checkpoint = {**checkpoint, "context_wakeup_used": True}
-            row.resolution_attempts = settings.resolver_max_attempts - 1
             row.resolution_next_at = _now()
-            for idea in pending:
+            for idea in db.scalars(select(ResponseIdea).where(ResponseIdea.response_id == row.id,
+                ResponseIdea.mapping_status == "VALID", ResponseIdea.code_id.is_(None))).all():
                 idea.coding_state = "RESOLVING"
             db.add(PipelineAudit(item_id=row.item_id, response_id=row.id, event="CONTEXT_WAKEUP",
-                                 payload={"new_code_ids": [code["id"] for code in new_codes]}))
+                                 payload={"previous_context": previous, "context": context}))
             db.commit()
             return True
         db.commit()
@@ -375,6 +401,8 @@ def _run_scoring(response_id: str, token: str) -> None:
         if row is None or row.processing_claim_token != token or row.scoring_status == ResponseScoringStatus.FINAL:
             return
         if not item_is_ready_for_scoring(db, row.item):
+            db.add(PipelineAudit(item_id=row.item_id, response_id=row.id, event="SCORING_DISCARDED",
+                                 payload={"reason": "calibration_changed", "scoring": scoring_meta}))
             _release_claim(row)
             refresh_item_scoring_state(db, row.item)
             db.commit()
@@ -384,6 +412,8 @@ def _run_scoring(response_id: str, token: str) -> None:
         current_keys = {(idea.idea_id or (idea.original, idea.normalized)) for idea in current_ideas}
         if current_keys != set(old_scores):
             # Mapping đổi trong lúc LLM chấm: lượt kế tiếp sẽ chấm lại từ đầu.
+            db.add(PipelineAudit(item_id=row.item_id, response_id=row.id, event="SCORING_DISCARDED",
+                                 payload={"reason": "mapping_changed", "scoring": scoring_meta}))
             _release_claim(row)
             db.commit()
             return
@@ -443,7 +473,7 @@ def _record_failure(response_id: str, token: str, kind: str, error: Exception) -
             input_lines = row.input_lines or row.raw_input.splitlines()
             row.mapping_checkpoint = {**(row.mapping_checkpoint or {}),
                 "input_digest": hashlib.sha256(json.dumps(input_lines, ensure_ascii=False).encode()).hexdigest(),
-                "pre_verification": extraction_checkpoint}
+                "extraction_partial": extraction_checkpoint}
         exhausted = row.processing_attempts >= settings.processing_max_attempts or metadata.get("retryable") is False
         row.processing_state = "FAILED" if exhausted else ("QUEUED" if kind == "mapping" else "DONE")
         row.processing_error = type(error).__name__

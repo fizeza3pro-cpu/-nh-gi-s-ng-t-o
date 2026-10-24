@@ -1,0 +1,57 @@
+{
+  "response_id": "23461db7-0dad-4965-adc2-fcd3bd27b3d2",
+  "data_source": "PILOT",
+  "input_count": 10,
+  "code_count": 47,
+  "batch_size": 5,
+  "model": "deepseek-v4-1-flash-261017",
+  "evaluation": "retrospective_current_codebook",
+  "database_writes": false,
+  "independent_human_accuracy_measured": false,
+  "error_type": "LLMJSONError",
+  "completed_through_scoring": false,
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "reasoning_tokens": 0,
+    "cached_tokens": 0
+  },
+  "calls": [
+    {
+      "id": "7c7dc168-228f-47f1-a98b-1cef233c92f9:0",
+      "stage": "idea_extraction",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": false,
+      "latency_ms": 118.64,
+      "status": "REQUEST_ERROR",
+      "finish_reason": null
+    },
+    {
+      "id": "7c7dc168-228f-47f1-a98b-1cef233c92f9:1",
+      "stage": "idea_extraction",
+      "model": "deepseek-v4-1-flash-261017",
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "usage_known": false,
+      "latency_ms": 13.92,
+      "status": "REQUEST_ERROR",
+      "finish_reason": null
+    }
+  ],
+  "provider_requests": 2,
+  "budget_limit_hit": false,
+  "elapsed_seconds": 0.93
+}

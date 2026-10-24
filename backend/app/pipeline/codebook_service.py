@@ -69,7 +69,6 @@ def list_curator_codes(db: Session, item_id: str) -> list[dict]:
             "scope_revision": row.scope_revision or 0,
         }
         for row in rows
-        if _code_mentions_target(item, row)
     ]
 
 
@@ -85,24 +84,23 @@ def _code_mentions_target(item: Item, code: ItemCode) -> bool:
 
 
 def _extraction_is_grounded(item: Item, idea) -> bool:
-    """Ý VALID phải xác nhận đúng vật thể và nêu được vai trò của vật thể đó."""
+    """Vai trò nằm trong chữ ký; không dùng thêm boolean hoặc vai trò trùng lặp."""
     return bool(
-        idea.uses_target_object
-        and idea.target_object_role.strip()
+        idea.status == "VALID"
+        and idea.functional_signature.goal.strip()
+        and idea.functional_signature.object_role.strip()
         and _mentions_target(idea.object_used, item.name)
     )
 
 
 def _curator_is_grounded(item: Item, decision, code_row: ItemCode | None = None) -> bool:
-    """Curator phải xác nhận lại vật thể; code mới còn phải gọi đúng tên vật thể."""
-    if not decision.target_object_confirmed or not decision.target_object_role.strip():
-        return False
+    """Mã thuộc item theo định danh; mã mới phải có chữ ký chức năng cấp nhóm."""
     if decision.decision in {"CREATE_NEW", "EXPAND_EXISTING"}:
-        return _mentions_target(
-            f"{decision.code_name or ''} {decision.code_description}", item.name
-        )
+        return (all(getattr(decision.functional_signature, field).strip()
+                    for field in ("goal", "object_role", "mechanism"))
+                and _mentions_target(f"{decision.code_name or ''} {decision.code_description}", item.name))
     if decision.decision == "MATCH_EXISTING":
-        return code_row is not None and _code_mentions_target(item, code_row)
+        return code_row is not None and code_row.item_id == item.id
     return False
 
 
@@ -262,6 +260,55 @@ def _unique_texts(*groups: list[str]) -> list[str]:
     return result
 
 
+def _scope_snapshot(code: ItemCode) -> dict:
+    """Chụp định nghĩa tại thời điểm đổi mã, không dựng lại lịch sử từ dữ liệu về sau."""
+    return {"name": code.name, "description": code.description,
+            "functional_signature": code.functional_signature or {},
+            "inclusion_rules": code.inclusion_rules or [], "exclusion_rules": code.exclusion_rules or []}
+
+
+def _transfer_members(db: Session, source_ids: set[str], target_id: str) -> list[dict]:
+    """Khóa và ghi chính xác các ý chuyển trong transaction đang giữ khóa đồ vật."""
+    if not source_ids:
+        return []
+    rows = db.scalars(select(ResponseIdea).where(ResponseIdea.code_id.in_(source_ids))
+                      .order_by(ResponseIdea.id).with_for_update()).all()
+    moved = [{"idea_id": row.id, "response_id": row.response_id,
+              "from_code_id": row.code_id, "to_code_id": target_id} for row in rows]
+    for row in rows:
+        row.code_id = target_id
+    return moved
+
+
+def _merge_equivalent_codes(db: Session, *, item: Item, source: ItemCode, target: ItemCode,
+                            reason: str, operation: str = "MERGE_EQUIVALENT") -> list[dict]:
+    """Gộp member đã được kiểm chứng, không sửa định nghĩa/vector mã đích."""
+    if (source.id == target.id or source.item_id != item.id or target.item_id != item.id
+            or any(code.maturity_status != CodeMaturityStatus.ACTIVE
+                   or code.validation_status != CodeValidationStatus.ACCEPTED for code in (source, target))):
+        raise ValueError("Mã gộp không còn cùng đồ vật hoặc không hoạt động.")
+    previous = _scope_snapshot(target)
+    epoch_before = item.codebook_epoch or 0
+    moved = _transfer_members(db, {source.id}, target.id)
+    source.maturity_status = CodeMaturityStatus.MERGED
+    source.merged_into_id = target.id
+    source.relevance_reason = reason
+    source.centroid_dirty = target.centroid_dirty = True
+    target.positive_examples = _unique_texts(target.positive_examples or [], source.positive_examples or [])
+    item.codebook_epoch = epoch_before + 1
+    entry = {"changed_at": datetime.now(timezone.utc).isoformat(), "change": operation,
+             "operation": operation, "source_code_ids": [source.id], "target_code_id": target.id,
+             "absorbed_code_ids": [source.id], "source_scopes": {source.id: _scope_snapshot(source)}, "previous": previous, "current": _scope_snapshot(target),
+             "scope_revision_before": target.scope_revision, "scope_revision_after": target.scope_revision,
+             "epoch_before": epoch_before, "epoch_after": item.codebook_epoch,
+             "moved_ideas": moved, "reason": reason}
+    target.scope_history = [*(target.scope_history or []), entry]
+    db.add(PipelineAudit(item_id=item.id, event="CODE_MERGE", payload=entry))
+    item.calibration_dirty = True
+    db.flush()
+    return moved
+
+
 def _expand_existing_code(
     db: Session,
     *,
@@ -320,13 +367,9 @@ def _expand_existing_code(
         )[:255]
         db.flush()
 
-    previous = {
-        "name": target.name,
-        "description": target.description,
-        "functional_signature": target.functional_signature or {},
-        "inclusion_rules": target.inclusion_rules or [],
-        "exclusion_rules": target.exclusion_rules or [],
-    }
+    previous = _scope_snapshot(target)
+    revision_before = target.scope_revision or 0
+    epoch_before = item.codebook_epoch or 0
     changed_code_ids = {target.id, *absorbed_ids}
     target.name = new_name
     target.normalized_name = normalized_name
@@ -346,33 +389,30 @@ def _expand_existing_code(
     target.embedding_model = decision.embedding_model or active_embedding_model(None)
     target.confidence = decision.confidence
     target.relevance_reason = decision.reason
+    moved = _transfer_members(db, absorbed_ids, target.id)
+    if previous == _scope_snapshot(target) and not absorbed_ids:
+        return target, {target.id}, ""
+    entry = {
+        "changed_at": datetime.now(timezone.utc).isoformat(), "change": "AUTO_SCOPE_EXPANSION",
+        "operation": "EXPAND", "source_response_id": response.id,
+        "source_code_ids": sorted(absorbed_ids), "target_code_id": target.id,
+        "previous": previous, "current": _scope_snapshot(target),
+        "absorbed_code_ids": sorted(absorbed_ids), "source_scopes": {code.id: _scope_snapshot(code) for code in absorbed}, "moved_ideas": moved,
+        "scope_revision_before": revision_before, "scope_revision_after": revision_before + 1,
+        "epoch_before": epoch_before, "epoch_after": epoch_before + 1, "reason": decision.reason,
+    }
     target.scope_history = [
         *(target.scope_history or []),
-        {
-            "changed_at": datetime.now(timezone.utc).isoformat(),
-            "source_response_id": response.id,
-            "change": "AUTO_SCOPE_EXPANSION",
-            "previous": previous,
-            "current": {
-                "name": target.name,
-                "description": target.description,
-                "functional_signature": target.functional_signature,
-                "inclusion_rules": target.inclusion_rules,
-                "exclusion_rules": target.exclusion_rules,
-            },
-            "absorbed_code_ids": sorted(absorbed_ids),
-            "reason": decision.reason,
-        },
+        entry,
     ]
     target.scope_revision = (target.scope_revision or 0) + 1
     item.codebook_epoch = (item.codebook_epoch or 0) + 1
     for code in absorbed:
-        db.execute(
-            update(ResponseIdea).where(ResponseIdea.code_id == code.id).values(code_id=target.id)
-        )
         code.maturity_status = CodeMaturityStatus.MERGED
         code.merged_into_id = target.id
         code.relevance_reason = f"Được AI hấp thụ vào code rộng hơn: {target.name}."
+        code.centroid_dirty = True
+    db.add(PipelineAudit(item_id=item.id, response_id=response.id, event="CODE_SCOPE_EXPANSION", payload=entry))
     db.flush()
     return target, changed_code_ids, ""
 
@@ -504,12 +544,15 @@ def persist_mapping(
             decision_name = "EXTRACTION_REVIEW"
             confidence = 0.0
         elif status == "VALID" and not _extraction_is_grounded(item, idea):
-            status = "INVALID"
-            decision_name = "EXTRACTION_OBJECT_GUARD"
-            confidence = 1.0
+            # Thiếu chữ ký hoặc mâu thuẫn tên vật là kết quả cần phân xử, không tự kết luận ý vô nghĩa.
+            requires_extraction_review = True
+            has_uncertain = True
+            decision_name = "EXTRACTION_REVIEW"
+            confidence = 0.0
+            evidence["extraction_review_required"] = True
             reason = (
-                f"Không xác nhận được vai trò của {item.name}; đồ vật được nhận diện là "
-                f"{idea.object_used or 'không xác định'}."
+                f"Chưa đủ căn cứ chữ ký/vật thể để gắn mã cho {item.name}; "
+                f"đồ vật được nhận diện là {idea.object_used or 'không xác định'}."
             )
 
         if status == "VALID" and not requires_extraction_review:

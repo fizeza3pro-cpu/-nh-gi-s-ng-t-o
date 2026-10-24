@@ -5,15 +5,19 @@ Trả groups, mỗi idea_index đúng một lần. Ý cùng category có một c
 Không đổi cách hiểu câu gốc để ép các ý thành một nhóm. Không tự thêm bối cảnh chơi mô phỏng,
 thuộc tính hoặc bộ phận; nếu thiếu căn cứ thì UNCERTAIN.
 Hai nhóm khác chức năng được giữ RIÊNG dù heuristic cho là gần. Chưa rõ thì UNCERTAIN.
-Giữ từng ý VALID riêng biệt, kể cả lặp công dụng; chỉ thống nhất category, không loại ý trùng. Khái quát tối thiểu, bỏ người nhận/bối cảnh.
-Chứa sách và chứa quân nhu cùng họ chứa; đào hầm và đào công sự cùng họ đào đất.
-Gãi khác tặng, nhiên liệu khác chứa, đồ chơi khác trang sức. Không bịa chống nước/nuôi dưỡng.
+Giữ từng ý VALID riêng biệt, kể cả lặp công dụng; chỉ thống nhất category, không loại ý trùng.
+Đánh giá chức năng TRỰC TIẾP của đồ vật, không dùng mục đích phía sau để chia nhóm.
+Trước khi giữ riêng, bỏ tên vật được chứa/người nhận/bộ phận được kê/địa điểm khỏi mô tả:
+nếu tác dụng trực tiếp, vai trò và nguyên lý vẫn cùng một chức năng thì dùng một canonical.
+Khác loại đồ mang theo, nơi sử dụng hay phần cơ thể được tựa không phải khác chức năng.
+Chỉ giữ riêng khi nêu được khác biệt tác dụng trực tiếp hoặc nguyên lý làm việc ảnh hưởng
+ranh giới nhóm; không dùng lại sự khác nhau của bối cảnh làm lý do. Chung cơ chế đơn thuần
+chưa đủ nếu tác dụng trực tiếp khác. Không bịa thêm đặc tính để gộp.
 Chỉ JSON đúng mẫu. Với CREATE_NEW, code_relation luôn DIFFERENT, tuyệt đối không dùng SAME:
 {{"groups":[{{"idea_indices":[0,2],"canonical":{{
 "idea_index":0,"decision":"CREATE_NEW","code_relation":"DIFFERENT",
 "code_name":"<họ chức năng>","code_description":"<nhắc đúng tên đồ vật>",
-"target_object_confirmed":true,"target_object_role":"<vai trò vật>",
-"functional_signature":{{"goal":"","object_role":"","mechanism":"","transformation":"","target":"","context":""}},
+"functional_signature":{{"goal":"","object_role":"","mechanism":""}},
 "scope_variants":["<biến thể giả định 1>","<biến thể giả định 2>"],
 "inclusion_rules":["<ranh giới chức năng cụ thể>"],"exclusion_rules":["<phản ví dụ gần khác chức năng>"],
 "confidence":0.9,"reason":"<vì sao gộp hoặc giữ riêng>"

@@ -18,7 +18,6 @@ from app.pipeline.code_retrieval import (
 )
 from app.pipeline.embedding import embed_texts
 from app.pipeline.llm import LLMJSONError, chat_json
-from app.pipeline.reference_dataset import reference_cases_json
 from app.schemas.schemas import (
     CuratorDecision,
     CuratorResult,
@@ -26,6 +25,7 @@ from app.schemas.schemas import (
     IdeaExtractionResult,
     Item,
     ReconciliationResult,
+    FunctionalSignature,
 )
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
@@ -35,12 +35,7 @@ _CHALLENGER_TEMPLATE = (_PROMPT_DIR / "code_challenger.txt").read_text(encoding=
 _BOUNDARY_REPAIR_TEMPLATE = (_PROMPT_DIR / "code_boundary_repair.txt").read_text(
     encoding="utf-8"
 )
-_INVALID_VERIFIER_TEMPLATE = (_PROMPT_DIR / "idea_invalid_verifier.txt").read_text(
-    encoding="utf-8"
-)
-_INVALID_POLICY_REPAIR_TEMPLATE = (
-    _PROMPT_DIR / "idea_invalid_policy_repair.txt"
-).read_text(encoding="utf-8")
+EXTRACTION_CONTRACT_VERSION = 3
 _BATCH_RECONCILER_TEMPLATE = (_PROMPT_DIR / "code_batch_reconciler.txt").read_text(
     encoding="utf-8"
 )
@@ -202,7 +197,7 @@ def _candidate_prompt_view(candidate: dict) -> dict:
         "id": candidate.get("id"),
         "name": candidate.get("name"),
         "description": str(candidate.get("description") or "")[:320],
-        "functional_signature": candidate.get("functional_signature") or {},
+        "functional_signature": FunctionalSignature.model_validate(candidate.get("functional_signature") or {}).model_dump(),
         "inclusion_rules": list(candidate.get("inclusion_rules") or [])[:2],
         "exclusion_rules": list(candidate.get("exclusion_rules") or [])[:2],
         "positive_examples": list(candidate.get("positive_examples") or [])[:2],
@@ -212,33 +207,35 @@ def _candidate_prompt_view(candidate: dict) -> dict:
     }
 
 
+def _shared_candidate_payload(cases: list[dict], *, key: str = "ideas") -> str:
+    """Mỗi định nghĩa mã chỉ xuất hiện một lần; quyền chọn mã vẫn riêng cho từng ý."""
+    catalog, rows = {}, []
+    for case in cases:
+        references = []
+        for candidate in case.get("nearest_codes", []):
+            code_id = candidate["id"]
+            catalog.setdefault(code_id, {k: v for k, v in candidate.items()
+                if k not in {"retrieval_score", "semantic_similarity", "signature_similarity"}})
+            # Điểm thành phần dùng cho guard/audit backend; Curator chỉ cần thứ hạng và điểm retrieval.
+            references.append({"code_id": code_id, **({"retrieval_score": candidate["retrieval_score"]}
+                if "retrieval_score" in candidate else {})})
+        rows.append({**{k: v for k, v in case.items() if k != "nearest_codes"}, "candidates": references})
+    return json.dumps({"codes": list(catalog.values()), key: rows}, ensure_ascii=False, separators=(",", ":"))
+
+
 def _category_signature(signature):
-    """Bỏ đích/bối cảnh đơn lẻ khỏi chữ ký code nhưng giữ chúng trong chữ ký của ý gốc."""
-    return signature.model_copy(update={"target": "", "context": ""})
+    """Chữ ký ý và mã cùng contract ba trường; phạm vi mã do Curator khái quát."""
+    return signature.model_copy()
 
 
-def _hydrate_curator_decision(
-    decision: CuratorDecision, idea: ExtractedIdea
-) -> CuratorDecision:
-    """Bổ sung bằng chứng backend và tách chữ ký category khỏi chữ ký của một ý cụ thể."""
-    update: dict = {}
+def _hydrate_curator_decision(decision: CuratorDecision, idea: ExtractedIdea) -> CuratorDecision:
+    """Chỉ bổ sung dữ liệu nguồn thật; không bù chữ ký mã mới bằng chữ ký của ý."""
+    update = {}
     if decision.decision in {"CREATE_NEW", "EXPAND_EXISTING"}:
-        # Không được lấy chữ ký của ý làm chữ ký code khi model quên trường này: đó chính là
-        # lỗi khiến category bị đóng khung theo một sản phẩm. Giữ rỗng để scope-repair xử lý.
-        update["functional_signature"] = _category_signature(
-            decision.functional_signature
-        )
-        # Chỉ câu thật của người tham gia mới được lưu làm ví dụ xác nhận. scope_variants
-        # do LLM sinh chỉ là phép thử phản thực tế, không được trộn vào dữ liệu quan sát.
+        update["functional_signature"] = _category_signature(decision.functional_signature)
         update["positive_examples"] = [idea.original]
     elif not decision.functional_signature.goal.strip():
         update["functional_signature"] = idea.functional_signature
-    if not decision.target_object_role.strip():
-        update["target_object_role"] = idea.target_object_role
-    if not decision.target_object_confirmed:
-        update["target_object_confirmed"] = bool(
-            idea.uses_target_object and idea.target_object_role.strip()
-        )
     return decision.model_copy(update=update) if update else decision
 
 
@@ -560,379 +557,85 @@ def _normalize_curator_contract(
     )
 
 
-def _core_signature_complete(idea) -> bool:
-    """Một category khởi tạo phải có đủ mục đích, vai trò và cơ chế."""
-    return all(
-        getattr(idea.functional_signature, field).strip()
-        for field in ("goal", "object_role", "mechanism")
-    )
-
-
-def _mentions_target_object(item: Item, object_used: str) -> bool:
-    """Đối chiếu tên vật thể theo tập token không dấu để sửa cờ boolean thiếu nhất quán."""
-    target_tokens = set(normalize_code_name(item.name).split())
-    used_tokens = set(normalize_code_name(object_used).split())
-    return bool(target_tokens and target_tokens.issubset(used_tokens))
-
-
-def _invalid_reason_violates_policy(reason: str) -> bool:
-    """Nhận diện lý do INVALID đang chấm tính khả thi/an toàn thay vì adequacy."""
-    normalized = normalize_text(reason)
-    return any(
-        marker in normalized
-        for marker in (
-            "khong the",
-            "khong kha thi",
-            "nguy hiem",
-            "chi la phan",
-            "chi la vo",
-            "da duoc su dung",
-            "khong con tac dung",
-        )
-    )
-
-
-def _verify_invalid_extractions(
-    *,
-    item: Item,
-    ideas: list[ExtractedIdea],
-    client: OpenAI,
-) -> tuple[list[ExtractedIdea], dict | None]:
-    """Kiểm tra lần hai các câu có nghĩa bị Extraction loại quá sớm."""
-    reviewable = [
-        idea
-        for idea in ideas
-        if idea.status == "INVALID" and idea.original.strip()
-    ]
-    if not reviewable:
-        return ideas, None
-
-    prompt = _INVALID_VERIFIER_TEMPLATE.format(
-        item_name=item.name,
-        item_description=item.description,
-        invalid_cases_json=json.dumps(
-            [
-                {
-                    "line_index": idea.line_index,
-                    "original": idea.original,
-                    "normalized": idea.normalized,
-                    "first_reason": idea.reason,
-                }
-                for idea in reviewable
-            ],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ),
-    )
-    meta = {}
-    try:
-        data, meta = chat_json(
-            client,
-            model=settings.active_llm_model,
-            temperature=settings.mapping_temperature,
-            prompt=prompt,
-            provider=settings.llm_provider,
-            reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("invalid_verifier"),
-            max_retries=settings.llm_max_retries,
-            stage="invalid_verifier",
-            include_raw_response=settings.store_raw_llm_response,
-        )
-        verified, meta = _validate_adequacy_result(data, meta, reviewable, prompt, client, "invalid_verifier")
-    except (LLMJSONError, ValueError) as exc:
-        raise LLMJSONError("Chưa hoàn tất kiểm chứng các ý bị loại; giữ bài để thử lại.", metadata=_failure_meta(exc, meta)) from exc
-
-    verified_by_index = {idea.line_index: idea for idea in verified.ideas}
-    final: list[ExtractedIdea] = []
-    for idea in ideas:
-        candidate = verified_by_index.get(idea.line_index)
-        if idea.status != "INVALID" or candidate is None:
-            final.append(idea)
-            continue
-        candidate = candidate.model_copy(update={"original": idea.original, "idea_id": idea.idea_id})
-        if (
-            candidate.status == "VALID"
-            and candidate.uses_target_object
-            and _mentions_target_object(item, candidate.object_used)
-            and candidate.target_object_role.strip()
-            and _core_signature_complete(candidate)
-        ):
-            final.append(candidate)
-        else:
-            final.append(candidate if candidate.status == "INVALID" else idea.model_copy(update={"review_required": True}))
-
-    policy_retry_indices = {
-        idea.line_index
-        for idea in final
-        if idea.status == "INVALID"
-        and (
-            _invalid_reason_violates_policy(idea.reason)
-            or _invalid_reason_violates_policy(
-                (verified_by_index.get(idea.line_index) or idea).reason
-            )
-        )
-    }
-    if not policy_retry_indices:
-        return final, meta
-
-    repair_prompt = _INVALID_POLICY_REPAIR_TEMPLATE.format(
-        item_name=item.name,
-        item_description=item.description,
-        invalid_cases_json=json.dumps(
-            [
-                {
-                    "line_index": idea.line_index,
-                    "original": idea.original,
-                    "previous_reason": idea.reason,
-                }
-                for idea in final
-                if idea.line_index in policy_retry_indices
-            ],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ),
-    )
-    repair_meta = {}
-    try:
-        repair_data, repair_meta = chat_json(
-            client,
-            model=settings.active_llm_model,
-            temperature=settings.mapping_temperature,
-            prompt=repair_prompt,
-            provider=settings.llm_provider,
-            reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("invalid_policy_repair"),
-            max_retries=settings.llm_max_retries,
-            stage="invalid_policy_repair",
-            include_raw_response=settings.store_raw_llm_response,
-        )
-        repaired, repair_meta = _validate_adequacy_result(repair_data, repair_meta,
-            [idea for idea in final if idea.line_index in policy_retry_indices],
-            repair_prompt, client, "invalid_policy_repair")
-        repaired_by_index = {idea.line_index: idea for idea in repaired.ideas}
-    except (LLMJSONError, ValueError) as exc:
-        raise LLMJSONError("Lỗi kỹ thuật khi kiểm chứng adequacy; chưa kết luận INVALID.", metadata=_failure_meta(exc, repair_meta)) from exc
-
-    recovered: list[ExtractedIdea] = []
-    for idea in final:
-        candidate = repaired_by_index.get(idea.line_index)
-        if (
-            idea.line_index in policy_retry_indices
-            and candidate is not None
-            and candidate.status == "VALID"
-            and candidate.uses_target_object
-            and _mentions_target_object(item, candidate.object_used)
-            and candidate.target_object_role.strip()
-            and _core_signature_complete(candidate)
-        ):
-            candidate = candidate.model_copy(update={"original": idea.original, "idea_id": idea.idea_id})
-            recovered.append(candidate)
-        elif (
-            idea.line_index in policy_retry_indices
-            and candidate is not None
-            and candidate.status == "INVALID"
-            and candidate.reason.strip()
-            and not _invalid_reason_violates_policy(candidate.reason)
-        ):
-            # Kiểm tra lại có thể xác nhận INVALID bằng căn cứ đúng, không ép cứu mọi ý.
-            recovered.append(candidate.model_copy(update={
-                "original": idea.original, "idea_id": idea.idea_id, "review_required": False,
-            }))
-        else:
-            recovered.append(
-                idea.model_copy(
-                    update={
-                        "review_required": True,
-                        "reason": (
-                            "Các lượt kiểm tra vẫn loại ý bằng tiêu chí tính khả thi; "
-                            "hệ thống sẽ tiếp tục đối chiếu adequacy trong giới hạn thử lại."
-                        ),
-                    }
-                )
-                if idea.line_index in policy_retry_indices
-                else idea
-            )
-    return recovered, {**meta, "policy_repair": repair_meta}
-
-
-def _validate_adequacy_result(data, meta, source_ideas, prompt, client, stage):
-    """Repair schema đúng một lần; không lưu input nhạy cảm trong thông báo validation."""
-    expected = {idea.line_index: idea.original for idea in source_ideas}
-    attempts = [meta]
-    for attempt in range(2):
-        try:
-            result = IdeaExtractionResult.model_validate(data)
-            indices = [idea.line_index for idea in result.ideas]
-            if len(indices) != len(set(indices)) or set(indices) != set(expected):
-                raise ValueError("missing_duplicate_or_unknown_index")
-            if any(idea.original != expected[idea.line_index] or idea.status == "DUPLICATE" for idea in result.ideas):
-                raise ValueError("source_or_status_mismatch")
-            return result, ({**meta, "schema_repair_attempts": attempts} if attempt else meta)
-        except ValueError as exc:
-            # Chỉ lấy tập giá trị literal từ schema, không đưa input của người dùng vào diagnostics.
-            issues = ([{"loc": list(error["loc"]), "type": error["type"],
-                        **({"expected": error["ctx"]["expected"]}
-                           if error["type"] == "literal_error" and "expected" in error.get("ctx", {}) else {})}
-                       for error in exc.errors(include_input=False, include_url=False)]
-                      if hasattr(exc, "errors") else [{"type": str(exc)}])
-            failure = {**meta, "stage": stage, "error_type": "SchemaContractError", "retryable": True,
-                       "validation_errors": issues, "attempt_metadata": attempts}
-            if attempt:
-                raise LLMJSONError("Kiểm chứng adequacy sai contract sau repair.", metadata=failure) from exc
-            repair_prompt = prompt + "\nĐầu ra trước chưa đúng contract. Sửa các lỗi: " + json.dumps(issues) + (
-                "\nTrả lại đúng một phần tử cho từng line_index đầu vào, không thêm/bớt/đánh lại số. "
-                "Phải có original, normalized, status; không trả DUPLICATE. normalized là chuỗi ngắn, "
-                "functional_signature là object và inferred_signature_fields là mảng, không dùng null. "
-                'inferred_signature_fields chỉ nhận "goal", "object_role", "mechanism"; '
-                'không đưa "target", "context", "transformation" vào mảng này. '
-                "Giữ các trường suy diễn hợp lệ, dùng [] nếu không có; áp dụng cả VALID và INVALID."
-            )
-            try:
-                data, meta = chat_json(client, model=settings.active_llm_model,
-                    temperature=settings.mapping_temperature, prompt=repair_prompt, provider=settings.llm_provider,
-                    reasoning_effort=settings.active_reasoning_effort, max_tokens=settings.max_tokens_for(stage),
-                    max_retries=settings.llm_max_retries, stage=stage + "_schema_repair")
-                attempts.append(meta)
-            except LLMJSONError as repair_error:
-                repair_error.metadata = {**repair_error.metadata, "previous_contract_failure": failure}
-                raise
-
-
-def _finish_extraction(item, aligned, result_meta, client):
-    """Giữ checkpoint trước verifier để lỗi phụ không bắt tách lại toàn bộ bài."""
-    snapshot = {"ideas": [idea.model_dump() for idea in aligned], "metadata": result_meta}
-    try:
-        aligned, verifier_meta = _verify_invalid_extractions(item=item, ideas=aligned, client=client) #kiểm tra lại các ý bị LLM đánh INVALID,
-    except LLMJSONError as exc:
-        exc.extraction_checkpoint = snapshot
-        raise
-    aligned = [_ground_functional_evidence(idea) for idea in aligned]
-    if verifier_meta is not None:
-        result_meta = {**result_meta, "invalid_verifier": verifier_meta}
-    return IdeaExtractionResult(ideas=aligned), result_meta
-
-
 def run_idea_extraction(
     item: Item,
     responses: list[str] | str,
     client: OpenAI,
-    embedding_client: OpenAI | None = None,
     *, checkpoint: dict | None = None,
 ) -> tuple[IdeaExtractionResult, dict]:
-    # Checkpoint cũ có DUPLICATE phải được phân tích lại, vì có thể thiếu chữ ký/vai trò đồ vật.
-    if checkpoint and not any(idea.get("status") == "DUPLICATE" for idea in checkpoint["ideas"]):
-        aligned = IdeaExtractionResult.model_validate({"ideas": checkpoint["ideas"]}).ideas
-        return _finish_extraction(item, aligned, checkpoint.get("metadata", {}), client)
-    lines = ( #bỏ dòng trống, xóa khoảng trắng ở đầu/cuối và giới hạn 10 dòng. Mỗi dòng vẫn là một ý độc lập.
-        [line.strip() for line in responses.splitlines() if line.strip()]
-        if isinstance(responses, str)
-        else [line.strip() for line in responses if line.strip()] 
-    )[:10]
-    prompt = _EXTRACTION_TEMPLATE.format(
-        item_name=item.name,
-        item_description=item.description,
-        responses_json=json.dumps(
-            [{"line_index": index, "text": line} for index, line in enumerate(lines)],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ),
-        reference_cases_json=(
-            reference_cases_json(
-                "extraction",
-                item_name=item.name,
-                query_texts=lines,
-                limit=settings.reference_cases_limit,
-                embedding_client=embedding_client,
-            )
-            if settings.reference_cases_enabled
-            else "[]"
-        ),
-    )
-    data, meta = chat_json(
-        client,
-        model=settings.active_llm_model,
-        temperature=settings.mapping_temperature,
-        prompt=prompt,
-        provider=settings.llm_provider,
-        reasoning_effort=settings.active_reasoning_effort,
-        max_tokens=settings.max_tokens_for("idea_extraction"),
-        max_retries=settings.llm_max_retries,
-        stage="idea_extraction",
-        include_raw_response=settings.store_raw_llm_response,
-    )
-    result = IdeaExtractionResult.model_validate(data)
-    by_line = {}
-    for index in range(len(lines)):  #đoạn này ktra output của llm
-        matches = [idea for idea in result.ideas if idea.line_index == index]
-        if len(matches) == 1 and matches[0].status != "DUPLICATE":
-            by_line[index] = matches[0]
-    # Sai/thiếu index hoặc nhãn DUPLICATE cũ: phân tích lại đúng dòng theo quy tắc độc lập.
-    repairs = []
-    for index, line in enumerate(lines):
-        if index in by_line:
-            continue
-        repair_prompt = _EXTRACTION_TEMPLATE.format(
+    """Một lượt phân tích, sửa đúng tập dòng sai contract; không xét lại INVALID."""
+    lines = [line.strip() for line in (responses.splitlines() if isinstance(responses, str) else responses)
+             if line.strip()][:10]
+    expected = set(range(len(lines)))
+    if not lines:
+        return IdeaExtractionResult(ideas=[]), {"skipped": True, "reason": "empty_input"}
+    if checkpoint and checkpoint.get("contract_version") != EXTRACTION_CONTRACT_VERSION:
+        raise LLMJSONError("Checkpoint thuộc contract cũ; cần xử lý riêng, không tự phân tích lại lịch sử.",
+                           metadata={"retryable": False, "error_type": "LegacyExtractionCheckpoint"})
+
+    def prompt_for(indices):
+        return _EXTRACTION_TEMPLATE.format(
             item_name=item.name, item_description=item.description,
-            responses_json=json.dumps([{"line_index": index, "text": line}], ensure_ascii=False),
-            reference_cases_json="[]",
+            responses_json=json.dumps([{"line_index": i, "text": lines[i]} for i in sorted(indices)],
+                                      ensure_ascii=False, separators=(",", ":")),
         )
-        fixed, fixed_meta = chat_json(
-            client, model=settings.active_llm_model, temperature=settings.mapping_temperature,
-            prompt=repair_prompt, provider=settings.llm_provider,
-            reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("idea_extraction"),
-            max_retries=settings.llm_max_retries, stage="extraction_repair",
-        )
-        fixed_rows = IdeaExtractionResult.model_validate(fixed).ideas
-        if len(fixed_rows) != 1 or fixed_rows[0].line_index != index:
-            raise LLMJSONError("Extraction vẫn thiếu hoặc trùng dòng sau repair.", metadata=fixed_meta)
-        if fixed_rows[0].status == "DUPLICATE":
-            raise LLMJSONError("Extraction vẫn loại ý lặp sau repair; chỉ cho phép VALID hoặc INVALID.", metadata=fixed_meta)
-        by_line[index] = fixed_rows[0]
-        repairs.append(fixed_meta)
-    aligned = []
-    contract_repairs = []
-    for index, line in enumerate(lines):
-        idea = by_line.get(index)
-        if idea is None:
-            idea = ExtractedIdea(
-                line_index=index,
-                original=line,
-                normalized=line,
-                status="INVALID",
-                reason="Mô hình không trả kết quả phân tích cho dòng này.",
-            )
-        else:
-            idea.original = line
-            idea.line_index = index
-            idea.idea_id = hashlib.sha256(f"{index}:{line}".encode()).hexdigest()[:24]
-            idea.duplicate_of_index = None
-            implicit_object = not idea.object_used.strip() or _mentions_target_object(
-                item, idea.object_used
-            )
-            if (
-                idea.status == "VALID"
-                and not idea.uses_target_object
-                and implicit_object
-                and idea.target_object_role.strip()
-                and _core_signature_complete(idea)
-            ):
-                idea.uses_target_object = True
-                idea.object_used = item.name
-                contract_repairs.append(
-                    {
-                        "idea_index": index,
-                        "field": "uses_target_object",
-                        "reason": "object_used, target_object_role và functional_signature xác nhận đúng vật thể.",
-                    }
-                )
-        aligned.append(idea)
-    result_meta = {
-        **meta,
-        "contract_repairs": contract_repairs,
-        "extraction_repairs": repairs,
+
+    def accepted_rows(data, indices):
+        values = data.get("ideas", []) if isinstance(data, dict) else []
+        if not isinstance(values, list):
+            return {}
+        accepted = {}
+        for i in indices:
+            rows = [v for v in values if isinstance(v, dict) and type(v.get("line_index")) is int
+                    and v["line_index"] == i]
+            if len(rows) != 1:
+                continue
+            try:
+                idea = ExtractedIdea.model_validate(rows[0])
+            except ValueError:
+                continue
+            if not idea.normalized.strip():
+                continue
+            # Câu gốc và định danh luôn do backend gắn; không nhận chỉ dẫn kỹ thuật từ model.
+            idea = idea.model_copy(update={"original": lines[i], "line_index": i,
+                "idea_id": hashlib.sha256(f"{i}:{lines[i]}".encode()).hexdigest()[:24],
+                "duplicate_of_index": None, "review_required": False})
+            accepted[i] = _ground_functional_evidence(idea)
+        return accepted
+
+    if checkpoint:
+        meta = checkpoint.get("metadata", {})
+        by_line = accepted_rows(checkpoint, expected)
+    else:
+        data, meta = chat_json(client, model=settings.active_llm_model,
+            temperature=settings.mapping_temperature, prompt=prompt_for(expected),
+            provider=settings.llm_provider, reasoning_effort=settings.active_reasoning_effort,
+            max_tokens=settings.max_tokens_for("idea_extraction", len(lines)),
+            max_retries=settings.llm_max_retries, stage="idea_extraction",
+            include_raw_response=settings.store_raw_llm_response)
+        by_line = accepted_rows(data, expected)
+    missing = expected - set(by_line)
+    repairs = []
+    if missing:
+        try:
+            data, repair_meta = chat_json(client, model=settings.active_llm_model,
+                temperature=settings.mapping_temperature, prompt=prompt_for(missing),
+                provider=settings.llm_provider, reasoning_effort=settings.active_reasoning_effort,
+                max_tokens=settings.max_tokens_for("idea_extraction", len(missing)),
+                max_retries=settings.llm_max_retries, stage="extraction_repair")
+            repairs.append(repair_meta)
+            by_line.update(accepted_rows(data, missing))
+            if set(by_line) != expected:
+                raise LLMJSONError("Extraction còn thiếu hoặc sai dòng sau một lượt sửa contract.",
+                                   metadata={**repair_meta, "error_type": "ExtractionContractError"})
+        except LLMJSONError as exc:
+            exc.extraction_checkpoint = {"contract_version": EXTRACTION_CONTRACT_VERSION,
+                "ideas": [by_line[i].model_dump() for i in sorted(by_line)], "metadata": meta}
+            exc.metadata = {**exc.metadata, "previous_extraction": meta}
+            raise
+    return IdeaExtractionResult(ideas=[by_line[i] for i in sorted(expected)]), {
+        **meta, "extraction_repairs": repairs, "contract_version": EXTRACTION_CONTRACT_VERSION,
     }
-    return _finish_extraction(item, aligned, result_meta, client)
 
 
 def _finalize_curator(item, ideas, curator, candidates, client, embedding_client):
@@ -978,7 +681,6 @@ def run_code_mapping(
             "normalized": idea.normalized,
             "original": idea.original,
             "object_used": idea.object_used,
-            "target_object_role": idea.target_object_role,
             "functional_signature": idea.functional_signature.model_dump(),
             "functional_evidence": idea.functional_evidence,
             "inferred_signature_fields": idea.inferred_signature_fields,
@@ -989,7 +691,6 @@ def run_code_mapping(
         }
         for index, idea in enumerate(ideas.ideas)
         if idea.status == "VALID"
-        and idea.uses_target_object
         and (idea_indices is None or index in idea_indices)
     ]
     if not valid_ideas:
@@ -1018,24 +719,7 @@ def run_code_mapping(
     prompt = _CURATOR_TEMPLATE.format(
         item_name=item.name,
         item_description=item.description,
-        ideas_with_candidates_json=json.dumps(
-            valid_ideas, ensure_ascii=False, separators=(",", ":")
-        ),
-        reference_cases_json=(
-            reference_cases_json(
-                "curator",
-                item_name=item.name,
-                query_texts=[
-                    f"{idea['original']} {idea['normalized']} "
-                    f"{json.dumps(idea['functional_signature'], ensure_ascii=False)}"
-                    for idea in valid_ideas
-                ],
-                limit=settings.reference_cases_limit,
-                embedding_client=embedding_client,
-            )
-            if settings.reference_cases_enabled
-            else "[]"
-        ),
+        ideas_with_candidates_json=_shared_candidate_payload(valid_ideas),
     )
     meta: dict = {}
     batch_failed_and_retried = False
@@ -1047,7 +731,7 @@ def run_code_mapping(
             prompt=prompt,
             provider=settings.llm_provider,
             reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("code_curator"),
+            max_tokens=settings.max_tokens_for("code_curator", len(valid_ideas)),
             max_retries=settings.llm_max_retries,
             stage="code_curator",
             include_raw_response=settings.store_raw_llm_response,
@@ -1077,11 +761,9 @@ def run_code_mapping(
             retry_prompt = _CURATOR_TEMPLATE.format(
                 item_name=item.name,
                 item_description=item.description,
-                ideas_with_candidates_json=json.dumps(
-                    [case], ensure_ascii=False, separators=(",", ":")
-                ),
-                reference_cases_json="[]",
+                ideas_with_candidates_json=_shared_candidate_payload([case]),
             )
+            retry_meta = {}
             try:
                 retry_data, retry_meta = chat_json(
                     client,
@@ -1090,7 +772,7 @@ def run_code_mapping(
                     prompt=retry_prompt,
                     provider=settings.llm_provider,
                     reasoning_effort=settings.active_reasoning_effort,
-                    max_tokens=settings.max_tokens_for("code_curator"),
+                    max_tokens=settings.max_tokens_for("code_curator", 1),
                     max_retries=settings.llm_max_retries,
                     stage="code_curator_retry_single",
                     include_raw_response=settings.store_raw_llm_response,
@@ -1108,7 +790,7 @@ def run_code_mapping(
             except (LLMJSONError, ValueError) as retry_exc:
                 retry_metas.append(
                     {
-                        **_failure_meta(retry_exc),
+                        **_failure_meta(retry_exc, retry_meta),
                         "failed": True,
                         "reason": str(retry_exc),
                         "idea_index": int(case["idea_index"]),
@@ -1148,11 +830,9 @@ def run_code_mapping(
                 retry_prompt = _CURATOR_TEMPLATE.format(
                     item_name=item.name,
                     item_description=item.description,
-                    ideas_with_candidates_json=json.dumps(
-                        [case], ensure_ascii=False, separators=(",", ":")
-                    ),
-                    reference_cases_json="[]",
+                    ideas_with_candidates_json=_shared_candidate_payload([case]),
                 )
+                retry_meta = {}
                 try:
                     retry_data, retry_meta = chat_json(
                         client,
@@ -1161,7 +841,7 @@ def run_code_mapping(
                         prompt=retry_prompt,
                         provider=settings.llm_provider,
                         reasoning_effort=settings.active_reasoning_effort,
-                        max_tokens=settings.max_tokens_for("code_curator"),
+                        max_tokens=settings.max_tokens_for("code_curator", 1),
                         max_retries=settings.llm_max_retries,
                         stage="code_curator_retry_missing",
                         include_raw_response=settings.store_raw_llm_response,
@@ -1178,7 +858,7 @@ def run_code_mapping(
                 except (LLMJSONError, ValueError) as retry_exc:
                     retry_metas.append(
                         {
-                            **_failure_meta(retry_exc),
+                            **_failure_meta(retry_exc, retry_meta),
                             "failed": True,
                             "reason": str(retry_exc),
                             "idea_index": idea_index,
@@ -1323,8 +1003,6 @@ def _has_reusable_scope(
             getattr(signature, field).strip()
             for field in ("goal", "object_role", "mechanism")
         )
-        and not signature.target.strip()
-        and not signature.context.strip()
         and len(variants) >= 2
     )
 
@@ -1361,7 +1039,9 @@ def _repair_missing_boundaries(
                 "original": case.get("original", ""),
                 "normalized": case.get("normalized", ""),
                 "decision_to_preserve": decision.model_dump(
-                    exclude={"embedding", "embedding_model"}
+                    include={"decision", "code_relation", "existing_code_id", "code_name", "code_description",
+                             "functional_signature", "scope_variants", "inclusion_rules", "exclusion_rules",
+                             "absorbed_code_ids", "reason", "confidence"}
                 ),
                 "nearest_codes": case.get("nearest_codes", []),
                 "other_ideas_in_submission": [
@@ -1383,6 +1063,7 @@ def _repair_missing_boundaries(
             repair_cases, ensure_ascii=False, separators=(",", ":")
         ),
     )
+    meta = {}
     try:
         data, meta = chat_json(
             client,
@@ -1391,7 +1072,7 @@ def _repair_missing_boundaries(
             prompt=prompt,
             provider=settings.llm_provider,
             reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("boundary_repair"),
+            max_tokens=settings.max_tokens_for("boundary_repair", len(incomplete)),
             max_retries=settings.llm_max_retries,
             stage="boundary_repair",
             include_raw_response=settings.store_raw_llm_response,
@@ -1400,7 +1081,7 @@ def _repair_missing_boundaries(
     except (LLMJSONError, ValueError) as exc:
         # Thiếu ranh giới thì không được tạo/mở rộng code.
         repaired = CuratorResult(decisions=[])
-        meta = {**_failure_meta(exc), "failed": True, "reason": str(exc)}
+        meta = {**_failure_meta(exc, meta), "failed": True, "reason": str(exc)}
     repaired_by_index = {
         decision.idea_index: decision for decision in repaired.decisions
     }
@@ -1523,6 +1204,8 @@ def _reconcile_new_code_batch(
     overlaps = _potential_new_code_overlaps(proposed)
     if len(proposed) < 2 or not overlaps:
         return curator, {"skipped": True, "reason": "no_potential_overlap"}
+    overlap_indices = {int(pair[key]) for pair in overlaps for key in ("left_idea_index", "right_idea_index")}
+    proposed = [decision for decision in proposed if decision.idea_index in overlap_indices]
 
     prompt = _BATCH_RECONCILER_TEMPLATE.format(
         item_name=item.name,
@@ -1534,7 +1217,9 @@ def _reconcile_new_code_batch(
                     "original": ideas.ideas[decision.idea_index].original,
                     "normalized": ideas.ideas[decision.idea_index].normalized,
                     "proposed_decision": decision.model_dump(
-                        exclude={"embedding", "embedding_model"}
+                        include={"decision", "code_relation", "existing_code_id", "code_name", "code_description",
+                                 "functional_signature", "scope_variants", "inclusion_rules", "exclusion_rules",
+                                 "absorbed_code_ids", "reason", "confidence"}
                     ),
                 }
                 for decision in proposed
@@ -1547,6 +1232,7 @@ def _reconcile_new_code_batch(
             overlaps, ensure_ascii=False, separators=(",", ":")
         ),
     )
+    meta = {}
     try:
         data, meta = chat_json(
             client,
@@ -1555,7 +1241,7 @@ def _reconcile_new_code_batch(
             prompt=prompt,
             provider=settings.llm_provider,
             reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("batch_reconciler"),
+            max_tokens=settings.max_tokens_for("batch_reconciler", len(proposed)),
             max_retries=settings.llm_max_retries,
             stage="batch_reconciler",
             include_raw_response=settings.store_raw_llm_response,
@@ -1601,7 +1287,7 @@ def _reconcile_new_code_batch(
             for decision in curator.decisions
         ]
         return CuratorResult(decisions=final), {
-            **_failure_meta(exc),
+            **_failure_meta(exc, meta),
             "failed": True,
             "reason": str(exc),
             "overlap_pairs": overlaps,
@@ -1620,8 +1306,6 @@ def _reconcile_new_code_batch(
             candidate is not None
             and candidate.decision == "CREATE_NEW"
             and candidate.code_name
-            and candidate.target_object_confirmed
-            and candidate.target_object_role.strip()
             and _has_reusable_scope(
                 candidate.model_copy(
                     update={
@@ -1785,24 +1469,7 @@ def run_code_challenger(
         item_name=item.name,
         item_description=item.description,
         codebook_is_empty=str(not any(candidates.values())).lower(),
-        challenger_cases_json=json.dumps(
-            cases, ensure_ascii=False, separators=(",", ":")
-        ),
-        reference_cases_json=(
-            reference_cases_json(
-                "challenger",
-                item_name=item.name,
-                query_texts=[
-                    f"{case['original']} {case['normalized']} "
-                    f"{json.dumps(case['functional_signature'], ensure_ascii=False)}"
-                    for case in cases
-                ],
-                limit=settings.reference_cases_limit,
-                embedding_client=embedding_client,
-            )
-            if settings.reference_cases_enabled
-            else "[]"
-        ),
+        challenger_cases_json=_shared_candidate_payload(cases, key="cases"),
     )
     meta: dict = {}
     try:
@@ -1813,7 +1480,7 @@ def run_code_challenger(
             prompt=prompt,
             provider=settings.llm_provider,
             reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("code_challenger"),
+            max_tokens=settings.max_tokens_for("code_challenger", len(cases)),
             max_retries=settings.llm_max_retries,
             stage="code_challenger",
             include_raw_response=settings.store_raw_llm_response,
@@ -1855,12 +1522,9 @@ def run_code_challenger(
             item_name=item.name,
             item_description=item.description,
             codebook_is_empty=str(not any(candidates.values())).lower(),
-            challenger_cases_json=json.dumps(
-                retry_cases, ensure_ascii=False, separators=(",", ":")
-            ),
-            # Án lệ đã xuất hiện ở lượt đầu; retry ngắn chỉ yêu cầu các dòng bị thiếu.
-            reference_cases_json="[]",
+            challenger_cases_json=_shared_candidate_payload(retry_cases, key="cases"),
         )
+        retry_meta = {}
         try:
             retry_data, retry_meta = chat_json(
                 client,
@@ -1869,7 +1533,7 @@ def run_code_challenger(
                 prompt=retry_prompt,
                 provider=settings.llm_provider,
                 reasoning_effort=settings.active_reasoning_effort,
-                max_tokens=settings.max_tokens_for("code_challenger"),
+                max_tokens=settings.max_tokens_for("code_challenger", len(retry_cases)),
                 max_retries=settings.llm_max_retries,
                 stage="code_challenger_retry_missing",
                 include_raw_response=settings.store_raw_llm_response,
@@ -1894,7 +1558,7 @@ def run_code_challenger(
             }
         except (LLMJSONError, ValueError) as exc:
             meta = {
-                "runs": [meta, {**_failure_meta(exc), "failed": True}],
+                "runs": [meta, {**_failure_meta(exc, retry_meta), "failed": True}],
                 "strategy": "retry_missing_only",
                 "initial_missing_indices": sorted(missing_indices),
             }

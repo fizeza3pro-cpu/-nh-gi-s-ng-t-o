@@ -14,6 +14,8 @@ import type {
   AdminMappingReviewIdea,
   AdminMappingReviewList,
   FunctionalSignature,
+  ScopeHistoryEntry,
+  AdminPipelineAudit,
 } from "@/lib/types";
 
 const PAGE_SIZE = 30;
@@ -71,29 +73,61 @@ const relationLabel: Record<string, string> = {
   UNCERTAIN: "Chưa rõ quan hệ",
 };
 
-function Signature({ value }: { value: FunctionalSignature }) {
+function Signature({ value, compact = false }: { value: FunctionalSignature; compact?: boolean }) {
   const entries = [
     ["Mục đích", value.goal],
     ["Vai trò", value.object_role],
     ["Cơ chế", value.mechanism],
-    ["Biến đổi", value.transformation],
-    ["Đối tượng", value.target],
-    ["Bối cảnh", value.context],
   ].filter(([, text]) => Boolean(text));
   if (entries.length === 0) return <span className="text-sm text-stone-400">Chưa có chữ ký chức năng</span>;
   return (
-    <dl className="grid gap-x-5 gap-y-2 sm:grid-cols-2">
+    <dl className={`grid gap-x-5 gap-y-2 ${compact ? "" : "sm:grid-cols-2"}`}>
       {entries.map(([label, text]) => (
-        <div key={label} className="grid grid-cols-[5rem_1fr] gap-2 text-xs leading-5">
-          <dt className="text-stone-400">{label}</dt><dd className="text-stone-700">{text}</dd>
+        <div key={label} className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] gap-2 text-xs leading-5">
+          <dt className="text-stone-400">{label}</dt><dd className="break-words text-stone-700">{text}</dd>
         </div>
       ))}
     </dl>
   );
 }
 
-function CodeCard({ code }: { code: AdminCodebookCode }) {
+function ScopeChange({ entry }: { entry: ScopeHistoryEntry }) {
+  const label = entry.operation === "EXPAND" ? "Mở rộng phạm vi" :
+    entry.operation?.includes("MERGE") ? "Gộp mã" : "Thay đổi lịch sử — chưa tách loại thao tác";
+  return <li className="space-y-2 border-l-2 border-stone-200 pl-3">
+    <p className="font-medium text-stone-800">{label}{entry.changed_at ? ` · ${new Date(entry.changed_at).toLocaleString("vi-VN")}` : ""}</p>
+    <p>{entry.previous?.name ?? "Chưa ghi tên cũ"} → {entry.current?.name ?? "Chưa ghi tên mới"}</p>
+    {entry.reason && <p className="text-stone-500">{entry.reason}</p>}
+    {entry.source_scopes && Object.keys(entry.source_scopes).length > 0 && <p className="break-words text-stone-600">Mã nguồn: {Object.entries(entry.source_scopes).map(([id, source]) => `${source.name ?? "Chưa ghi tên"} (${id})`).join("; ")}</p>}
+    <details><summary className="cursor-pointer">Định nghĩa và ranh giới trước / sau</summary>
+      <div className="mt-2 grid gap-4">{([entry.previous, entry.current] as const).map((scope, i) =>
+        <div key={i} className="space-y-2"><p className="font-medium">{i === 0 ? "Trước" : "Sau"}</p><p>{scope?.description || "Chưa ghi định nghĩa"}</p>
+          {scope?.functional_signature && <Signature value={scope.functional_signature} compact />}
+          <RuleList title="Bao gồm" rows={scope?.inclusion_rules ?? []} tone="text-stone-600" />
+          <RuleList title="Loại trừ" rows={scope?.exclusion_rules ?? []} tone="text-stone-600" /></div>)}</div>
+    </details>
+    {entry.moved_ideas ? <details><summary className="cursor-pointer">{entry.moved_ideas.length} ý được chuyển trong lần này</summary>
+      <ul className="mt-2 space-y-2">{entry.moved_ideas.map(idea => <li key={idea.idea_id} className="break-all font-mono text-[11px]">
+        Ý {idea.idea_id}<br />Bài {idea.response_id}<br />{idea.from_code_id} → {idea.to_code_id}</li>)}</ul>
+    </details> : <p className="text-stone-500">Nhật ký cũ chưa ghi danh sách ý được chuyển.</p>}
+  </li>;
+}
+
+function CodeCard({ code, itemId }: { code: AdminCodebookCode; itemId: string }) {
   const [open, setOpen] = useState(false);
+  const [neighbors, setNeighbors] = useState<Awaited<ReturnType<typeof api.adminCodeNeighbors>>>([]);
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof api.adminCodeHistory>> | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [detailError, setDetailError] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setDetailError("");
+    Promise.all([api.adminCodeNeighbors(itemId, code.id), api.adminCodeHistory(itemId, code.id, historyPage)])
+      .then(([nearby, changes]) => { if (active) { setNeighbors(nearby); setHistory(changes); } })
+      .catch((reason: Error) => { if (active) setDetailError(reason.message); });
+    return () => { active = false; };
+  }, [open, itemId, code.id, historyPage]);
   return (
     <article className="border-b border-stone-200 last:border-b-0">
       <button type="button" onClick={() => setOpen((value) => !value)} className="grid w-full gap-4 px-5 py-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-research/25 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_5rem_6rem_5rem] md:items-center md:px-7">
@@ -115,6 +149,7 @@ function CodeCard({ code }: { code: AdminCodebookCode }) {
         <div className="md:text-right">
           <p className="text-xs text-stone-400">Lượt trả lời</p>
           <p className="mt-1 font-mono text-lg text-stone-900">{code.response_count}</p>
+          <p className="mt-1 text-[11px] text-stone-500">{code.participant_count} người</p>
         </div>
         <div className="md:text-right">
           <p className="text-xs text-stone-400">Tần suất</p>
@@ -136,17 +171,24 @@ function CodeCard({ code }: { code: AdminCodebookCode }) {
             <RuleList title="Được bao gồm" rows={code.inclusion_rules} tone="text-emerald-700" />
             <RuleList title="Không bao gồm" rows={code.exclusion_rules} tone="text-rose-700" />
             <RuleList title="Ví dụ đã dùng" rows={code.positive_examples} tone="text-stone-700" />
-            {code.scope_history.length > 0 && (
+            {detailError && <p role="alert" className="text-red-700">{detailError}</p>}
+            <div className="border-t border-stone-200 pt-4">
+              <p className="font-medium text-stone-800">Mã gần chức năng hiện tại</p>
+              <ul className="mt-2 space-y-2">{neighbors.map(row => <li key={row.code_id} className="flex justify-between gap-3">
+                <span>{row.name}</span><span className="font-mono">{row.retrieval_score.toFixed(3)}</span></li>)}</ul>
+              {!neighbors.length && <p className="mt-2 text-stone-500">Chưa có mã gần để hiển thị.</p>}
+            </div>
+            {code.scope_history_count > 0 && (
               <div className="border-t border-stone-200 pt-4">
                 <p className="font-medium text-amber-800">Lịch sử phạm vi</p>
                 <ol className="mt-2 space-y-2 text-stone-600">
-                  {[...code.scope_history].reverse().map((entry, index) => (
-                    <li key={`${entry.changed_at ?? "scope"}-${index}`} className="border-l-2 border-amber-200 pl-3">
-                      <p>{entry.previous?.name ?? "Phạm vi cũ"} → {entry.current?.name ?? code.name}</p>
-                      {entry.reason ? <p className="mt-0.5 text-stone-400">{entry.reason}</p> : null}
-                    </li>
-                  ))}
+                  {history?.entries.map((entry, index) => <ScopeChange key={`${entry.changed_at}-${index}`} entry={entry} />)}
                 </ol>
+                {history && history.page_count > 1 && <div className="mt-3 flex items-center gap-3">
+                  <Button size="sm" variant="outline" disabled={history.page <= 1} onClick={() => setHistoryPage(p => p - 1)}>Trước</Button>
+                  <span>{history.page}/{history.page_count}</span>
+                  <Button size="sm" variant="outline" disabled={history.page >= history.page_count} onClick={() => setHistoryPage(p => p + 1)}>Sau</Button>
+                </div>}
               </div>
             )}
           </div>
@@ -163,6 +205,57 @@ function RuleList({ title, rows, tone }: { title: string; rows: string[]; tone: 
       {rows.length ? <ul className="mt-1 space-y-1 text-stone-600">{rows.map((row, index) => <li key={`${row}-${index}`}>• {row}</li>)}</ul> : <p className="mt-1 text-stone-400">Chưa có dữ liệu.</p>}
     </div>
   );
+}
+
+function CandidateEvidence({ value }: { value: Record<string, unknown> }) {
+  const proposal = value.proposal && typeof value.proposal === "object" ? value.proposal as Record<string, unknown> : {};
+  const candidates = value.retrieval_candidates ?? proposal.retrieval_candidates;
+  if (!Array.isArray(candidates) || !candidates.length) return <p className="mt-3 text-[11px] text-stone-500">Chưa ghi danh sách ứng viên tại thời điểm xử lý.</p>;
+  return <details className="mt-3"><summary className="cursor-pointer text-xs text-stone-700">Các mã đã chào cho ý tại thời điểm xử lý ({candidates.length})</summary>
+    <div className="mt-2 overflow-x-auto"><table className="w-full text-left text-[11px]">
+      <thead><tr className="border-b border-stone-200"><th className="py-2 pr-2">Hạng / mã</th><th className="p-2">Ngữ nghĩa</th><th className="py-2 pl-2">Tổng tìm kiếm</th></tr></thead>
+      <tbody>{candidates.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object")).map((row, index) =>
+        <tr key={String(row.code_id)} className="border-b border-stone-100"><td className="py-2 pr-2">{index + 1}. {String(row.name ?? row.code_id)}
+          {proposal.existing_code_id === row.code_id && <span className="ml-2 text-emerald-700">Được chọn lúc xử lý</span>}</td>
+          <td className="p-2 font-mono">{typeof row.semantic_similarity === "number" ? row.semantic_similarity.toFixed(3) : "—"}</td>
+          <td className="py-2 pl-2 font-mono">{typeof row.retrieval_score === "number" ? row.retrieval_score.toFixed(3) : "—"}</td></tr>)}</tbody>
+    </table></div></details>;
+}
+
+function PipelineEvents({ events }: { events: AdminPipelineAudit[] }) {
+  const groups = new Map<string, AdminPipelineAudit[]>();
+  events.forEach(event => {
+    const key = event.response_id ?? "background";
+    groups.set(key, [...(groups.get(key) ?? []), event]);
+  });
+  return <section className="mt-6 space-y-3">
+    <p className="text-sm text-stone-500">50 sự kiện gần nhất. Tổng token của từng bài tính từ các lượt có metadata trong vòng đời bài; audit nền hiển thị riêng.</p>
+    {[...groups].map(([key, rows]) => {
+      const background = key === "background";
+      const calls = [...new Map(rows.flatMap(row => row.calls).map(call => [call.id, call])).values()];
+      const summary = background ? { total_tokens: calls.reduce((n, call) => n + (call.usage.total_tokens ?? 0), 0), request_count: calls.length,
+        unknown_usage_count: calls.filter(call => !call.usage_known).length } : rows[0].usage_summary;
+      return <details key={key} className="rounded-lg border border-stone-200 bg-white p-4">
+        <summary className="cursor-pointer break-all text-sm"><span className="font-medium">{background ? "Audit nền codebook" : `Bài ${key}`}</span>
+          <span className="ml-3 text-xs text-stone-500">{summary.request_count} request · {summary.total_tokens.toLocaleString("vi-VN")} token ghi nhận</span></summary>
+        {summary.unknown_usage_count > 0 && <p className="mt-2 text-xs text-amber-800">{summary.unknown_usage_count} request chưa có số token; tổng có thể chưa đầy đủ.</p>}
+        <div className="mt-3 space-y-3">{rows.map(event => <details key={event.id} className="border-t border-stone-200 pt-3">
+          <summary className="cursor-pointer text-xs">{event.event} · {new Date(event.created_at).toLocaleString("vi-VN")}
+            {typeof event.payload.attempt_id === "string" && <span className="ml-2 break-all font-mono text-stone-500">Lượt {event.payload.attempt_id.slice(0, 8)}</span>}</summary>
+          {event.calls.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs">
+            <thead><tr className="border-b border-stone-200"><th className="py-2 pr-3">Bước / model</th><th className="p-2">Kết quả</th><th className="p-2">Token</th><th className="p-2">Thời gian</th></tr></thead>
+            <tbody>{event.calls.map(call => <tr key={call.id} className="border-b border-stone-100">
+              <td className="py-2 pr-3">{call.stage}<span className="mt-1 block break-all text-[11px] text-stone-500">{call.model}</span></td>
+              <td className="p-2">{call.status ?? "Chưa ghi"}</td><td className="p-2 font-mono">{call.usage_known ? (call.usage.total_tokens ?? 0).toLocaleString("vi-VN") : "Chưa có"}</td>
+              <td className="p-2 font-mono">{typeof call.latency_ms === "number" ? `${(call.latency_ms / 1000).toFixed(1)}s` : "—"}</td></tr>)}</tbody>
+          </table></div>}
+          <details className="mt-3"><summary className="cursor-pointer text-[11px] text-stone-500">Chi tiết căn cứ, kết quả và lỗi</summary>
+            <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words text-[11px]">{JSON.stringify(event.payload, null, 2)}</pre></details>
+        </details>)}</div>
+      </details>;
+    })}
+    {!events.length && <p className="text-sm text-stone-500">Chưa có nhật ký.</p>}
+  </section>;
 }
 
 function DecisionEvidence({ decision, reason, value }: { decision: string; reason: string; value: Record<string, unknown> }) {
@@ -184,6 +277,7 @@ function DecisionEvidence({ decision, reason, value }: { decision: string; reaso
   return (
     <div>
       <p className="text-xs leading-5 text-stone-600">{reason}</p>
+      <CandidateEvidence value={value} />
       {codeRelation && codeRelation !== "NOT_APPLICABLE" ? (
         <p className="mt-2 text-[11px] text-stone-500">
           Quan hệ: <span className="font-medium text-stone-700">{relationLabel[codeRelation] ?? codeRelation}</span>
@@ -334,8 +428,8 @@ export default function AdminCodebooks() {
       <header className="border-b border-stone-200 bg-white px-5 py-7 md:px-8">
         <Button asChild variant="ghost" size="sm" className="-ml-3 text-stone-500 hover:bg-research-soft hover:text-stone-900"><Link to="/admin/codebooks"><ArrowLeft className="h-4 w-4" /> Các đồ vật</Link></Button>
         <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
-          <div><p className="flex items-center gap-2 text-sm text-research"><Sparkles className="h-4 w-4" /> AI tạo mã và tính điểm trực tiếp</p><h1 className="mt-2 font-serif text-4xl text-stone-900">{summary.item_name}</h1></div>
-          <div className="flex gap-8"><Stat label="Mã hoạt động" value={summary.accepted_code_count} /><Stat label="Ý đã mã hóa" value={summary.contributing_idea_count} /><Stat label="Lượt gửi" value={summary.qualifying_response_count} /><Button variant="outline" onClick={() => setRefreshVersion(value => value + 1)}>Cập nhật</Button></div>
+          <div><p className="flex items-center gap-2 text-sm text-research"><Sparkles className="h-4 w-4" /> AI phân mã và chấm điểm</p><h1 className="mt-2 font-serif text-4xl text-stone-900">{summary.item_name}</h1></div>
+          <div className="flex flex-wrap gap-x-8 gap-y-4"><Stat label="Mã hoạt động" value={summary.accepted_code_count} /><Stat label="Ý đã mã hóa" value={summary.contributing_idea_count} /><Stat label="Lượt gửi" value={summary.qualifying_response_count} /><Button variant="outline" onClick={() => setRefreshVersion(value => value + 1)}>Cập nhật</Button></div>
         </div>
       </header>
 
@@ -344,13 +438,7 @@ export default function AdminCodebooks() {
           {tabs.map(([value, label, count]) => <button key={value} type="button" onClick={() => setView(value)} className={`rounded-t-md border-b-2 px-4 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-research/25 ${view === value ? "border-research bg-research-soft/60 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800"}`}>{label} <span className="ml-2 font-mono text-xs">{count}</span></button>)}
         </div>
 
-        {view === "PIPELINE" && <section className="mt-6 space-y-3">
-          <p className="text-sm text-stone-500">50 sự kiện gần nhất: quyết định, số lượt gọi, token và thời gian xử lý.</p>
-          {pipeline.map(event => <details key={event.id} className="rounded-lg border border-stone-200 bg-white p-4">
-            <summary className="cursor-pointer text-sm">{event.event} · {new Date(event.created_at).toLocaleString("vi-VN")}</summary>
-            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(event.payload, null, 2)}</pre>
-          </details>)}
-        </section>}
+        {view === "PIPELINE" && <PipelineEvents events={pipeline} />}
         {view === "REVIEWS" && (
           <section className="mt-6 overflow-hidden rounded-xl border border-stone-300 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
             <div className="border-b border-stone-300 bg-card px-5 py-5 md:px-7">
@@ -367,7 +455,7 @@ export default function AdminCodebooks() {
             <div><h2 className="font-serif text-2xl text-stone-900">Category chức năng</h2><p className="mt-1 text-xs text-stone-500">Mở từng mã để xem goal, role, mechanism và ranh giới áp dụng.</p></div>
             <label className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-stone-200 bg-research-soft/50 px-3 py-2 shadow-inner transition-colors focus-within:border-research/45 focus-within:ring-2 focus-within:ring-research/10"><Search className="h-4 w-4 text-stone-400" /><input aria-label="Tìm mã chức năng" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, định nghĩa hoặc khóa chức năng…" className="w-full bg-transparent text-sm text-stone-800 outline-none placeholder:text-stone-400 focus-visible:outline-none" /></label>
           </div>
-          {visibleCodes.map((code) => <CodeCard key={code.id} code={code} />)}
+          {visibleCodes.map((code) => <CodeCard key={code.id} code={code} itemId={itemId} />)}
           {visibleCodes.length === 0 && <p className="px-6 py-14 text-center text-sm text-stone-500">Không có mã phù hợp.</p>}
           {summary.code_page_count > 1 && <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-card px-5 py-4"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Trang trước</Button><span className="font-mono text-xs text-stone-500">{page}/{summary.code_page_count}</span><Button size="sm" variant="outline" disabled={page >= summary.code_page_count} onClick={() => setPage((value) => value + 1)}>Trang sau</Button></div>}
         </section>}

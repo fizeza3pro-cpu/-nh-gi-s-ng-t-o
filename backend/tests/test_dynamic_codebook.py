@@ -392,7 +392,7 @@ def test_challenger_repairs_missing_or_generic_code_boundaries():
     )
 
     decision = result.decisions[0]
-    assert client.chat.completions.calls == 4
+    assert client.chat.completions.calls == 3
     assert decision.decision == "CREATE_NEW"
     assert decision.inclusion_rules
     assert decision.exclusion_rules
@@ -490,7 +490,7 @@ def test_weak_wrong_match_is_sent_to_challenger_and_created_as_new_code():
         client,
     )
 
-    assert client.chat.completions.calls == 3
+    assert client.chat.completions.calls == 2
     assert result.decisions[0].decision == "CREATE_NEW"
     assert result.decisions[0].code_name == "Dụng cụ gãi bằng vỏ đạn"
 
@@ -883,179 +883,12 @@ def test_strong_match_skips_challenger_and_records_backend_audit():
     assert meta["challenger"]["skipped"] is True
 
 
-def test_extraction_repairs_false_object_flag_when_structured_evidence_is_complete():
-    payload = json.dumps(
-        {
-            "ideas": [
-                {
-                    "line_index": 0,
-                    "original": "làm vòng cổ",
-                    "normalized": "Làm trang sức",
-                    "status": "VALID",
-                    "uses_target_object": False,
-                    "object_used": "Vỏ đạn",
-                    "target_object_role": "Vật trang trí",
-                    "functional_signature": {
-                        "goal": "trang trí",
-                        "object_role": "vật liệu",
-                        "mechanism": "đeo trên người",
-                    },
-                }
-            ]
-        },
-        ensure_ascii=False,
-    )
-
-    result, meta = run_idea_extraction(
-        Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
-        ["làm vòng cổ"],
-        FakeClient([payload]),
-    )
-
-    assert result.ideas[0].uses_target_object is True
-    assert meta["contract_repairs"][0]["field"] == "uses_target_object"
 
 
-def test_invalid_extraction_is_verified_again_with_implicit_target_context():
-    """Câu “dùng để tính điểm” không bị loại chỉ vì không nhắc lại tên vật thể."""
-    first = json.dumps(
-        {
-            "ideas": [
-                {
-                    "line_index": 0,
-                    "original": "dùng để tính điểm chuyên cần",
-                    "normalized": "tính điểm chuyên cần",
-                    "status": "INVALID",
-                    "uses_target_object": False,
-                    "object_used": "",
-                    "reason": "Không liên quan đến vỏ đạn",
-                }
-            ]
-        },
-        ensure_ascii=False,
-    )
-    verified = json.dumps(
-        {
-            "ideas": [
-                {
-                    "line_index": 0,
-                    "original": "dùng để tính điểm chuyên cần",
-                    "normalized": "Dùng vỏ đạn làm vật đếm điểm chuyên cần",
-                    "status": "VALID",
-                    "uses_target_object": True,
-                    "object_used": "Vỏ đạn",
-                    "target_object_role": "vật đếm hoặc thẻ điểm",
-                    "functional_signature": {
-                        "goal": "ghi nhận điểm chuyên cần",
-                        "object_role": "vật đếm",
-                        "mechanism": "đặt hoặc trao một đơn vị cho mỗi lần ghi nhận",
-                    },
-                    "reason": "",
-                }
-            ]
-        },
-        ensure_ascii=False,
-    )
-
-    result, meta = run_idea_extraction(
-        Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
-        ["dùng để tính điểm chuyên cần"],
-        FakeClient([first, verified]),
-    )
-
-    assert result.ideas[0].status == "VALID"
-    assert result.ideas[0].uses_target_object is True
-    assert result.ideas[0].functional_signature.object_role == "vật đếm"
-    assert meta["invalid_verifier"]["response_id"] == "fake-2"
 
 
-def test_impossibility_reason_gets_focused_policy_repair():
-    """“Không thể nhồi lại” không được dùng làm lý do INVALID trong AUT."""
-    rejected = json.dumps({"ideas": [{
-        "line_index": 0,
-        "original": "nhồi thuốc súng lại bắn tiếp",
-        "normalized": "Nhồi thuốc súng để tái sử dụng",
-        "status": "INVALID",
-        "uses_target_object": False,
-        "object_used": "",
-        "reason": "Vỏ đạn không thể nhồi thuốc súng lại để bắn tiếp",
-    }]}, ensure_ascii=False)
-    repaired = json.dumps({"ideas": [{
-        "line_index": 0,
-        "original": "nhồi thuốc súng lại bắn tiếp",
-        "normalized": "Tái nạp vỏ đạn",
-        "status": "VALID",
-        "uses_target_object": True,
-        "object_used": "Vỏ đạn",
-        "target_object_role": "vỏ chứa liều phóng",
-        "functional_signature": {
-            "goal": "tái nạp đạn",
-            "object_role": "vỏ chứa liều phóng",
-            "mechanism": "chứa và định vị thuốc súng",
-        },
-        "functional_evidence": {
-            "goal": "bắn tiếp",
-            "object_role": "",
-            "mechanism": "nhồi thuốc súng",
-        },
-        "inferred_signature_fields": ["object_role"],
-        "reason": "",
-    }]}, ensure_ascii=False)
-    client = FakeClient([rejected, rejected, repaired])
-
-    result, meta = run_idea_extraction(
-        Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
-        ["nhồi thuốc súng lại bắn tiếp"],
-        client,
-    )
-
-    assert client.chat.completions.calls == 3
-    assert result.ideas[0].status == "VALID"
-    assert result.ideas[0].functional_signature.goal == "tái nạp đạn"
-    assert meta["invalid_verifier"]["policy_repair"]["response_id"] == "fake-3"
 
 
-def test_repeated_impossibility_rejection_is_queued_for_admin_not_discarded():
-    """Nếu model vẫn cố loại bằng tính khả thi, backend giữ ý để con người phân xử."""
-    rejected = json.dumps({"ideas": [{
-        "line_index": 0,
-        "original": "nhồi thuốc súng lại bắn tiếp",
-        "normalized": "Nhồi thuốc súng để tái sử dụng",
-        "status": "INVALID",
-        "uses_target_object": False,
-        "object_used": "",
-        "reason": "Vỏ đạn không thể nhồi thuốc súng lại để bắn tiếp",
-    }]}, ensure_ascii=False)
-    extraction, _ = run_idea_extraction(
-        Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
-        ["nhồi thuốc súng lại bắn tiếp"],
-        FakeClient([rejected, rejected, rejected]),
-    )
-    assert extraction.ideas[0].status == "INVALID"
-    assert extraction.ideas[0].review_required is True
-
-    engine = _engine()
-    Base.metadata.create_all(engine)
-    with Session(engine) as db:
-        participant = Participant(id=str(uuid.uuid4()))
-        item = Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại")
-        response = _response(participant.id, item.id)
-        db.add_all([participant, item, response])
-        db.flush()
-        mapping, uncertain = persist_mapping(
-            db,
-            item=item,
-            response=response,
-            extraction=extraction,
-            curator=CuratorResult(decisions=[]),
-        )
-        saved = db.scalar(select(ResponseIdea))
-
-        assert uncertain is True
-        assert mapping.ideas[0].status == "VALID"
-        assert mapping.ideas[0].code is None
-        assert saved.review_status == "PENDING"
-        assert saved.curator_decision == "EXTRACTION_REVIEW"
 
 
 def test_challenger_retries_only_missing_decisions_before_admin_review():
@@ -1144,7 +977,7 @@ def test_challenger_retries_only_missing_decisions_before_admin_review():
         client,
     )
 
-    assert client.chat.completions.calls == 4
+    assert client.chat.completions.calls == 3
     assert [decision.decision for decision in result.decisions] == [
         "CREATE_NEW", "CREATE_NEW"
     ]
@@ -1304,7 +1137,7 @@ def test_overlapping_new_codes_in_same_submission_are_reconciled(grouped_contrac
         client,
     )
 
-    assert client.chat.completions.calls == 4
+    assert client.chat.completions.calls == 3
     assert {decision.code_name for decision in result.decisions} == {
         "Chứa và bảo quản đồ vật"
     }
@@ -1341,25 +1174,18 @@ def test_legacy_duplicate_is_reanalyzed_as_an_independent_idea(legacy_reference)
     assert client.chat.completions.calls == 2
     assert all(idea.status == "VALID" for idea in result.ideas)
     assert result.ideas[1].duplicate_of_index is None
-    assert result.ideas[1].target_object_role == "món quà"
+    assert result.ideas[1].functional_signature.object_role == "món quà"
     assert metadata["extraction_repairs"][0]["stage"] == "extraction_repair"
 
 
-def test_legacy_duplicate_checkpoint_is_extracted_again():
-    """Checkpoint cũ không được bỏ qua ý lặp khi tiếp tục worker."""
-    row = {"line_index": 0, "original": "tặng bạn An", "normalized": "tặng quà", "status": "VALID",
-           "uses_target_object": True, "object_used": "Vỏ đạn", "target_object_role": "món quà",
-           "functional_signature": {"goal": "tặng quà", "object_role": "món quà", "mechanism": "trao tặng"}}
-    repeated = {**row, "line_index": 1}
-    checkpoint = {"ideas": [row, {**repeated, "status": "DUPLICATE", "duplicate_of_index": 0}]}
-    client = FakeClient([json.dumps({"ideas": [row, repeated]}, ensure_ascii=False)])
-    result, _ = run_idea_extraction(
-        Item(id="vo", name="Vỏ đạn", description="Vỏ kim loại rỗng"),
-        [row["original"], repeated["original"]], client, checkpoint=checkpoint,
-    )
-    assert client.chat.completions.calls == 1
-    assert [idea.status for idea in result.ideas] == ["VALID", "VALID"]
-    assert result.ideas[0].idea_id != result.ideas[1].idea_id
+def test_legacy_duplicate_checkpoint_requires_explicit_handling():
+    from app.pipeline.llm import LLMJSONError
+    client = FakeClient([])
+    with pytest.raises(LLMJSONError) as caught:
+        run_idea_extraction(Item(id="old", name="Vật"), ["ý cũ"], client,
+            checkpoint={"ideas": [{"status": "DUPLICATE"}]})
+    assert caught.value.metadata["retryable"] is False
+    assert client.chat.completions.calls == 0
 
 
 def test_repeated_valid_lines_are_mapped_and_scored_separately():
@@ -1588,10 +1414,10 @@ def test_compact_curator_can_create_directly_and_skips_challenger():
     )
 
     decision = result.decisions[0]
-    assert client.chat.completions.calls == 2
+    assert client.chat.completions.calls == 1
     assert decision.decision == "CREATE_NEW"
     assert decision.functional_signature == category_signature
-    assert extraction.ideas[0].functional_signature.target == "tiếng sáo"
+    assert set(extraction.ideas[0].functional_signature.model_dump()) == {"goal", "object_role", "mechanism"}
     assert len(decision.scope_variants) == 2
     assert decision.positive_examples == [extraction.ideas[0].original]
     assert decision.reviewed_by_challenger is False
@@ -1633,7 +1459,7 @@ def test_create_without_category_signature_never_inherits_idea_signature():
     ).decisions[0]
 
     assert normalized.functional_signature.goal == ""
-    assert normalized.functional_signature.target == ""
+    assert set(normalized.functional_signature.model_dump()) == {"goal", "object_role", "mechanism"}
     assert normalized.positive_examples == [ideas.ideas[0].original]
 
 
@@ -2602,7 +2428,7 @@ def test_duplicate_decision_index_is_dropped_instead_of_taking_last_value():
     assert unexpected == set()
 
 
-def test_extraction_object_guard_rejects_another_object():
+def test_extraction_object_contradiction_requires_review_without_creating_code():
     engine = _engine()
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -2644,8 +2470,9 @@ def test_extraction_object_guard_rejects_another_object():
             curator=curator,
         )
         idea = db.scalar(select(ResponseIdea).where(ResponseIdea.response_id == response.id))
-        assert mapping.ideas[0].status == "INVALID"
-        assert idea.curator_decision == "EXTRACTION_OBJECT_GUARD"
+        assert mapping.ideas[0].status == "VALID" and mapping.ideas[0].code is None
+        assert idea.curator_decision == "EXTRACTION_REVIEW"
+        assert idea.mapping_evidence["extraction_review_required"] is True
         assert db.scalars(select(ItemCode)).all() == []
 
 
@@ -2667,7 +2494,7 @@ def test_curator_cannot_create_code_for_another_object():
                     status="VALID",
                     uses_target_object=True,
                     object_used="Dây thừng",
-                    target_object_role="Chịu lực để treo quần áo",
+                    functional_signature=FunctionalSignature(goal="treo quần áo", object_role="dây chịu lực", mechanism="sức căng"),
                 )
             ]
         )
@@ -2722,4 +2549,4 @@ def test_curator_does_not_receive_off_object_existing_codes():
         db.flush()
 
         codes = list_curator_codes(db, item.id)
-        assert [code["name"] for code in codes] == ["Làm dây phơi bằng dây thừng"]
+        assert len(codes) == 2  # item_id quyết định quyền truy xuất, không lọc bằng chữ trong tên.

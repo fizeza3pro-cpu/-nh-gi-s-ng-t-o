@@ -48,12 +48,68 @@ from app.models.models import Response as ResponseModel
 
 
 def pipeline_audits(db: Session, item_id: str, limit: int) -> list[dict]:
-    """Nhật ký resolver/audit tự động để quản trị quan sát, không phê duyệt mã."""
+    """Nhật ký theo bước và usage vòng đời bài; audit nền được tách riêng."""
     from app.models.models import PipelineAudit
-    return [{"id": row.id, "event": row.event, "response_id": row.response_id,
-             "created_at": row.created_at.isoformat(), "payload": row.payload}
-            for row in db.scalars(select(PipelineAudit).where(PipelineAudit.item_id == item_id)
-                                 .order_by(PipelineAudit.created_at.desc()).limit(limit)).all()]
+    from app.pipeline.llm import collect_llm_calls, aggregate_usage
+    rows = db.scalars(select(PipelineAudit).where(PipelineAudit.item_id == item_id)
+                      .order_by(PipelineAudit.created_at.desc(), PipelineAudit.id).limit(limit)).all()
+    response_ids = {row.response_id for row in rows if row.response_id}
+    metadata = {key: [] for key in response_ids}
+    for key, payload in db.execute(select(PipelineAudit.response_id, PipelineAudit.payload)
+                                  .where(PipelineAudit.response_id.in_(response_ids))):
+        metadata[key].append(payload)
+    scores = {}
+    for row in db.scalars(select(ResponseModel).where(ResponseModel.id.in_(response_ids))).all():
+        scores[row.id] = row.scoring_meta or {}
+        metadata[row.id].extend([row.mapping_meta or {}, row.scoring_meta or {}])
+    summaries = {}
+    for key, values in metadata.items():
+        calls = collect_llm_calls(values)
+        summaries[key] = {**aggregate_usage(calls), "request_count": len(calls),
+                          "unknown_usage_count": sum(not call["usage_known"] for call in calls)}
+    result = []
+    for row in rows:
+        calls = collect_llm_calls([row.payload, scores.get(row.response_id, {}) if row.event == "SCORING_COMMIT" else {}])
+        result.append({"id": row.id, "event": row.event, "response_id": row.response_id,
+            "created_at": row.created_at.isoformat(), "payload": row.payload, "calls": calls,
+            "usage_summary": summaries.get(row.response_id) if row.response_id else {
+                **aggregate_usage(calls), "request_count": len(calls),
+                "unknown_usage_count": sum(not call["usage_known"] for call in calls)},
+            "usage_scope": "response_lifecycle" if row.response_id else "background_event"})
+    return result
+
+
+def code_neighbors(db: Session, item_id: str, code_id: str, limit: int = 5) -> list[dict]:
+    """Mã gần hiện tại theo vector/chữ ký đã lưu; không gọi LLM hoặc embedding."""
+    from heapq import nlargest
+    from app.pipeline.code_retrieval import cosine, signature_similarity
+    code = db.get(ItemCode, code_id)
+    if code is None or code.item_id != item_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy mã.")
+    def ranked():
+        for other in db.scalars(select(ItemCode).where(ItemCode.item_id == item_id,
+            ItemCode.id != code_id, ItemCode.validation_status == CodeValidationStatus.ACCEPTED,
+            ItemCode.maturity_status == CodeMaturityStatus.ACTIVE)).yield_per(100):
+            semantic = (max(0, cosine(code.embedding or [], other.embedding or []))
+                        if code.embedding_model and code.embedding_model == other.embedding_model else 0)
+            structural = signature_similarity(code.functional_signature, other.functional_signature)["weighted"]
+            yield {"code_id": other.id, "name": other.name,
+                   "semantic_similarity": round(semantic, 6), "structural_similarity": structural,
+                   "retrieval_score": round(.75 * semantic + .25 * structural, 6)}
+    return sorted(nlargest(min(max(limit, 1), 10), ranked(), key=lambda row: (row["retrieval_score"], row["code_id"])),
+                  key=lambda row: (-row["retrieval_score"], row["code_id"]))
+
+
+def code_history(db: Session, item_id: str, code_id: str, page: int, page_size: int) -> dict:
+    """Đọc lịch sử có giới hạn; không suy diễn danh sách chuyển ý cho nhật ký cũ."""
+    code = db.get(ItemCode, code_id)
+    if code is None or code.item_id != item_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy mã.")
+    values = list(reversed(code.scope_history or []))
+    size = min(max(page_size, 1), 10)
+    pages = max(1, (len(values) + size - 1) // size)
+    page = min(max(page, 1), pages)
+    return {"entries": values[(page-1)*size:page*size], "total": len(values), "page": page, "page_count": pages}
 from app.schemas.schemas import (
     AdminClusterAudit,
     AdminDailyStat,
@@ -848,7 +904,8 @@ def get_codebook(
                 centroid_revision=row.centroid_revision or 0,
                 scope_revision=row.scope_revision or 0,
                 drift_flag=row.drift_flag,
-                scope_history=row.scope_history or [],
+                scope_history=[],
+                scope_history_count=len(row.scope_history or []),
             )
         )
     return AdminCodebookSummary(

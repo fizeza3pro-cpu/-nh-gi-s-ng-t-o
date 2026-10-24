@@ -13,9 +13,7 @@ def run_mapping(
                 original=line,
                 normalized=line,
                 status="VALID",
-                uses_target_object=True,
                 object_used=item.name,
-                target_object_role="Đóng vai trò vật thể chính trong công dụng mô phỏng.",
                 line_index=index,
                 functional_signature=FunctionalSignature(
                     goal=line,
@@ -37,8 +35,6 @@ def run_mapping(
                     decision="MATCH_EXISTING",
                     existing_code_id=existing["id"],
                     code_relation="SAME_CATEGORY",
-                    target_object_confirmed=True,
-                    target_object_role="Dùng đúng đồ vật mục tiêu.",
                     functional_signature=extraction.ideas[index].functional_signature,
                     existing_code_evaluations=[
                         {
@@ -63,8 +59,6 @@ def run_mapping(
                     proposal_group=f"mock:{line.casefold()}",
                     code_name=line[:80],
                     code_description=f"[MOCK] Dùng {item.name}: {line[:120]}",
-                    target_object_confirmed=True,
-                    target_object_role="Dùng đúng đồ vật mục tiêu.",
                     functional_signature=extraction.ideas[index].functional_signature,
                     inclusion_rules=[f"Dùng {item.name} theo chức năng {line[:80]}"],
                     exclusion_rules=["Không bao gồm mục đích hoặc cơ chế khác"],

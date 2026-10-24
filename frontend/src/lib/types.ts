@@ -21,9 +21,6 @@ export interface FunctionalSignature {
   goal: string;
   object_role: string;
   mechanism: string;
-  transformation: string;
-  target: string;
-  context: string;
 }
 
 export interface MappingResult {
@@ -268,6 +265,38 @@ export interface AdminCodebookCode {
     current?: { name?: string };
     absorbed_code_ids?: string[];
   }>;
+  scope_history_count: number;
+}
+
+export interface CodeNeighbor {
+  code_id: string;
+  name: string;
+  semantic_similarity: number;
+  structural_similarity: number;
+  retrieval_score: number;
+}
+
+export interface ScopeHistoryEntry {
+  changed_at?: string;
+  change?: string;
+  operation?: string;
+  reason?: string;
+  previous?: Partial<{ name: string; description: string; functional_signature: FunctionalSignature; inclusion_rules: string[]; exclusion_rules: string[] }>;
+  current?: ScopeHistoryEntry["previous"];
+  source_code_ids?: string[];
+  source_scopes?: Record<string, { name?: string; description?: string }>;
+  moved_ideas?: Array<{ idea_id: string; response_id: string; from_code_id: string; to_code_id: string }>;
+}
+
+export interface AdminPipelineAudit {
+  id: string;
+  event: string;
+  response_id: string | null;
+  created_at: string;
+  payload: Record<string, unknown>;
+  usage_scope: "response_lifecycle" | "background_event";
+  usage_summary: { total_tokens: number; request_count: number; unknown_usage_count: number };
+  calls: Array<{ id: string; stage: string; model?: string; status?: string; latency_ms?: number; usage_known: boolean; usage: { total_tokens?: number } }>;
 }
 
 export interface AdminExtractionExcludedIdea {

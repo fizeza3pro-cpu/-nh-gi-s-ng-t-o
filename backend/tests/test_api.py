@@ -297,7 +297,7 @@ def uncertain_mapping(item, _raw, _existing_codes):
                     status="VALID",
                     uses_target_object=True,
                     object_used=item.name,
-                    target_object_role="Đũa làm phần móc chịu lực.",
+                    functional_signature={"goal": "treo đồ", "object_role": "móc chịu lực", "mechanism": "móc giữ vật"},
                 )
             ]
         ),
@@ -830,12 +830,12 @@ def test_worker_reextracts_completed_checkpoint_with_legacy_duplicates(client, m
         return curator, {"mock": True}
 
     monkeypatch.setattr(response_worker, "run_code_mapping", mock_curator)
-    response_worker._run_mapping(response_id, "checkpoint-worker")
-    assert extraction_client.chat.completions.calls == 1
-    with Session(engine) as db:
-        saved = db.get(Response, response_id)
-        assert [idea["status"] for idea in saved.mapping_checkpoint["extraction"]["ideas"]] == ["VALID", "VALID"]
-        assert all(idea["is_valid"] for idea in saved.mapping["ideas"])
+
+    from app.pipeline.llm import LLMJSONError
+    with pytest.raises(LLMJSONError) as caught:
+        response_worker._run_mapping(response_id, "checkpoint-worker")
+    assert caught.value.metadata["retryable"] is False
+    assert extraction_client.chat.completions.calls == 0
 
 
 def test_expired_final_lease_marks_saved_response_failed(client, monkeypatch):
@@ -1141,12 +1141,7 @@ def test_admin_can_audit_ideas_rejected_by_extraction(client, monkeypatch):
                         status="INVALID",
                         reason="Không mô tả cách sử dụng đồ vật.",
                     ),
-                    ExtractedIdea(
-                        original="làm cọc lần nữa",
-                        normalized="làm cọc đánh dấu",
-                        status="DUPLICATE",
-                        reason="Trùng công dụng với ý trước.",
-                    ),
+
                 ]
             ),
             CuratorResult(decisions=[]),
@@ -1160,6 +1155,13 @@ def test_admin_can_audit_ideas_rejected_by_extraction(client, monkeypatch):
         json={"item_id": "dua", "raw_input": "nội dung kiểm thử"},
     )
     assert submitted.status_code == 200
+
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    db.add(ResponseIdea(response_id=submitted.json()["response_id"], original="ý lịch sử",
+        normalized="ý lịch sử", mapping_status="DUPLICATE", curator_decision="EXTRACTION", reason="Nhãn cũ", line_index=1))
+    db.commit()
+    next(database, None)
 
     app.dependency_overrides[require_admin] = lambda: object()
     audit = client.get("/api/admin/items/dua/extraction-audit")
@@ -1186,7 +1188,7 @@ def test_admin_can_audit_an_idea_rejected_by_curator(client, monkeypatch):
                         status="VALID",
                         uses_target_object=True,
                         object_used=item.name,
-                        target_object_role="Đũa là vật được ném.",
+                        functional_signature={"goal": "ném vật", "object_role": "vật được ném", "mechanism": "lực ném"},
                     )
                 ]
             ),

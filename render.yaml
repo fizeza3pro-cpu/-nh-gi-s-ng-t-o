@@ -18,7 +18,7 @@ services:
       - key: BYTEPLUS_BASE_URL
         value: https://ark.ap-southeast.bytepluses.com/api/v3
       - key: BYTEPLUS_MODEL
-        value: deepseek-v4-1-flash-economy-261017
+        value: deepseek-v4-flash-260425
       - key: BYTEPLUS_REASONING_EFFORT
         value: minimal
       - key: GROQ_API_KEY
