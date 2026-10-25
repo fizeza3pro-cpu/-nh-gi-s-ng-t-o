@@ -28,8 +28,8 @@ def test_retrieval_uses_only_definition_and_eligible_centroid(monkeypatch, enabl
     monkeypatch.setattr(code_retrieval, "embedding_model", lambda client: "test-model")
 
     def embed(texts, client):
-        assert len(texts) == 1
-        return EmbeddingBatch(vectors=[[1.0, 0.0]], model="test-model", semantic=True)
+        vectors = {"Mã cần kiểm tra": [.6, .8], "Mã gần hơn": [.9, .435889894]}
+        return EmbeddingBatch(vectors=[vectors.get(text, [1., 0.]) for text in texts], model="test-model", semantic=True)
 
     monkeypatch.setattr(code_retrieval, "embed_texts", embed)
     signature = FunctionalSignature(goal="giữ giấy", object_role="vật chặn", mechanism="trọng lượng")
@@ -54,7 +54,7 @@ def test_retrieval_uses_only_definition_and_eligible_centroid(monkeypatch, enabl
     assert ranked[0]["id"] == "better"
     candidate = ranked[1]
     assert candidate["semantic_similarity"] == pytest.approx(expected)
-    assert candidate["retrieval_score"] == pytest.approx(0.75 * expected + 0.25)
+    assert candidate["retrieval_score"] == pytest.approx(settings.retrieval_raw_weight * expected + (1 - settings.retrieval_raw_weight))
     assert "prototype_vectors" not in candidate
 
     # Gợi ý cụm cho admin cũng tuân thủ cùng cờ bật/tắt và không dùng ý đại diện.

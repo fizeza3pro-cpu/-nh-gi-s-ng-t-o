@@ -866,7 +866,10 @@ def test_strong_match_skips_challenger_and_records_backend_audit():
         },
         ensure_ascii=False,
     )
-    client = FakeClient([match])
+    verification = json.dumps({"checks": [{"idea_index": 0, "source_text": extraction.ideas[0].original,
+        "grounded": True, "evidence": "gắn vỏ đạn", "reason": "Cùng chức năng trang trí",
+        "comparisons": [{"code_id": "decoration", "relation": "SAME_CATEGORY", "reason": "Mã bao phủ công dụng"}]}]}, ensure_ascii=False)
+    client = FakeClient([match, verification])
 
     result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
@@ -875,11 +878,12 @@ def test_strong_match_skips_challenger_and_records_backend_audit():
         client,
     )
 
-    assert client.chat.completions.calls == 1
+    assert client.chat.completions.calls == 2
     assert result.decisions[0].decision == "MATCH_EXISTING"
     audit = result.decisions[0].existing_code_evaluations[-1]
-    assert audit["source"] == "BACKEND_MATCH_GUARD"
-    assert audit["verdict"] == "PASS"
+    assert audit["source"] == "DECISION_VERIFIER"
+    assert result.decisions[0].pair_verified
+    assert audit["verdict"] == "MATCH"
     assert meta["challenger"]["skipped"] is True
 
 
@@ -1219,6 +1223,11 @@ def test_repeated_valid_lines_are_mapped_and_scored_separately():
             "idea_index": index, "source_text": row["original"], "decision": "MATCH_EXISTING",
             "existing_code_id": code.id, "code_relation": "SAME_CATEGORY", "confidence": 0.99,
         } for index in range(2)]}, ensure_ascii=False)])
+        curator_client.chat.completions._responses.append(json.dumps({"checks": [{
+            "idea_index": index, "source_text": row["original"], "grounded": True,
+            "evidence": "tặng", "reason": "Công dụng trao tặng có trong câu gốc", "comparisons": [{
+                "code_id": code.id, "relation": "SAME_CATEGORY", "reason": "Cùng chức năng tặng quà"}]
+        } for index in range(2)]}, ensure_ascii=False))
         snapshots = list_curator_codes(db, item.id)
         curator, _ = run_code_mapping(item_schema, extraction, snapshots, curator_client)
         mapping, pending = persist_mapping(db, item=item, response=response, extraction=extraction,
@@ -1634,6 +1643,7 @@ def test_excluded_response_does_not_contribute_to_centroid(monkeypatch):
         db.commit()
         from app.controllers import response_worker
         monkeypatch.setattr(response_worker, "SessionLocal", lambda: Session(engine))
+        monkeypatch.setattr(response_worker, "configured_embedding_model", lambda: "model-v1")
         assert response_worker._refresh_one_centroid()
         db.expire_all()
         assert code.centroid_count == 1

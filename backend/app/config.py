@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     cloudflare_embedding_model: str = "@cf/qwen/qwen3-embedding-0.6b"
     embedding_batch_size: int = Field(default=64, ge=1, le=100)
     embedding_timeout_seconds: float = Field(default=20.0, ge=1.0, le=60.0)
+    # Trọng số truy xuất tạm thời, không phải xác suất ý thuộc mã.
+    retrieval_raw_weight: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # --- Pipeline ---
     mapping_temperature: float = 0.1

@@ -314,3 +314,36 @@ Extraction chỉ trả chữ ký `goal/object_role/mechanism`, không trả các
 Mở rộng và gộp mã có nhật ký riêng, lưu phạm vi trước/sau và danh sách ý chuyển. Snapshot FINAL giữ nguyên. Các key bỏ nằm trong JSON, không phải cột SQL; không cần DROP COLUMN. Nếu cần dọn dữ liệu đang làm việc, chạy `uv run python -m scripts.cleanup_mapping_contract` để xem trước, rồi thêm `--apply --backup <đường-dẫn-file-mới.json>` để áp dụng với backup. Script giữ nguyên ý thuộc FINAL, bài đã có scored_at và audit lịch sử; không tự reset dữ liệu hoặc chấm lại bài cũ.
 
 `MAPPING_BATCH_SIZE=5` là cấu hình mặc định sau phép thử lô 3/5/10 trên bộ câu và mã tự biên soạn. Giữ lô 10 là lựa chọn đánh giá, chưa áp dụng mặc định. Số token trên fixture không chứng minh trung bình <=20k với dữ liệu thực; xem báo cáo triển khai ngày 24/10/2026.
+
+### Candidate từ câu gốc và ba trường ngữ nghĩa
+
+Retrieval mới embedding câu trả lời nguyên bản và embedding riêng `goal`, `object_role`, `mechanism`. Câu gốc so với vector định nghĩa mã và centroid các câu gốc đã gán mã; mỗi trường so với đúng trường trong định nghĩa mã. Không dùng vector ý đại diện. Trường rỗng cho điểm 0, không embedding một chuỗi rỗng rồi coi là bằng chứng.
+
+```text
+R = max(cosine(câu gốc, định nghĩa mã), cosine(câu gốc, centroid đủ điều kiện))
+F = 0.4*cosine(goal) + 0.3*cosine(object_role) + 0.3*cosine(mechanism)
+retrieval_score = RETRIEVAL_RAW_WEIGHT*R + (1-RETRIEVAL_RAW_WEIGHT)*F
+```
+
+`RETRIEVAL_RAW_WEIGHT=0.5` là trọng số khởi điểm, chưa phải kết quả hiệu chỉnh trên dữ liệu gán nhãn. Điểm mới có profile `raw-fields-v1`; `signature_similarity` của candidate mới là cosine từng trường, còn `lexical_similarity` giữ độ trùng từ để đối chiếu. Ngưỡng lexical/MATCH legacy không tự áp sang thang điểm mới. Trong giai đoạn chưa hiệu chỉnh, MATCH của profile mới cần kiểm chứng ngữ nghĩa độc lập theo lô trước khi ghi; điều này có thể tăng lượt verifier. Centroid vẫn cần cùng model/biểu diễn, không dirty và không drift.
+
+Migration `c2f4a6b8d013` thêm `item_codes.signature_embeddings` để cache ba vector kèm digest nội dung và model. `ResponseIdea.embedding` mới là vector câu gốc; `ItemCode.embedding` mới là vector tên/định nghĩa mã. Nhãn biểu diễn `raw-fields-v3` ngăn dùng lẫn với `core-function-v2`. Mã cũ sinh lại cache khi được retrieval sử dụng; centroid từ chữ ký cũ không được dùng làm tâm câu gốc. Nâng schema bằng `uv run python -m scripts.prepare_database` trước khi chạy bản mới.
+
+Chuyển cache vector cũ, không chạy lại mapping/scoring và không sửa điểm/snapshot FINAL:
+
+```sh
+cd backend
+uv run python -m scripts.rebuild_retrieval_vectors
+# Lệnh apply gửi văn bản câu trả lời/mã đến provider embedding đang cấu hình:
+uv run python -m scripts.rebuild_retrieval_vectors --apply --backup ../.cache/retrieval-vector-backup-v3.json
+```
+
+Mặc định chỉ thống kê, không gọi API. Apply tạo backup mới trước khi ghi, kiểm tra lại dữ liệu dưới khóa và bỏ qua hàng đã đổi trong lúc gọi mạng. Chỉ các cột vector kỹ thuật của ý được cập nhật; mapping, chữ ký, điểm và căn cứ FINAL giữ nguyên. Chưa chuyển dữ liệu cũ thì centroid có thể chưa khả dụng; vector định nghĩa mã tiếp tục làm điểm tham chiếu.
+
+Phép so sánh độc lập bằng câu/mã tự biên soạn, không đọc DB:
+
+```sh
+uv run python -m app.validation.retrieval_compare --live --output ../output/reports/retrieval-self-authored-raw-fields.json
+```
+
+Lượt Qwen thật đầu tiên có 11 câu giữ ngoài centroid và 8 mã: bản cũ, chỉ ba trường ngữ nghĩa và bản kết hợp đều đạt top-1 11/11; chỉ câu gốc/centroid đạt 9/11. Tập này chưa chứng minh bản mới vượt bản cũ, chưa thay thế đánh giá trên khảo sát thực. Chữ ký trong fixture được viết sẵn, không phải đánh giá chất lượng Extraction.

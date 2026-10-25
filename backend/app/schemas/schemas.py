@@ -300,6 +300,7 @@ class CuratorDecision(BaseModel):
     reviewed_by_challenger: bool = False
     embedding: list[float] = Field(default_factory=list, exclude=True)
     embedding_model: str = Field(default="", exclude=True)
+    signature_embeddings: dict = Field(default_factory=dict, exclude=True)
 
     @field_validator("code_description", "reason", mode="before")
     @classmethod

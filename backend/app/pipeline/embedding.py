@@ -16,7 +16,7 @@ from app.config import settings
 
 _LOCAL_VECTOR_SIZE = 384
 _LOCAL_MODEL = "local-hash-v1"
-_REPRESENTATION_VERSION = "core-function-v2"
+_REPRESENTATION_VERSION = "raw-fields-v3"
 
 
 class EmbeddingError(RuntimeError):
@@ -59,6 +59,12 @@ def embedding_model(client: OpenAI | None) -> str:
     return f"{base}::{_REPRESENTATION_VERSION}"
 
 
+def configured_embedding_model() -> str:
+    """Model của worker nền, không cần tạo client hay gọi mạng để lấy tên."""
+    base = _LOCAL_MODEL if settings.mock_mode or settings.embedding_provider == "local" else settings.cloudflare_embedding_model
+    return f"{base}::{_REPRESENTATION_VERSION}"
+
+
 def embed_texts(texts: list[str], client: OpenAI | None = None) -> EmbeddingBatch:
     """Embedding nhiều văn bản; một batch API có thể chứa nhiều ý và code."""
     if not texts:
@@ -83,16 +89,23 @@ def embed_texts(texts: list[str], client: OpenAI | None = None) -> EmbeddingBatc
                     input=batch,
                 )
                 ordered = sorted(response.data, key=lambda row: row.index)
+                if [row.index for row in ordered] != list(range(len(batch))):
+                    raise EmbeddingError("Provider trả index vector thiếu, trùng hoặc ngoài lô.")
                 batch_vectors = [list(row.embedding) for row in ordered]
                 if len(batch_vectors) != len(batch) or any(not vector for vector in batch_vectors):
                     raise EmbeddingError("Provider trả thiếu semantic embedding.")
+                normalized = []
+                dimension = len(vectors[0]) if vectors else len(batch_vectors[0])
                 for vector in batch_vectors:
+                    if len(vector) != dimension:
+                        raise EmbeddingError("Provider trả các vector khác số chiều.")
                     if not all(math.isfinite(value) for value in vector):
                         raise EmbeddingError("Provider trả vector không hữu hạn.")
                     norm = math.sqrt(sum(value * value for value in vector))
                     if norm == 0:
                         raise EmbeddingError("Provider trả vector có độ dài bằng 0.")
-                    vectors.append([value / norm for value in vector])
+                    normalized.append([value / norm for value in vector])
+                vectors.extend(normalized)
                 break
             except Exception as error:  # noqa: BLE001 - cần retry lỗi mạng/provider
                 last_error = error

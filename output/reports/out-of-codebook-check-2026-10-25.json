@@ -1,0 +1,55 @@
+{
+  "checked_at_utc": "2026-10-25T03:29:58.802198+00:00",
+  "totals": {
+    "submissions": 134,
+    "individual_responses": 959,
+    "audit_records": 388,
+    "first_submission": "2026-09-28 07:09:17.608264+07:00",
+    "last_submission": "2026-10-24 23:35:26.064515+07:00"
+  },
+  "current_decisions": [
+    {
+      "curator_decision": "SYNTHETIC_FIXTURE",
+      "count": 600
+    },
+    {
+      "curator_decision": "MATCH_EXISTING",
+      "count": 179
+    },
+    {
+      "curator_decision": "CREATE_NEW",
+      "count": 107
+    },
+    {
+      "curator_decision": "EXTRACTION",
+      "count": 45
+    },
+    {
+      "curator_decision": "UNCERTAIN",
+      "count": 18
+    },
+    {
+      "curator_decision": "MISSING_DECISION",
+      "count": 5
+    },
+    {
+      "curator_decision": "ADMIN_MATCH_EXISTING",
+      "count": 2
+    },
+    {
+      "curator_decision": "CODEX_MATCH_EXISTING",
+      "count": 2
+    },
+    {
+      "curator_decision": "EXTRACTION_REVIEW",
+      "count": 1
+    }
+  ],
+  "current_out_of_codebook": [],
+  "audit_text_matches": 0,
+  "audit_events_with_text_matches": {},
+  "historical_audit_decisions": [],
+  "submission_text_matches": 0,
+  "historical_saved_decisions": [],
+  "affected_submissions_now": []
+}

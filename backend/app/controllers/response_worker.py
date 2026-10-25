@@ -16,6 +16,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.models.models import Item, ItemCode, ItemCalibrationStatus, Response, ResponseIdea, ResponseScoringStatus, PipelineAudit
 from app.pipeline.centroid import rebuild_confirmed_members
+from app.pipeline.embedding import configured_embedding_model
 from app.pipeline.codebook_service import (
     calibration_source_filter,
     item_is_ready_for_scoring,
@@ -318,7 +319,8 @@ def _refresh_one_centroid() -> bool:
             .where(ResponseIdea.code_id == code.id, ResponseIdea.mapping_status == "VALID",
                    Response.scoring_status != ResponseScoringStatus.EXCLUDED)).all()
         rebuild_confirmed_members(code, [(vector or [], model or "") for vector, model in members],
-                                  drift_cosine_floor=settings.centroid_drift_cosine_floor)
+                                  drift_cosine_floor=settings.centroid_drift_cosine_floor,
+                                  expected_model=configured_embedding_model())
         code.centroid_dirty = False
         db.commit()
         return True

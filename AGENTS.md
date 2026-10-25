@@ -242,3 +242,9 @@ Các quy tắc sau thay thế mô tả cũ tương ứng bên trên:
 - EXPAND thay định nghĩa, MERGE_EQUIVALENT chỉ gộp member và giữ vector định nghĩa mã đích. Ví dụ mã lân cận chưa được xác nhận không mặc định là phản ví dụ. Nhật ký mới ghi chính xác các ý chuyển.
 - Giữ nguyên queue, phiên khảo sát, claim/lease/heartbeat và raw_input/input_lines, tên hàm và module mock. FINAL tiếp tục bất biến.
 - Centroid hỗ trợ retrieval khi đủ điều kiện; không dùng vector ý đại diện để tăng similarity. Dọn key JSON cũ bằng scripts.cleanup_mapping_contract có backup; không viết lại bài FINAL hoặc audit lịch sử.
+
+## Truy xuất câu gốc và từng trường chức năng
+
+- Candidate mới dùng vector câu gốc so định nghĩa/centroid câu gốc, cộng cosine riêng goal/object_role/mechanism. Không nối ba trường để tạo vector câu gốc. Điểm trùng từ vẫn dùng cho heuristic/audit legacy.
+- Biểu diễn `raw-fields-v3` và profile điểm `raw-fields-v1` phải được lưu để không lẫn vector/ngưỡng cũ. MATCH mới cần kiểm chứng ngữ nghĩa độc lập trong giai đoạn chưa hiệu chỉnh, không coi điểm retrieval là xác suất.
+- Migration `c2f4a6b8d013` thêm cache `ItemCode.signature_embeddings`. Dữ liệu cũ chuyển bằng `scripts.rebuild_retrieval_vectors`, mặc định chỉ thống kê; apply cần backup mới và gửi văn bản tới provider embedding. Chỉ sửa cache vector kỹ thuật, không chạy lại mapping/scoring hoặc sửa snapshot FINAL.

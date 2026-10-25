@@ -23,6 +23,7 @@ def rebuild_confirmed_members(
     members: list[tuple[list[float], str]],
     *,
     drift_cosine_floor: float,
+    expected_model: str | None = None,
 ) -> bool:
     """Dựng lại từ ý đã lưu; không phụ thuộc thứ tự submit hoặc remap."""
     available = [
@@ -32,7 +33,7 @@ def rebuild_confirmed_members(
     ]
     available = [(vector, model) for vector, model in available if vector]
     if not available:
-        changed = bool(code.centroid_count)
+        changed = bool(code.centroid_count or code.centroid or code.centroid_sum)
         if changed:
             code.centroid = []
             code.centroid_sum = []
@@ -43,17 +44,29 @@ def rebuild_confirmed_members(
         return changed
 
     models = Counter(model for _, model in available)
-    model = code.centroid_model or sorted(models, key=lambda name: (-models[name], name))[0]
+    model = expected_model or code.centroid_model or sorted(models, key=lambda name: (-models[name], name))[0]
+    representation_changed = bool(expected_model and code.centroid_model != expected_model)
+    if representation_changed:
+        code.centroid = []
+        code.centroid_sum = []
+        code.prototype_vectors = []
+        code.centroid_count = 0
+        code.centroid_model = expected_model
+        code.drift_flag = False
     vectors = sorted(
         [vector for vector, candidate_model in available if candidate_model == model],
         key=tuple,
     )
     if not vectors:
         code.drift_flag = True
-        return False
+        if representation_changed:
+            code.centroid_revision = (code.centroid_revision or 0) + 1
+        return representation_changed
+    if expected_model:
+        code.drift_flag = False  # Đánh giá lại từ tập hiện hành; không giữ cảnh báo của biểu diễn cũ.
     dimension = len(vectors[0])
     vectors = [vector for vector in vectors if len(vector) == dimension]
-    if len(vectors) != len(available):
+    if len(vectors) != (len(members) if expected_model else len(available)):
         code.drift_flag = True  # Không trộn model hoặc chiều vector.
     vector_sum = [math.fsum(vector[index] for vector in vectors) for index in range(dimension)]
     centroid = unit_vector(vector_sum)
@@ -82,7 +95,7 @@ def rebuild_confirmed_members(
         remaining = [vector for vector in remaining if vector != selected]
 
     changed = (
-        code.centroid_count != len(vectors)
+        representation_changed or code.centroid_count != len(vectors)
         or code.centroid_model != model
         or code.centroid_sum != vector_sum
         or code.prototype_vectors != prototypes

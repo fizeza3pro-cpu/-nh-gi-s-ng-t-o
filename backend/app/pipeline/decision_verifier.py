@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.config import settings
 from app.pipeline.llm import LLMJSONError, chat_json
+from app.pipeline.code_retrieval import RETRIEVAL_PROFILE
 
 
 class CodeComparison(BaseModel):
@@ -35,11 +36,18 @@ def verification_reason(idea, decision, candidates) -> str | None:
     """Chỉ kiểm chứng rủi ro cụ thể; không lặp một cặp đã có bằng chứng độc lập."""
     if decision.pair_verified:
         return None
+    if decision.decision == "MATCH_EXISTING" and any(c.get("retrieval_profile") == RETRIEVAL_PROFILE for c in candidates):
+        return "multi_vector_match_requires_semantic_check"
     entirely_inferred = set(idea.inferred_signature_fields) >= {"goal", "object_role", "mechanism"}
     if decision.decision == "MATCH_EXISTING" and entirely_inferred:
         return "fully_inferred_match"
     if decision.decision == "CREATE_NEW":
-        if any(float(c.get("semantic_similarity") or 0) >= settings.auto_match_semantic_floor
+        modern = [c for c in candidates if c.get("retrieval_profile") == RETRIEVAL_PROFILE]
+        if any(float((c.get("signature_similarity") or {}).get("goal") or 0) >= .7
+               and float((c.get("signature_similarity") or {}).get("object_role") or 0) >= .7 for c in modern):
+            return "new_code_overlaps_semantic_fields"
+        if any(c.get("retrieval_profile") != RETRIEVAL_PROFILE
+               and float(c.get("semantic_similarity") or 0) >= settings.auto_match_semantic_floor
                and float((c.get("signature_similarity") or {}).get("weighted") or 0)
                    >= settings.auto_match_structural_floor for c in candidates):
             return "new_code_overlaps_candidate"

@@ -5,5 +5,6 @@ backend/.validation.env
 output/playwright/
 
 .cache/mapping-contract-backup-*.json
+.cache/retrieval-vector-backup-*.json
 .cache/scope-analysis-*.json
 .cache/scope-response-audits-*.json

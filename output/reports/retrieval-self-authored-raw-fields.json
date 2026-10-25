@@ -1,0 +1,146 @@
+{
+  "source": "SELF_AUTHORED_FIXTURE",
+  "database_reads": false,
+  "database_writes": false,
+  "extraction": "manually_authored_signatures",
+  "held_out_from_centroid": true,
+  "baseline_centroid": "canonical_signatures_of_fixture_members",
+  "raw_weight": 0.5,
+  "model": "@cf/qwen/qwen3-embedding-0.6b",
+  "code_count": 8,
+  "query_count": 11,
+  "metrics": {
+    "legacy_signature_and_lexical": {
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "mrr": 1.0
+    },
+    "raw_and_centroid": {
+      "recall_at_1": 0.8181818181818182,
+      "recall_at_3": 0.9090909090909091,
+      "mrr": 0.8863636363636364
+    },
+    "semantic_fields": {
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "mrr": 1.0
+    },
+    "combined": {
+      "recall_at_1": 1.0,
+      "recall_at_3": 1.0,
+      "mrr": 1.0
+    }
+  },
+  "cases": [
+    {
+      "original": "Làm khuyên tai từ vỏ đạn",
+      "expected": "jewel",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 2,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Xâu vỏ đạn thành chiếc lắc chân",
+      "expected": "jewel",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Xếp vỏ đạn thành hình để bày trên bàn",
+      "expected": "decor",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Dùng vỏ đạn cất những chiếc kim nhỏ",
+      "expected": "contain",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Cho ít dầu vào vỏ đạn để đựng",
+      "expected": "contain",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Đặt vỏ đạn lên giấy để gió không thổi bay",
+      "expected": "weight",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Dùng vỏ đạn đè giữ mép tấm vải",
+      "expected": "weight",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Gõ hai vỏ đạn vào nhau để giữ nhịp",
+      "expected": "sound",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 4,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Mang vỏ đạn làm mẫu minh họa trong tiết học",
+      "expected": "teach",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Lấy vỏ đạn làm quân trên bàn cờ",
+      "expected": "game",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    },
+    {
+      "original": "Dùng miệng vỏ đạn ấn thủng miếng bìa",
+      "expected": "punch",
+      "ranks": {
+        "legacy_signature_and_lexical": 1,
+        "raw_and_centroid": 1,
+        "semantic_fields": 1,
+        "combined": 1
+      }
+    }
+  ]
+}

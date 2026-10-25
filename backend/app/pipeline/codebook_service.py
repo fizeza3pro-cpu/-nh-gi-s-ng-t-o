@@ -18,7 +18,7 @@ from app.models.models import (
     ResponseScoringStatus,
     PipelineAudit,
 )
-from app.pipeline.code_retrieval import core_signature_text, functional_key
+from app.pipeline.code_retrieval import code_definition_text, functional_key
 from app.pipeline.embedding import embedding_model as active_embedding_model
 from app.pipeline.embedding import local_embedding
 from app.pipeline.dynamic_mapping import (
@@ -60,6 +60,7 @@ def list_curator_codes(db: Session, item_id: str) -> list[dict]:
             "positive_examples": row.positive_examples or [],
             "embedding": row.embedding or [],
             "embedding_model": row.embedding_model,
+            "signature_embeddings": row.signature_embeddings or {},
             "centroid": row.centroid or [],
             "prototype_vectors": row.prototype_vectors or [],
             "centroid_model": row.centroid_model,
@@ -120,6 +121,7 @@ def _find_or_create_code(
     positive_examples: list[str],
     embedding: list[float] | None = None,
     embedding_model: str = "",
+    signature_embeddings: dict | None = None,
 ) -> ItemCode:
     normalized_name = normalize_code_name(name) or f"code-{uuid.uuid4().hex[:8]}"
     key = functional_key(signature)
@@ -148,7 +150,7 @@ def _find_or_create_code(
             existing.inclusion_rules = inclusion_rules
             existing.exclusion_rules = exclusion_rules
             existing.positive_examples = positive_examples
-            existing.embedding = embedding or local_embedding(core_signature_text(signature))
+            existing.embedding = embedding or local_embedding(code_definition_text({"name": name, "description": description}))
             existing.embedding_model = embedding_model or active_embedding_model(None)
         # Nếu AI gặp lại đúng tên của code legacy, chỉ lúc này code mới được "khám phá lại"
         # từ dữ liệu thật và tham gia codebook động; bản thân seed cũ không tự tạo tần suất.
@@ -187,6 +189,7 @@ def _find_or_create_code(
         if embedding:
             existing.embedding = embedding
             existing.embedding_model = embedding_model
+            existing.signature_embeddings = signature_embeddings or {}
         if not existing.admin_locked:
             existing.inclusion_rules = _unique_texts(
                 existing.inclusion_rules or [], inclusion_rules
@@ -216,8 +219,9 @@ def _find_or_create_code(
         exclusion_rules=exclusion_rules,
         positive_examples=positive_examples,
         embedding=embedding
-        or local_embedding(core_signature_text(signature)),
+        or local_embedding(code_definition_text({"name": name, "description": description})),
         embedding_model=embedding_model or active_embedding_model(None),
+        signature_embeddings=signature_embeddings or {},
         scope_history=[],
     )
     db.add(row)
@@ -384,9 +388,10 @@ def _expand_existing_code(
         *[code.positive_examples or [] for code in absorbed],
     )
     target.embedding = decision.embedding or local_embedding(
-        core_signature_text(target.functional_signature)
+        code_definition_text({"name": target.name, "description": target.description})
     )
     target.embedding_model = decision.embedding_model or active_embedding_model(None)
+    target.signature_embeddings = decision.signature_embeddings or {}
     target.confidence = decision.confidence
     target.relevance_reason = decision.reason
     moved = _transfer_members(db, absorbed_ids, target.id)
@@ -499,9 +504,10 @@ def persist_mapping(
         code = allowed_codes.get(str(snapshot.get("id") or ""))
         vector = snapshot.get("embedding") or []
         model = str(snapshot.get("embedding_model") or "")
-        if code is not None and vector and model and code.embedding_model != model:
+        if code is not None and vector and model:
             code.embedding = vector
             code.embedding_model = model
+            code.signature_embeddings = snapshot.get("signature_embeddings") or {}
     mapped: list[MappedIdea] = []
     has_uncertain = False
     scope_changed = False
@@ -586,6 +592,7 @@ def persist_mapping(
                     "challenge_reason": decision.challenge_reason,
                     "code_relation": decision.code_relation,
                     "reviewed_by_challenger": decision.reviewed_by_challenger,
+                    "pair_verified": decision.pair_verified,
                     "absorbed_code_ids": decision.absorbed_code_ids,
                     "scope_variants": decision.scope_variants,
                 }
@@ -687,6 +694,7 @@ def persist_mapping(
                             positive_examples=decision.positive_examples,
                             embedding=decision.embedding,
                             embedding_model=decision.embedding_model,
+                            signature_embeddings=decision.signature_embeddings,
                         )
                         if code_row.id not in known_code_ids:
                             item.codebook_epoch = (item.codebook_epoch or 0) + 1

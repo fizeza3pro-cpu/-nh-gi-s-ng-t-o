@@ -7,6 +7,7 @@ from app.models.models import Item, ItemCode, Response, ResponseIdea, PipelineAu
 from app.pipeline.codebook_service import list_curator_codes, _merge_equivalent_codes, synchronize_response_mappings
 from app.pipeline.code_retrieval import cosine, signature_similarity
 from app.pipeline.centroid import rebuild_confirmed_members
+from app.pipeline.embedding import configured_embedding_model
 from app.pipeline.scope_audit import verify_expansions, guard_members
 from app.pipeline.semantic_verifier import verify_pair
 from app.schemas.schemas import Item as ItemSchema, CuratorDecision, CuratorResult, ExtractedIdea, IdeaExtractionResult
@@ -103,7 +104,8 @@ def run_one_audit():
                             .where(ResponseIdea.code_id == code_id, ResponseIdea.mapping_status == "VALID",
                                    Response.scoring_status != "EXCLUDED")).all()
                         rebuild_confirmed_members(allowed[code_id], [(vector or [], model or "") for vector, model in members],
-                                                  drift_cosine_floor=settings.centroid_drift_cosine_floor)
+                                                  drift_cosine_floor=settings.centroid_drift_cosine_floor,
+                                                  expected_model=configured_embedding_model())
                         allowed[code_id].centroid_dirty = False
                     synchronize_response_mappings(db, item.id)
                     current.calibration_dirty = True

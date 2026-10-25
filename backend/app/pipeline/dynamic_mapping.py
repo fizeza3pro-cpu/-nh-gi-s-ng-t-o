@@ -11,12 +11,12 @@ from openai import OpenAI
 
 from app.config import settings
 from app.pipeline.code_retrieval import (
-    core_signature_text,
     normalize_text,
     rank_code_candidates,
     signature_similarity,
+    prepare_code_embeddings,
+    RETRIEVAL_PROFILE,
 )
-from app.pipeline.embedding import embed_texts
 from app.pipeline.llm import LLMJSONError, chat_json
 from app.schemas.schemas import (
     CuratorDecision,
@@ -321,6 +321,10 @@ def _match_signal_reason(
         return None
     if decision.confidence < 0.5:
         return "MATCH thiếu độ tin cậy; cần đối chiếu cặp."
+    candidate = _candidate_by_id(candidates, decision.idea_index, decision.existing_code_id)
+    if candidate and candidate.get("retrieval_profile") == RETRIEVAL_PROFILE:
+        # Điểm mới chỉ xếp hạng; finalize sẽ kiểm chứng độc lập, không dùng lại ngưỡng lexical cũ.
+        return "MATCH theo biểu diễn mới cần kiểm chứng ngữ nghĩa độc lập." if challenged else None
     if signal["rank"] != 1:
         return f"Code được chọn chỉ đứng hạng {signal['rank']} trong retrieval."
 
@@ -456,8 +460,11 @@ def _match_guard_evidence(
         "signature_similarity": similarities,
         "selected_rank": signal.get("rank"),
         "margin": round(float(signal.get("margin") or 0.0), 6),
-        "gate_profile": "CHALLENGED" if challenged else "AUTO",
-        "verdict": "PASS",
+        "retrieval_profile": candidate.get("retrieval_profile"),
+        "gate_profile": ("SEMANTIC_PROOF" if candidate.get("retrieval_profile") == RETRIEVAL_PROFILE
+                         else "CHALLENGED" if challenged else "AUTO"),
+        "verdict": ("PENDING_SEMANTIC_CHECK" if candidate.get("retrieval_profile") == RETRIEVAL_PROFILE
+                    and not decision.pair_verified else "PASS"),
     }
 
 
@@ -477,6 +484,7 @@ def _normalize_curator_contract(
                 "retrieval_score": candidate.get("retrieval_score"),
                 "semantic_similarity": candidate.get("semantic_similarity"),
                 "signature_similarity": candidate.get("signature_similarity") or {},
+                **{key: candidate.get(key) for key in ("retrieval_profile", "lexical_similarity", "definition_similarity", "centroid_similarity", "raw_weight", "embedding_model")},
                 "exclusion_rules": candidate.get("exclusion_rules") or [],
             }
             for candidate in candidates.get(decision.idea_index, [])
@@ -650,6 +658,7 @@ def _finalize_curator(item, ideas, curator, candidates, client, embedding_client
             "retrieval_score": c.get("retrieval_score"),
             "semantic_similarity": c.get("semantic_similarity"),
             "signature_similarity": c.get("signature_similarity") or {},
+            **{key: c.get(key) for key in ("retrieval_profile", "lexical_similarity", "definition_similarity", "centroid_similarity", "raw_weight", "embedding_model")},
             "exclusion_rules": c.get("exclusion_rules") or [],
         } for c in candidates.get(decision.idea_index, [])],
     }) for decision in curator.decisions])
@@ -923,9 +932,10 @@ def _attach_decision_embeddings(
     ]
     if not selected:
         return curator
-    texts = [core_signature_text(decision.functional_signature) for decision in selected]
-    batch = embed_texts(texts, embedding_client)
-    vectors = iter(batch.vectors)
+    codes = [{"name": d.code_name, "description": d.code_description,
+              "functional_signature": d.functional_signature.model_dump()} for d in selected]
+    prepare_code_embeddings(codes, embedding_client)
+    vectors = iter(codes)
     selected_ids = {decision.idea_index for decision in selected}
     decisions = []
     for decision in curator.decisions:
@@ -933,11 +943,13 @@ def _attach_decision_embeddings(
             "CREATE_NEW",
             "EXPAND_EXISTING",
         }:
+            vectors_for_code = next(vectors)
             decisions.append(
                 decision.model_copy(
                     update={
-                        "embedding": next(vectors),
-                        "embedding_model": batch.model,
+                        "embedding": vectors_for_code["embedding"],
+                        "embedding_model": vectors_for_code["embedding_model"],
+                        "signature_embeddings": vectors_for_code["signature_embeddings"],
                     }
                 )
             )

@@ -207,6 +207,7 @@ class ItemCode(Base):
     embedding: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     centroid: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    signature_embeddings: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     centroid_sum: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     prototype_vectors: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     centroid_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

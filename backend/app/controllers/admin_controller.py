@@ -25,7 +25,7 @@ from app.models.models import (
     User as UserModel,
 )
 from app.pipeline.centroid import rebuild_confirmed_members
-from app.pipeline.code_retrieval import core_signature_text, functional_key
+from app.pipeline.code_retrieval import code_definition_text, functional_key
 from app.pipeline.embedding import embedding_model as active_embedding_model
 from app.pipeline.embedding import local_embedding
 from app.pipeline.codebook_service import (
@@ -1189,7 +1189,7 @@ def resolve_mapping_review(
                     f'Mã mới va với “{collision.name}”. Hãy tải lại và dùng thao tác gán mã hiện có.'
                 ),
             )
-        reviewed_vector = local_embedding(core_signature_text(signature))
+        reviewed_vector = local_embedding(code_definition_text({"name": name, "description": description}))
         reviewed_model = active_embedding_model(None)
         selected_code = ItemCode(
             id=str(uuid.uuid4()),

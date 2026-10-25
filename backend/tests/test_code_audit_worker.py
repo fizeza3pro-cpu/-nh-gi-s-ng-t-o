@@ -31,6 +31,7 @@ def test_auto_audit_merges_only_after_member_checks(monkeypatch):
     client = FakeClient([json.dumps(verdict("đựng quân nhu"), ensure_ascii=False),
                          json.dumps({"checks": [verdict("đựng sách"), verdict("đựng quân nhu")]}, ensure_ascii=False)])
     monkeypatch.setattr(worker, "SessionLocal", lambda: Session(engine))
+    monkeypatch.setattr(worker, "configured_embedding_model", lambda: "test")
     monkeypatch.setattr(worker.settings, "mock_mode", False)
     monkeypatch.setattr("app.pipeline.clients.chat_client", lambda: client)
     assert worker.run_one_audit()
