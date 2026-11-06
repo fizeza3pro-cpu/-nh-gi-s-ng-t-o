@@ -10,7 +10,7 @@ from app.config import settings
 from app.pipeline import code_retrieval as retrieval
 from app.pipeline import embedding
 from app.pipeline.centroid import rebuild_confirmed_members
-from app.pipeline.dynamic_mapping import _normalize_curator_contract, _finalize_curator
+from app.pipeline.dynamic_mapping import _normalize_curator_contract, _finalize_curator, run_code_challenger
 from app.pipeline.codebook_service import _stored_match_review_reason
 from app.models.models import ItemCode
 from app.schemas.schemas import ExtractedIdea, IdeaExtractionResult, CuratorResult, CuratorDecision, Item
@@ -57,7 +57,7 @@ def test_separate_semantic_fields_can_outweigh_wrong_raw_neighbor(monkeypatch):
     assert ranked[0]["lexical_similarity"]["goal"] < 1
     assert ranked[0]["retrieval_score"] == pytest.approx(.9)
     assert data.ideas[0].embedding == [1., 0.]
-    assert "giữ giấy khỏi bay" in calls[0]
+    assert "Đồ vật: Gạch. Công dụng được nêu: giữ giấy khỏi bay" in calls[0]
     assert "Mục đích: giữ giấy khỏi bay" in calls[0]
     assert not any("\n" in text for text in calls[0])
     assert "signature_embeddings" not in ranked[0] and "embedding" not in ranked[0]
@@ -109,14 +109,19 @@ def test_raw_profile_match_cannot_persist_without_independent_verification(monke
                         existing_code_id="keep", code_relation="SAME_CATEGORY", confidence=.99)])
     normalized = _normalize_curator_contract(curator, data, candidates)
     assert _stored_match_review_reason(data.ideas[0], normalized.decisions[0])
-    client = FakeClient([json.dumps({"checks": [{"idea_index": 0, "source_text": data.ideas[0].original,
+    client = FakeClient([json.dumps({"decisions": [{"idea_index": 0, "source_text": data.ideas[0].original,
         "grounded": True, "evidence": "giấy", "reason": "Chức năng có trong câu nguồn",
-        "comparisons": [{"code_id": "keep", "relation": "SAME_CATEGORY", "reason": "Cố định giấy"}]}]}, ensure_ascii=False)])
-    final, meta = _finalize_curator(Item(id="brick", name="Gạch", description="Vật nặng"), data, normalized,
+        "decision": "MATCH_EXISTING", "existing_code_id": "keep", "code_relation": "SAME_CATEGORY", "confidence": .9,
+        "comparisons": [{"code_id": "keep", "relation": "SAME_CATEGORY", "goal_match": True, "role_match": True,
+                         "reason": "Cố định giấy"}]}]}, ensure_ascii=False)])
+    final, meta = run_code_challenger(Item(id="brick", name="Gạch", description="Vật nặng"), data, candidates,
+                                    normalized, client)
+    final, _ = _finalize_curator(Item(id="brick", name="Gạch", description="Vật nặng"), data, final,
                                   candidates, client, None)
     assert final.decisions[0].pair_verified
     assert _stored_match_review_reason(data.ideas[0], final.decisions[0]) is None
     assert meta["triggers"] == {0: "multi_vector_match_requires_semantic_check"}
+    assert client.chat.completions.calls == 1
 
 
 def test_centroid_switches_representation_and_disables_partial_legacy_mix():
@@ -165,3 +170,13 @@ def test_new_field_similarity_does_not_reuse_legacy_lexical_risk_floor():
     assert verification_reason(idea, decision, [candidate]) is None
     candidate["signature_similarity"].update(goal=.8, object_role=.8)
     assert verification_reason(idea, decision, [candidate]) == "new_code_overlaps_semantic_fields"
+
+
+def test_curator_proof_does_not_suppress_creation_overlap_risk(monkeypatch):
+    from app.pipeline.decision_verifier import verification_reason
+    monkeypatch.setattr(settings, "curator_direct_acceptance_enabled", True)
+    decision = CuratorDecision(idea_index=0, decision="CREATE_NEW", confidence=.9,
+                              policy_gates={"curator_evidence_checked": True})
+    candidate = {"retrieval_profile": retrieval.RETRIEVAL_PROFILE,
+                 "signature_similarity": {"goal": .8, "object_role": .8}}
+    assert verification_reason(ideas().ideas[0], decision, [candidate]) == "new_code_overlaps_semantic_fields"

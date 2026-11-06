@@ -367,6 +367,15 @@ Mỗi ý: người dùng muốn nói đến CÔNG DỤNG GÌ? Diễn đạt lạ
 - Mơ hồ nhưng đoán được → giải mã theo nghĩa gần nhất
 - Hoàn toàn không liên quan → INVALID
 - Trùng ý đã có → vẫn VALID nếu công dụng hợp lệ; giữ từng dòng riêng
+- (Bổ sung 05/11/2026, theo hướng dẫn chấm AUT của Guilford — Wilson et al., 1960; áp dụng như
+  Patel, MacPherson & Hoffman, Memory & Cognition 2025, PMC12864212: "responses related to selling,
+  borrowing, or gifting were marked as inadequate") → INVALID khi ý chỉ chuyển giao quyền sở hữu/sử dụng
+  (bán, trao đổi, cầm cố, cho mượn, cho thuê, tặng/biếu, làm quà/phần thưởng), hoặc phá bỏ hình dạng đồ vật
+  để chỉ lấy chất liệu (tái chế, phế liệu, nung chảy, đúc lại, nghiền), kể cả khi nêu sản phẩm làm từ
+  chất liệu đó. Trang trí, trưng bày, kỷ niệm, biểu tượng vẫn VALID. Gia công tạo hình dựa trên hình
+  dạng/cấu trúc của đồ vật hay một phần của nó (cắt, mài, uốn, khoan, đục, xâu, ghép, tháo dùng bộ phận)
+  vẫn VALID — ví dụ cắt vỏ đạn mài thành nhẫn (bổ sung 06/11/2026). Không áp dụng tiêu chí "loại công dụng thông thường" của bài báo: công dụng thông thường
+  vẫn VALID và nhận Originality thấp theo tần suất.
 
 BƯỚC 3 — GÁN CODE:
 Gán 1 Code danh mục cho mỗi ý VALID. Hai ý cùng nghĩa sâu xa → cùng Code.
@@ -413,6 +422,11 @@ CHẤM:
      `1 + target + mechanism + context + goal`.
    - Số từ nội dung sau stoplist được lưu làm chỉ số đối chứng, không quyết
      định trực tiếp điểm 1–5.
+   - (Bổ sung 06/11/2026) Chỉ đếm chi tiết THÊM VÀO sau công dụng cốt lõi, theo định nghĩa
+     Elaboration của Guilford/Torrance. Công dụng cốt lõi = động từ hoặc vai trò chính cùng tân ngữ
+     trực tiếp (ví dụ "xúc cơm", "vá quần áo" → 1 điểm); động từ chính không phải mechanism, tân ngữ
+     trực tiếp không phải target. Trích bằng chứng ở temperature 0. Áp dụng cho bài chấm sau ngày này;
+     điểm FINAL trước đó giữ nguyên.
 
 OUTPUT (JSON):
 {

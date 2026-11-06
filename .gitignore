@@ -8,3 +8,6 @@ output/playwright/
 .cache/retrieval-vector-backup-*.json
 .cache/scope-analysis-*.json
 .cache/scope-response-audits-*.json
+
+# Báo cáo, backup và bản build sinh ra khi vận hành: có thể chứa dữ liệu khảo sát, không commit
+output/

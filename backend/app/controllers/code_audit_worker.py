@@ -1,5 +1,6 @@
 """Audit mã mới xuyên lượt: chỉ gộp khi ý thật và ranh giới đều đã được kiểm chứng."""
 from datetime import datetime, timedelta, timezone
+from itertools import combinations
 from sqlalchemy import select
 from app.config import settings
 from app.db import SessionLocal
@@ -21,16 +22,34 @@ def _claim():
             audits = db.scalars(select(PipelineAudit).where(
                 PipelineAudit.item_id == item.id, PipelineAudit.event == "AUTO_CODE_AUDIT"
             )).all()
-            for index, source in enumerate(codes):
+            # Bất đồng nhiều mã bao phủ là vấn đề codebook, ưu tiên audit đúng cặp này.
+            # Tín hiệu chỉ chọn việc cần kiểm tra; việc gộp vẫn phải qua audit member.
+            conflict_pairs = set()
+            for evidence in db.scalars(select(ResponseIdea.mapping_evidence).join(
+                    Response, Response.id == ResponseIdea.response_id).where(
+                    Response.item_id == item.id, ResponseIdea.code_id.is_(None),
+                    ResponseIdea.mapping_status == "VALID")):
+                if not ((evidence or {}).get("policy_gates") or {}).get("codebook_conflict"):
+                    continue
+                matched = sorted({row.get("code_id") for row in (evidence.get("existing_code_evaluations") or [])
+                                  if isinstance(row, dict) and row.get("source") == "FINAL_ADJUDICATOR" and row.get("verdict") == "MATCH"
+                                  and row.get("code_id")})
+                conflict_pairs.update(combinations(matched, 2))
+            conflict_sources = {pair[1] for pair in conflict_pairs}
+            for source in sorted(codes, key=lambda code: (code["id"] not in conflict_sources, code["id"])):
                 if not source.get("positive_examples"):
                     continue
                 source_prefix = f'{source["id"]}:{source["scope_revision"]}:'
-                if len([audit for audit in audits if audit.payload.get("key", "").startswith(source_prefix)]) >= 3:
+                involved_in_conflict = any(source["id"] in pair for pair in conflict_pairs)
+                if not involved_in_conflict and len([audit for audit in audits if audit.payload.get("key", "").startswith(source_prefix)]) >= 3:
                     continue
-                for target in codes[:index]:
+                targets = sorted((code for code in codes if code["id"] < source["id"]), key=lambda code: (
+                    tuple(sorted((source["id"], code["id"]))) not in conflict_pairs, code["id"]))
+                for target in targets:
                     similarity = signature_similarity(source["functional_signature"], target["functional_signature"])["weighted"]
                     semantic = cosine(source["embedding"], target["embedding"]) if source["embedding_model"] == target["embedding_model"] else 0
-                    if similarity < 0.45 and semantic < 0.85:
+                    conflict = tuple(sorted((source["id"], target["id"]))) in conflict_pairs
+                    if not conflict and similarity < 0.45 and semantic < 0.85:
                         continue
                     key = f'{source["id"]}:{source["scope_revision"]}:{target["id"]}:{target["scope_revision"]}'
                     history = [audit for audit in audits if audit.payload.get("key") == key]
@@ -41,6 +60,7 @@ def _claim():
                         continue
                     event = PipelineAudit(item_id=item.id, event="AUTO_CODE_AUDIT", payload={
                         "key": key, "source_id": source["id"], "target_id": target["id"],
+                        "trigger": "CODEBOOK_CONFLICT" if conflict else "SIMILARITY_SCREENING",
                         "status": "RUNNING", "lease_until": (now + timedelta(seconds=settings.processing_lease_seconds)).isoformat(),
                     })
                     db.add(event)

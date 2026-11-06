@@ -168,10 +168,13 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
         raw = row.raw_input #chính là các ý đc nối với nhau
         input_lines = row.input_lines or raw.splitlines()
         checkpoint = row.mapping_checkpoint or {} #ở đây nó là dạng có nhiều phần tử bên trong
+        technical_recovery = resolving and bool(checkpoint.get("technical_retry_scheduled"))
         pending_indices = set(db.scalars(select(ResponseIdea.line_index).where(
             ResponseIdea.response_id == row.id, ResponseIdea.mapping_status == "VALID",
             ResponseIdea.code_id.is_(None),
         )).all()) if resolving else None
+        if technical_recovery:
+            pending_indices &= set(checkpoint.get("technical_retry_indices", []))
         epoch = item_row.codebook_epoch or 0
         codes = list_curator_codes(db, item.id)
     original_code_ids = {code["id"] for code in codes}
@@ -261,9 +264,12 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
                 row.resolution_epoch = item_row.codebook_epoch
                 row.mapping_checkpoint = {**(row.mapping_checkpoint or {}),
                     "compared_code_ids": [code["id"] for code in codes]}
-                if resolving:
+                if resolving and not technical_recovery:
                     row.resolution_attempts += 1
                 row.resolution_next_at = None
+                technical_indices, contract_ideas = [], []
+                retry_count = int(checkpoint.get("technical_retry_count", 0)) + int(technical_recovery)
+                contract_count = int(checkpoint.get("contract_retry_count", 0))
                 if has_uncertain:
                     row.mapping_checkpoint = {**row.mapping_checkpoint,
                         "resolution_context": _resolution_context(db, row, codes)}
@@ -271,9 +277,33 @@ def _run_mapping(response_id: str, token: str, *, resolving: bool = False) -> No
                         ResponseIdea.response_id == row.id, ResponseIdea.code_id.is_(None),
                         ResponseIdea.mapping_status == "VALID",
                     )).all():
-                        pending.coding_state = "UNRESOLVED"
+                        issue = (pending.review_payload or {}).get("issue_type")
+                        pending.coding_state = ("TECHNICAL_ERROR" if issue == "TECHNICAL_ERROR"
+                                                else "RESOLVING" if issue == "STALE_SCOPE" else "UNRESOLVED")
+                        # Phạm vi cũ là sự cố trình tự, không phải mơ hồ ngữ nghĩa: chạy lại sớm với
+                        # định nghĩa mới theo đường phục hồi kỹ thuật, không tiêu ngân sách resolver.
+                        if issue in {"TECHNICAL_ERROR", "STALE_SCOPE"}:
+                            technical_indices.append(pending.line_index)
+                        elif issue == "CONTRACT_ERROR":
+                            contract_ideas.append(pending)
+                schedule_technical = bool(technical_indices) and retry_count < settings.technical_mapping_retry_limit
+                # Sai contract chỉ được chạy lại có hẹn giờ trong giới hạn riêng; hết lượt thì chờ admin.
+                schedule_contract = bool(contract_ideas) and contract_count < settings.contract_mapping_retry_limit
+                for pending in contract_ideas if schedule_contract else []:
+                    pending.coding_state = "RESOLVING"
+                if has_uncertain:
                     db.flush()
                     synchronize_response_mappings(db, item.id, row.id)
+                retry_indices = sorted({*(technical_indices if schedule_technical else []),
+                                        *([pending.line_index for pending in contract_ideas] if schedule_contract else [])})
+                row.mapping_checkpoint = {**(row.mapping_checkpoint or {}),
+                    "technical_retry_count": retry_count, "technical_retry_indices": retry_indices,
+                    "contract_retry_count": contract_count + int(schedule_contract),
+                    "technical_retry_scheduled": bool(retry_indices)}
+                if schedule_technical:
+                    row.resolution_next_at = _now() + timedelta(seconds=30 * (retry_count + 1))
+                elif schedule_contract:
+                    row.resolution_next_at = _now() + timedelta(seconds=settings.contract_retry_delay_seconds)
                 db.flush()
                 refresh_item_scoring_state(db, item_row)
                 db.commit()

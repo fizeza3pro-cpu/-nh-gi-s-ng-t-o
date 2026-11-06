@@ -221,6 +221,8 @@ def chat_json(
     request_fallbacks: list[str] = []
     call_id = str(uuid.uuid4())
     recovery_used, technical_retries = False, 0
+    # Ở temperature thấp, gọi lại sau JSON hỏng thường trả đúng output hỏng cũ; lượt thử lại dùng 0.2.
+    effective_temperature = temperature
     from app.config import settings
     base_stage = next((name for name in ("idea_extraction", "code_curator", "code_challenger", "scoring")
                        if stage.startswith(name)), "idea_extraction" if stage == "extraction_repair" else stage)
@@ -233,7 +235,7 @@ def chat_json(
         try:
             request = {
                 "model": model,
-                "temperature": temperature,
+                "temperature": effective_temperature,
                 "messages": [{"role": "user", "content": prompt}],
             }
             if use_reasoning_effort:
@@ -306,6 +308,7 @@ def chat_json(
                 "provider": provider,
                 "model": model,
                 "temperature": temperature,
+                "effective_temperature": effective_temperature,
                 "response_id": completion.id,
                 "attempts": len(attempt_details),
                 "attempt_details": attempt_details,
@@ -352,6 +355,10 @@ def chat_json(
                 continue
             if technical_retries < max_retries and not output_was_truncated and not permanent_error:
                 technical_retries += 1
+                if (attempt_details and attempt_details[-1].get("status") == "INVALID_JSON"
+                        and effective_temperature < 0.2):
+                    effective_temperature = 0.2
+                    request_fallbacks.append("retry_temperature_after_invalid_json")
                 time.sleep(_retry_delay_seconds(err, attempt))
             else:
                 break

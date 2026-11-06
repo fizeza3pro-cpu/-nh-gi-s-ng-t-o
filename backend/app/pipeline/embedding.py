@@ -16,7 +16,12 @@ from app.config import settings
 
 _LOCAL_VECTOR_SIZE = 384
 _LOCAL_MODEL = "local-hash-v1"
-_REPRESENTATION_VERSION = "raw-fields-v3"
+_REPRESENTATION_VERSION = "raw-fields-v4"
+
+
+def response_embedding_text(original: str, item_name: str = "") -> str:
+    """Thêm chủ thể đã biết, không suy diễn công dụng hoặc sửa câu gốc."""
+    return f"Đồ vật: {item_name}. Công dụng được nêu: {original}" if item_name else original
 
 
 class EmbeddingError(RuntimeError):

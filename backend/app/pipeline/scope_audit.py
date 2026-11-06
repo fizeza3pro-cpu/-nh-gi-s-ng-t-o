@@ -7,6 +7,7 @@ from app.models.models import ResponseIdea
 from app.pipeline.llm import chat_json, LLMJSONError
 from app.schemas.schemas import CuratorResult, PairVerdict
 from app.pipeline.code_retrieval import signature_similarity
+from app.pipeline.adjudication import grounded_evidence
 
 
 def member_rows(db, ids):
@@ -52,7 +53,8 @@ def verify_expansions(session_factory, item, extraction, curator, codes, client,
                 prompt = (Path(__file__).parent / "prompts/scope_member_audit.txt").read_text(encoding="utf-8").format(
                     item_name=item.name, item_description=item.description,
                     category_json=json.dumps(view, ensure_ascii=False),
-                    sources_json=json.dumps([source for source, _ in batch], ensure_ascii=False),
+                    sources_json=json.dumps([{"index": position, "text": source}
+                                             for position, (source, _) in enumerate(batch)], ensure_ascii=False),
                 )
                 data, meta = chat_json(client, model=settings.active_challenger_model,
                     temperature=settings.code_curator_temperature, prompt=prompt, provider=settings.llm_provider,
@@ -60,11 +62,18 @@ def verify_expansions(session_factory, item, extraction, curator, codes, client,
                     max_retries=settings.llm_max_retries, stage="scope_member_audit")
                 checks = [PairVerdict.model_validate(value) for value in data.get("checks", [])]
                 audits.append({**meta, "operation": operation, "checks": [check.model_dump() for check in checks]})
+                # Contract mới định danh theo index; output cũ theo thứ tự vẫn đọc được.
+                if checks and all(check.index is not None for check in checks):
+                    by_index = {check.index: check for check in checks}
+                    checks = ([by_index[position] for position in range(len(batch))]
+                              if len(by_index) == len(checks) == len(batch) and set(by_index) == set(range(len(batch)))
+                              else [])
                 if len(checks) != len(batch):
                     valid = False
                     break
                 for (source, expected), check in zip(batch, checks):
-                    grounded = check.source_text == source and bool(check.evidence.strip()) and check.evidence.casefold() in source.casefold()
+                    grounded = ((not check.source_text or check.source_text == source)
+                                and grounded_evidence(check.evidence, source) is not None)
                     fits = check.relation in {"SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE"} and check.goal_match and check.role_match and not check.exclusion_hit
                     valid = valid and grounded and (fits if expected else True)
                     if not expected and (fits or check.relation == "UNCERTAIN"):

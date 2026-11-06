@@ -9,7 +9,7 @@ from pathlib import Path
 from app.config import settings
 from app.pipeline.clients import embedding_client
 from app.pipeline.embedding import embed_texts
-from app.pipeline.code_retrieval import core_signature_text, signature_similarity, cosine, rank_code_candidates
+from app.pipeline.code_retrieval import core_signature_text, signature_similarity, cosine, rank_code_candidates, reciprocal_rank_candidates
 from app.schemas.schemas import Item, ExtractedIdea, IdeaExtractionResult
 
 
@@ -33,7 +33,7 @@ def fixture():
         ("punch", "Đục lỗ", "Dùng mép cứng của vỏ đạn đục lỗ trên vật liệu mềm", "tạo lỗ", "dụng cụ đục", "mép cứng ép xuyên vật liệu",
          ["Dùng miệng vỏ đạn đục lỗ giấy", "Ấn mép vỏ đạn tạo lỗ trên bìa"]),
     ]
-    codes = [{"id": key, "name": name, "description": description,
+    codes = [{"id": key, "item_name": "Vỏ đạn", "name": name, "description": description,
               "functional_signature": {"goal": goal, "object_role": role, "mechanism": mechanism},
               "positive_examples": members}
              for key, name, description, goal, role, mechanism, members in definitions]
@@ -56,14 +56,30 @@ def fixture():
     return codes, ideas, [case[1] for case in cases]
 
 
-def compare(client):
-    codes, ideas, expected = fixture()
+def compare(client, dataset=None):
+    if dataset:
+        codes = deepcopy(dataset["codes"])
+        ideas = IdeaExtractionResult(ideas=[ExtractedIdea(line_index=i, original=row["original"],
+            normalized=row["original"], status="VALID", object_used=row.get("item_name", ""),
+            functional_signature=row["functional_signature"]) for i,row in enumerate(dataset["cases"])])
+        expected = [row["expected_code_id"] for row in dataset["cases"]]
+    else:
+        codes, ideas, expected = fixture()
     # Tâm chỉ dùng các ví dụ dựng sẵn, không chứa câu đang kiểm tra.
-    members = [source for code in codes for source in code["positive_examples"]]
-    raw_members = iter(embed_texts(members, client).vectors)
-    from app.pipeline.embedding import embedding_model
+    members = [source for code in codes for source in code.get("positive_examples", [])]
+    if len({code["id"] for code in codes}) != len(codes) or any(key not in {c["id"] for c in codes} for key in expected):
+        raise ValueError("Codebook có ID trùng hoặc nhãn không thuộc codebook.")
+    if any(idea.original in members for idea in ideas.ideas):
+        raise ValueError("Response kiểm tra nằm trong member tạo centroid; cần tập giữ lại độc lập.")
+    from app.pipeline.embedding import embedding_model, response_embedding_text
+    member_texts = [response_embedding_text(source, code.get("item_name", ""))
+                    for code in codes for source in code.get("positive_examples", [])]
+    raw_members = iter(embed_texts(member_texts, client).vectors)
     for code in codes:
-        vectors = [next(raw_members) for _ in code["positive_examples"]]
+        vectors = [next(raw_members) for _ in code.get("positive_examples", [])]
+        if not vectors:
+            code.update(centroid=[], centroid_model=embedding_model(client), centroid_dirty=False)
+            continue
         summed = [math.fsum(row[k] for row in vectors) for k in range(len(vectors[0]))]
         norm = math.sqrt(sum(x*x for x in summed))
         code.update(centroid=[x/norm for x in summed], centroid_model=embedding_model(client), centroid_dirty=False)
@@ -78,15 +94,16 @@ def compare(client):
         variants = {"legacy_signature_and_lexical": [c["id"] for c in baseline],
                     "raw_and_centroid": [c["id"] for c in sorted(ranked[i], key=lambda c: (-c["semantic_similarity"], c["id"]))],
                     "semantic_fields": [c["id"] for c in sorted(ranked[i], key=lambda c: (-c["signature_similarity"]["weighted"], c["id"]))],
-                    "combined": [c["id"] for c in ranked[i]]}
+                    "combined": [c["id"] for c in ranked[i]],
+                    "rank_fusion": [c["id"] for c in reciprocal_rank_candidates(ranked[i], len(codes))]}
         results.append({"original": idea.original, "expected": expected[i],
                         "ranks": {key: values.index(expected[i])+1 for key, values in variants.items()}})
-    metrics = {key: {"recall_at_1": sum(row["ranks"][key] == 1 for row in results)/len(results),
-                     "recall_at_3": sum(row["ranks"][key] <= 3 for row in results)/len(results),
+    metrics = {key: {**{f"recall_at_{k}": sum(row["ranks"][key] <= k for row in results)/len(results)
+                       for k in (1, 3, 5, 8, 12)},
                      "mrr": sum(1/row["ranks"][key] for row in results)/len(results)} for key in results[0]["ranks"]}
-    return {"source": "SELF_AUTHORED_FIXTURE", "database_reads": False, "database_writes": False,
+    return {"source": dataset.get("source", "EXTERNAL_LABELS") if dataset else "SELF_AUTHORED_FIXTURE", "database_reads": False, "database_writes": False,
             "extraction": "manually_authored_signatures", "held_out_from_centroid": True,
-            "baseline_centroid": "canonical_signatures_of_fixture_members", "raw_weight": settings.retrieval_raw_weight,
+            "baseline_centroid": "not_reconstructed_without_member_extraction", "raw_weight": settings.retrieval_raw_weight,
             "model": settings.cloudflare_embedding_model, "code_count": len(codes), "query_count": len(results),
             "metrics": metrics, "cases": results}
 
@@ -95,12 +112,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--dataset", type=Path, help="Codebook snapshot và nhãn giữ lại; không tự lấy nhãn từ kết quả LLM.")
     args = parser.parse_args()
+    dataset = json.loads(args.dataset.read_text(encoding="utf-8")) if args.dataset else None
     if not args.live:
+        if dataset:
+            print(json.dumps({"live": False, "code_count": len(dataset["codes"]), "query_count": len(dataset["cases"])}))
+            return
         codes, ideas, _ = fixture()
         print(json.dumps({"live": False, "code_count": len(codes), "query_count": len(ideas.ideas)}))
         return
-    result = compare(embedding_client())
+    result = compare(embedding_client(), dataset)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(result["metrics"]))

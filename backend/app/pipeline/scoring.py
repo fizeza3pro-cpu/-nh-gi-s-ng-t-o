@@ -90,10 +90,10 @@ def count_meaningful_words(original: str, item_name: str) -> int:
 
 
 def _aggregate_facets(
-    originals: list[str], run_payloads: list[dict]
+    originals: list[str], run_payloads: list[dict], *, threshold: int | None = None
 ) -> list[dict[str, str]]:
     """Lấy đồng thuận đa lượt; backend tự xác thực mọi đoạn bằng chứng."""
-    threshold = len(run_payloads) // 2 + 1
+    threshold = threshold or len(run_payloads) // 2 + 1
     aggregated: list[dict[str, str]] = []
     for idea_index, original in enumerate(originals):
         details: dict[str, str] = {}
@@ -104,11 +104,19 @@ def _aggregate_facets(
                 if not isinstance(analyses, list) or idea_index >= len(analyses):
                     continue
                 analysis = analyses[idea_index]
-                facets = analysis.get("facets", {}) if isinstance(analysis, dict) else {}
-                facet = facets.get(facet_name, {}) if isinstance(facets, dict) else {}
-                if not isinstance(facet, dict) or facet.get("present") is not True:
+                if not isinstance(analysis, dict):
                     continue
-                evidence = _grounded_evidence(original, facet.get("evidence"))
+                if isinstance(analysis.get(facet_name), str):
+                    # Contract phẳng: mỗi loại chi tiết là một chuỗi (ít ngoặc lồng, model ít làm hỏng JSON).
+                    raw_evidence = analysis[facet_name]
+                else:
+                    # Contract cũ lồng facets/evidence; present=false vẫn được tôn trọng.
+                    facets = analysis.get("facets", {})
+                    facet = facets.get(facet_name, {}) if isinstance(facets, dict) else {}
+                    if not isinstance(facet, dict) or facet.get("present") is False:
+                        continue
+                    raw_evidence = facet.get("evidence")
+                evidence = _grounded_evidence(original, raw_evidence)
                 if evidence:
                     grounded.append(evidence)
             if len(grounded) >= threshold:
@@ -124,6 +132,9 @@ def _aggregate_facets(
                 selected_key = max(
                     counts, key=lambda value: (counts[value], -first_positions[value])
                 )
+                # Một đoạn chỉ được tính cho một loại chi tiết; trùng thì giữ loại đứng trước trong _FACETS.
+                if selected_key in {_normalized_evidence(value) for value in details.values()}:
+                    continue
                 details[facet_name] = next(
                     evidence for evidence in grounded
                     if _normalized_evidence(evidence) == selected_key
@@ -214,23 +225,37 @@ def run_scoring(
         for p in per_idea_originality
     ]
 
-    run_payloads, metas = [], []
+    # Ngưỡng đa số tính theo số lượt cấu hình, không theo số lượt thành công:
+    # 3 lượt cần 2 lượt cùng ghi nhận; nếu một lượt lỗi thì 2 lượt còn lại phải đồng thuận.
+    threshold = n_runs // 2 + 1
+    run_payloads, metas, failures = [], [], []
     for _ in range(n_runs):
-        data, meta = _analyze_once(item, valid_ideas_payload, client)
-        if all(idea.idea_id for idea in per_idea_originality):
-            rows = data.get("elaboration_analysis", [])
-            by_id = {row.get("idea_id"): row for row in rows if isinstance(row, dict)}
-            expected = {idea.idea_id for idea in per_idea_originality}
-            if len(rows) != len(expected) or set(by_id) != expected:
-                raise LLMJSONError("Elaboration thiếu, trùng hoặc sai idea_id.", metadata=meta)
-            if any(by_id[idea.idea_id].get("original") != idea.original for idea in per_idea_originality):
-                raise LLMJSONError("Elaboration bị lệch câu nguồn.", metadata=meta)
-            data["elaboration_analysis"] = [by_id[idea.idea_id] for idea in per_idea_originality]
+        try:
+            data, meta = _analyze_once(item, valid_ideas_payload, client)
+            if all(idea.idea_id for idea in per_idea_originality):
+                rows = data.get("elaboration_analysis", [])
+                by_id = {row.get("idea_id"): row for row in rows if isinstance(row, dict)}
+                expected = {idea.idea_id for idea in per_idea_originality}
+                if len(rows) != len(expected) or set(by_id) != expected:
+                    raise LLMJSONError("Elaboration thiếu, trùng hoặc sai idea_id.", metadata=meta)
+                # Contract mới định danh bằng idea_id, không bắt chép câu gốc; output cũ có chép thì vẫn đối chiếu.
+                if any(by_id[idea.idea_id].get("original") not in (None, idea.original) for idea in per_idea_originality):
+                    raise LLMJSONError("Elaboration bị lệch câu nguồn.", metadata=meta)
+                data["elaboration_analysis"] = [by_id[idea.idea_id] for idea in per_idea_originality]
+        except LLMJSONError as exc:
+            # Một lượt lỗi không làm mất các lượt còn lại; usage của lượt lỗi vẫn được giữ.
+            failures.append({**(exc.metadata or {}), "failed": True, "reason": str(exc)[:300]})
+            continue
         run_payloads.append(data)
         metas.append(meta)
+    if len(run_payloads) < threshold:
+        raise LLMJSONError(
+            f"Chỉ {len(run_payloads)}/{n_runs} lượt Elaboration hợp lệ, không đủ đa số.",
+            metadata={"stage": "scoring", "error_type": "LLMJSONError", "runs": [*metas, *failures]},
+        )
 
     originals = [score.original for score in per_idea_originality]
-    elaboration_details = _aggregate_facets(originals, run_payloads)
+    elaboration_details = _aggregate_facets(originals, run_payloads, threshold=threshold)
 
     per_idea_scores = []
     for orig, details in zip(per_idea_originality, elaboration_details):
@@ -266,11 +291,14 @@ def run_scoring(
         "model": settings.active_llm_model,
         "temperature": settings.scoring_temperature,
         "runs": n_runs,
+        "successful_runs": len(metas),
+        "majority_threshold": threshold,
         "response_ids": [m.get("response_id") for m in metas],
         "llm_runs": metas,
+        "failed_runs": failures,
         "creative_feedback": feedback_meta,
-        "usage": aggregate_usage([*metas, feedback_meta]),
-        "latency_ms": round(sum(float(m.get("latency_ms") or 0) for m in [*metas, feedback_meta]), 2),
+        "usage": aggregate_usage([*metas, *failures, feedback_meta]),
+        "latency_ms": round(sum(float(m.get("latency_ms") or 0) for m in [*metas, *failures, feedback_meta]), 2),
         "elaboration_method": {
             "score_formula": "1 + target + mechanism + context + goal",
             "facet_source": "LLM evidence extraction with verbatim grounding",

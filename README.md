@@ -199,7 +199,7 @@ CODEBOOK_FULL_SCAN_LIMIT=20
 ```
 
 Embedding chỉ xếp hạng candidate và án lệ; Curator đối chiếu toàn bộ codebook nhỏ hoặc các ứng viên theo `NOVELTY_CANDIDATE_LIMIT`, còn backend kiểm tra ngưỡng
-MATCH, ranh giới code mới và collision trước khi ghi. Challenger chỉ xử lý ca mơ hồ hoặc mở rộng phạm vi.
+MATCH, ranh giới code mới và collision trước khi ghi. Challenger là lượt phân xử cuối cho ca mơ hồ, mở rộng, MATCH mới hoặc đề xuất tạo mã có rủi ro trùng; không gọi thêm verifier mặc định sau đó.
 `EMBEDDING_PROVIDER=local` chỉ dành cho mock, test hoặc
 đối chứng vì vector băm không hiểu ngữ nghĩa tiếng Việt.
 
@@ -307,9 +307,9 @@ npm run build
 
 ### Contract mapping ngày 24/10/2026
 
-Extraction chỉ trả chữ ký `goal/object_role/mechanism`, không trả các trường vai trò trùng hoặc chép lại original. Backend kiểm tra index và trích dẫn. Các ý INVALID không gọi thêm verifier; không tìm án lệ bằng vector. Curator dùng catalog chung theo request và verifier chọn lọc theo rủi ro. Resolver chờ mã/phạm vi liên quan mới hoặc admin phân xử. Queue và phiên 180 giây giữ nguyên.
+Extraction chỉ trả chữ ký `goal/object_role/mechanism`, không trả các trường vai trò trùng hoặc chép lại original. Backend kiểm tra index và trích dẫn. Các ý INVALID không gọi thêm verifier; không tìm án lệ bằng vector. Curator dùng catalog chung theo request; Challenger cuối đồng thời phân xử và đối chiếu căn cứ theo rủi ro. Resolver chờ mã/phạm vi liên quan mới hoặc admin phân xử. Queue và phiên 180 giây giữ nguyên.
 
-`LLM_EXTRACTION_MAX_TOKENS=6144`, `LLM_CURATOR_MAX_TOKENS=4096`, `LLM_SCORING_MAX_TOKENS=4096` là trần output khởi điểm. Khi cắt JSON, thử phục hồi một lần có giới hạn; không nhận đầu ra thiếu dòng là thành công. BytePlus DeepSeek v4 dùng `BYTEPLUS_THINKING=disabled` mặc định (có thể đổi `enabled`), gửi rõ tham số thinking thay vì chỉ reasoning_effort. Khởi động lại backend/worker sau khi đổi. Token thực tế xem trong admin, tách audit nền; mục tiêu 20k/bài phải được đo trên tập nghiệm thu, không phải bảo đảm từ cấu hình.
+`LLM_EXTRACTION_MAX_TOKENS=6144`, `LLM_CURATOR_MAX_TOKENS=6144`, `LLM_CHALLENGER_MAX_TOKENS=4096`, `LLM_SCORING_MAX_TOKENS=4096` là trần output khởi điểm. Khi cắt JSON, thử phục hồi một lần có giới hạn; không nhận đầu ra thiếu dòng là thành công. BytePlus DeepSeek v4 dùng `BYTEPLUS_THINKING=disabled` mặc định (có thể đổi `enabled`), gửi rõ tham số thinking thay vì chỉ reasoning_effort. Khởi động lại backend/worker sau khi đổi. Token thực tế xem trong admin, tách audit nền; mục tiêu 20k/bài phải được đo trên tập nghiệm thu, không phải bảo đảm từ cấu hình.
 
 Mở rộng và gộp mã có nhật ký riêng, lưu phạm vi trước/sau và danh sách ý chuyển. Snapshot FINAL giữ nguyên. Các key bỏ nằm trong JSON, không phải cột SQL; không cần DROP COLUMN. Nếu cần dọn dữ liệu đang làm việc, chạy `uv run python -m scripts.cleanup_mapping_contract` để xem trước, rồi thêm `--apply --backup <đường-dẫn-file-mới.json>` để áp dụng với backup. Script giữ nguyên ý thuộc FINAL, bài đã có scored_at và audit lịch sử; không tự reset dữ liệu hoặc chấm lại bài cũ.
 
@@ -325,7 +325,7 @@ F = 0.4*cosine(goal) + 0.3*cosine(object_role) + 0.3*cosine(mechanism)
 retrieval_score = RETRIEVAL_RAW_WEIGHT*R + (1-RETRIEVAL_RAW_WEIGHT)*F
 ```
 
-`RETRIEVAL_RAW_WEIGHT=0.5` là trọng số khởi điểm, chưa phải kết quả hiệu chỉnh trên dữ liệu gán nhãn. Điểm mới có profile `raw-fields-v1`; `signature_similarity` của candidate mới là cosine từng trường, còn `lexical_similarity` giữ độ trùng từ để đối chiếu. Ngưỡng lexical/MATCH legacy không tự áp sang thang điểm mới. Trong giai đoạn chưa hiệu chỉnh, MATCH của profile mới cần kiểm chứng ngữ nghĩa độc lập theo lô trước khi ghi; điều này có thể tăng lượt verifier. Centroid vẫn cần cùng model/biểu diễn, không dirty và không drift.
+`RETRIEVAL_RAW_WEIGHT=0.5` là trọng số khởi điểm, chưa phải kết quả hiệu chỉnh trên dữ liệu gán nhãn. Điểm mới có profile `raw-fields-v1`; `signature_similarity` của candidate mới là cosine từng trường, còn `lexical_similarity` giữ độ trùng từ để đối chiếu. Ngưỡng lexical/MATCH legacy không tự áp sang thang điểm mới. Trong giai đoạn chưa hiệu chỉnh, MATCH của profile mới được đối chiếu căn cứ trong Challenger cuối, tách khỏi đề xuất Curator; không gọi pair/decision verifier thêm sau Challenger. Centroid vẫn cần cùng model/biểu diễn, không dirty và không drift.
 
 Migration `c2f4a6b8d013` thêm `item_codes.signature_embeddings` để cache ba vector kèm digest nội dung và model. `ResponseIdea.embedding` mới là vector câu gốc; `ItemCode.embedding` mới là vector tên/định nghĩa mã. Nhãn biểu diễn `raw-fields-v3` ngăn dùng lẫn với `core-function-v2`. Mã cũ sinh lại cache khi được retrieval sử dụng; centroid từ chữ ký cũ không được dùng làm tâm câu gốc. Nâng schema bằng `uv run python -m scripts.prepare_database` trước khi chạy bản mới.
 
@@ -347,3 +347,30 @@ uv run python -m app.validation.retrieval_compare --live --output ../output/repo
 ```
 
 Lượt Qwen thật đầu tiên có 11 câu giữ ngoài centroid và 8 mã: bản cũ, chỉ ba trường ngữ nghĩa và bản kết hợp đều đạt top-1 11/11; chỉ câu gốc/centroid đạt 9/11. Tập này chưa chứng minh bản mới vượt bản cũ, chưa thay thế đánh giá trên khảo sát thực. Chữ ký trong fixture được viết sẵn, không phải đánh giá chất lượng Extraction.
+
+### Phân xử cuối và rà soát codebook (25/10/2026)
+
+`pipeline/adjudication.py` hợp nhất chọn quyết định và kiểm chứng sau Curator. Retrieval lấy ứng viên đa kênh, tìm rộng hơn cho ca chưa rõ/tạo mới/mở rộng và giữ mã đang chọn dù hạng thấp. Challenger nhận tối đa 24 mã mỗi ý; lô được chia theo ngân sách output ước lượng. Kết quả có câu nguồn, bằng chứng và đối chiếu từng mã. Backend kiểm tra đúng index, ID, quan hệ, trích dẫn và exclusion thực sự tồn tại. Một mã phụ mơ hồ không tự chặn lựa chọn đã rõ nếu nó không cạnh tranh.
+
+Lỗi contract được sửa tối đa một lần cho đúng ý bị lỗi, giữ kết quả tốt khác; lỗi API không tự tách thành nhiều lời gọi đơn. Nhật ký lưu lỗi cụ thể, hàng bị từ chối và các ID thực sự được giao. Nhiều mã cùng bao phủ được ghi `CODEBOOK_CONFLICT`; audit nền ưu tiên cặp đó, nhưng vẫn kiểm chứng member trước khi gộp. `EXPAND_EXISTING` tiếp tục qua audit phạm vi/member ngoài bước phân xử riêng của response.
+
+Rà soát codebook chỉ đọc, không gọi API hoặc tự gộp mã:
+
+```sh
+cd backend
+uv run python -m scripts.inspect_codebook_quality --output ../output/reports/codebook-quality.json
+```
+
+Báo cáo ghi định nghĩa, ranh giới và ví dụ member thật của các cặp đáng xem xét. Ngưỡng chỉ sàng lọc tín hiệu, không chứng minh hai mã tương đương. Thay đổi luồng không tự chạy lại bài cũ hoặc sửa snapshot điểm FINAL.
+
+### Contract gọn và chuyển cache (26/10/2026)
+
+Curator trả căn cứ có cấu trúc; backend dùng chung bộ kiểm tra với Challenger. `comparisons` giải thích code đích/đối thủ, `different_code_ids` liệt kê code khác biệt rõ. Coverage phải đủ và không trùng. Quan hệ đích lấy từ một comparison, không khai `code_relation` hai lần. Câu gốc do backend gắn; evidence vẫn phải là trích dẫn thật. Audit giữ lựa chọn Curator trước/sau chuẩn hóa.
+
+`CURATOR_DIRECT_ACCEPTANCE_ENABLED=false` mặc định; chỉ mở sau nghiệm thu trên nhãn độc lập. `RETRIEVAL_RANK_FUSION_ENABLED=false` giữ RRF ở chế độ đối chứng. Không mở hai cờ chỉ vì unit test hoặc fixture tự biên soạn đạt. `MAPPING_PROMPT_CHAR_BUDGET=48000` kiểm soát ngữ cảnh; Challenger chia theo output gọn, giữ catalog chung và không gửi request đơn vượt ngân sách.
+
+`TECHNICAL_MAPPING_RETRY_LIMIT=2` giới hạn phục hồi lỗi kỹ thuật theo bài. Chỉ response lỗi được xử lý lại với backoff, không chờ codebook epoch và không tiêu lượt resolver ngữ nghĩa. Admin phân biệt lỗi kỹ thuật, codebook conflict, thiếu candidate và mơ hồ. Sau giới hạn vẫn giữ dữ liệu để xem xét.
+
+Vector `raw-fields-v4`/profile `raw-fields-v2` thêm ngữ cảnh đồ vật đã biết vào câu gốc và định nghĩa. Dùng `scripts.rebuild_retrieval_vectors --apply --backup <file-mới> --report <báo-cáo>` để chuyển cache đồng bộ. Backup lưu vector cũ; script đối chiếu mọi cột của bài FINAL trừ cache `mapping` hiện hành có thể đổi do gộp code nền. `scoring_meta` chứa snapshot FINAL, điểm và `scored_at` được kiểm tra bất biến; không replay mapping/scoring. Centroid diagnostics trong signature_embeddings phân biệt thiếu biểu diễn và drift ngữ nghĩa; guard vẫn giữ.
+
+Đối chứng nhận codebook snapshot và nhãn riêng bằng `app.validation.retrieval_compare --live --dataset <dataset.json> --output <report.json>`. Dataset chứa `codes` (kèm item_name, positive_examples ngoài tập kiểm tra) và `cases` (original, item_name, functional_signature, expected_code_id). Báo cáo fixture không phải nghiệm thu chuyên gia; không đưa chính câu kiểm tra vào centroid.

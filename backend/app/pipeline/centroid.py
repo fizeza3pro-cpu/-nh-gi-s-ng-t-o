@@ -26,6 +26,12 @@ def rebuild_confirmed_members(
     expected_model: str | None = None,
 ) -> bool:
     """Dựng lại từ ý đã lưu; không phụ thuộc thứ tự submit hoặc remap."""
+    # Dùng JSON cache kỹ thuật để phân biệt thiếu chuyển vector và lệch ngữ nghĩa;
+    # guard cũ vẫn giữ, không cho tâm thiếu dữ liệu tham gia retrieval.
+    def diagnostics(state, compatible=0):
+        code.signature_embeddings = {**(code.signature_embeddings or {}),
+            "centroid_diagnostics": {"state": state, "total_members": len(members),
+                                     "compatible_members": compatible}}
     available = [
         (unit_vector(vector), model)
         for vector, model in members
@@ -33,6 +39,7 @@ def rebuild_confirmed_members(
     ]
     available = [(vector, model) for vector, model in available if vector]
     if not available:
+        diagnostics("EMPTY")
         changed = bool(code.centroid_count or code.centroid or code.centroid_sum)
         if changed:
             code.centroid = []
@@ -58,6 +65,7 @@ def rebuild_confirmed_members(
         key=tuple,
     )
     if not vectors:
+        diagnostics("INCOMPLETE_REPRESENTATION")
         code.drift_flag = True
         if representation_changed:
             code.centroid_revision = (code.centroid_revision or 0) + 1
@@ -79,6 +87,8 @@ def rebuild_confirmed_members(
             code.drift_flag = True
     if any(sum(a * b for a, b in zip(vector, centroid)) < drift_cosine_floor for vector in vectors):
         code.drift_flag = True
+    diagnostics("INCOMPLETE_REPRESENTATION" if len(vectors) != len(members)
+                else "SEMANTIC_DRIFT" if code.drift_flag else "READY", len(vectors))
 
     # Một prototype gần tâm và tối đa hai ý xa nhất với các prototype đã chọn.
     prototypes = [max(vectors, key=lambda vector: (sum(a * b for a, b in zip(vector, centroid)), vector))]

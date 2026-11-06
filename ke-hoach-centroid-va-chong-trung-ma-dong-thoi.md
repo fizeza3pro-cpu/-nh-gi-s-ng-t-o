@@ -315,3 +315,13 @@ không kết luận tải tối đa hoặc độ chính xác ngữ nghĩa từ t
 Đối với các cặp mã đồng nghĩa mà LLM vẫn phân xử sai, epoch/khóa DB không thể
 tự chứng minh ngữ nghĩa; cần tập kiểm định và kiểm toán trùng mã trước khảo sát
 chính thức.
+
+## Cập nhật ngày 25/10/2026 — phân xử cuối và codebook chồng lấn
+
+- Luồng mapping mới: Extraction → retrieval đa kênh → Curator → Challenger cuối khi cần → kiểm tra backend → lưu. `adjudication.py` hợp nhất phân xử và kiểm chứng, không có lời gọi pair/decision verifier mặc định sau Challenger. Tạo mã mới rõ ràng, đủ phạm vi và không có rủi ro vẫn có thể nhận trực tiếp từ Curator.
+- Tập ứng viên lấy từ điểm tổng, mục đích, định nghĩa, chữ ký và từ ngữ câu gốc. Trường hợp chưa rõ/tạo mới/mở rộng được tìm rộng hơn trên tập đã tính vector; Challenger nhận tối đa 24 mã/ý và giữ mã đích dù hạng thấp. Chia lô theo ngân sách output ước lượng, không bỏ ứng viên cạnh tranh để ép vừa trần token.
+- Challenger cuối trả lựa chọn cùng trích dẫn câu gốc và đối chiếu mã. Backend kiểm tra ID, quan hệ, căn cứ, exclusion thật và phạm vi CREATE/EXPAND. Không tin cờ kiểm chứng do Curator tự khai. Câu không nhắc lại tên đồ vật vẫn có ngữ cảnh; không đòi động cơ xa hơn khi công dụng đã rõ.
+- Lỗi contract được sửa tối đa một lần cho đúng ý bị lỗi; kết quả tốt khác được giữ. Bất định ngữ nghĩa không retry vô hạn. Lỗi API không fan-out ra nhiều lời gọi đơn. Audit giữ hàng sai, lỗi cụ thể và danh sách mã thực sự được giao.
+- Nhiều mã cùng bao phủ được phân biệt với câu trả lời mơ hồ bằng cờ CODEBOOK_CONFLICT. Audit codebook nền ưu tiên đúng cặp tranh chấp; việc gộp vẫn phải kiểm chứng member. EXPAND giữ audit phạm vi/member và guard epoch/khóa trước commit.
+- Đã thêm công cụ chỉ đọc `scripts.inspect_codebook_quality`; báo cáo `output/reports/codebook-quality-2026-10-25.json` sàng lọc 7 cặp đáng đối chiếu trong DB hiện tại. Đây là tín hiệu, chưa kết luận tương đương và chưa tự gộp dữ liệu cũ.
+- Kiểm thử sau sửa: 261 passed, 2 skipped, dùng provider giả lập/DB test. Chưa replay API thật hoặc chứng minh cải thiện độ chính xác/token bằng đối chiếu chuyên gia; không tự chạy lại bài cũ hay sửa snapshot FINAL.

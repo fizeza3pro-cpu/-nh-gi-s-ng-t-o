@@ -134,6 +134,7 @@ def main():
                                  for i in extraction.ideas]
         curator, meta = run_code_mapping(item, extraction, codes, client, vector_client)
         metas.append(meta)
+        result["mapping_trace"] = meta
         @contextmanager
         def fixture_session():
             yield SimpleNamespace(execute=lambda query: SimpleNamespace(all=lambda: []))
@@ -164,7 +165,8 @@ def main():
                   budget_limit_hit=limited, elapsed_seconds=round(time.perf_counter()-started, 2))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({k: v for k, v in result.items() if k not in {"calls", "ideas"}}, ensure_ascii=True), flush=True)
+    print(json.dumps({k: v for k, v in result.items()
+                      if k not in {"calls", "ideas", "mapping_trace", "extraction", "manifest"}}, ensure_ascii=True), flush=True)
 
 
 if __name__ == "__main__":

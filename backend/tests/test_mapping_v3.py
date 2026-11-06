@@ -23,6 +23,51 @@ import pytest
 SIGNATURE = {"goal": "chứa đồ", "object_role": "vật chứa", "mechanism": "khoang rỗng"}
 
 
+def test_technical_recovery_keeps_assigned_rows_and_does_not_consume_semantic_retry(monkeypatch):
+    engine = database()
+    factory = lambda: Session(engine)
+    monkeypatch.setattr(response_worker, "SessionLocal", factory)
+    monkeypatch.setattr(response_worker.settings, "mock_mode", False)
+    monkeypatch.setattr(response_worker, "chat_client", lambda: object())
+    monkeypatch.setattr(response_worker, "make_embedding_client", lambda: None)
+    extraction = IdeaExtractionResult(ideas=[ExtractedIdea(original=text, normalized=text,
+        status="VALID", object_used="Balo", functional_signature=SIGNATURE)
+        for text in ("đựng sách", "đựng bút")])
+    monkeypatch.setattr(response_worker, "run_idea_extraction", lambda *a, **kw: (extraction, {}))
+    seen = []
+    def mapping(*a, **kw):
+        seen.append(kw.get("idea_indices"))
+        matched = lambda index: CuratorDecision(idea_index=index, decision="MATCH_EXISTING",
+            existing_code_id="c", code_relation="SAME_CATEGORY", confidence=.9)
+        return (CuratorResult(decisions=[matched(1)] if len(seen)>1 else [matched(0),
+            CuratorDecision(idea_index=1, decision="UNCERTAIN", confidence=0,
+                reason="Lỗi index", policy_gates={"technical_error": True})]), {})
+    monkeypatch.setattr(response_worker, "run_code_mapping", mapping)
+    with factory() as db:
+        db.add_all([Item(id="bag", name="Balo"), Participant(id="p")])
+        db.add(ItemCode(id="c", item_id="bag", name="Balo chứa đồ", normalized_name="chua do",
+                       functional_signature=SIGNATURE))
+        db.add(Response(id="r", item_id="bag", participant_id="p", raw_input="đựng sách\nđựng bút",
+            input_lines=["đựng sách", "đựng bút"], mapping={}, scoring={},
+            processing_state="RUNNING", processing_claim_token="first"))
+        db.commit()
+    response_worker._run_mapping("r", "first")
+    with factory() as db:
+        row = db.get(Response, "r")
+        assert row.resolution_next_at is not None
+        assert row.mapping_checkpoint["technical_retry_indices"] == [1]
+        original_id = db.scalar(select(ResponseIdea.id).where(ResponseIdea.response_id=="r", ResponseIdea.line_index==0))
+        row.processing_claim_token = "second"
+        db.commit()
+    response_worker._run_mapping("r", "second", resolving=True)
+    with factory() as db:
+        row = db.get(Response, "r")
+        assert seen == [None, {1}]
+        assert row.resolution_attempts == 0 and row.mapping_checkpoint["technical_retry_count"] == 1
+        assert row.resolution_next_at is None
+        assert db.get(ResponseIdea, original_id).code_id == "c"
+
+
 def database():
     engine = create_engine("sqlite://", poolclass=StaticPool)
     Base.metadata.create_all(engine)
@@ -37,8 +82,10 @@ def test_catalog_deduplicates_definitions_but_keeps_per_idea_permissions():
         {"idea_index": 1, "nearest_codes": [code, {"id": "b", "name": "Mã riêng ý 1"}]},
     ]))
     assert len(payload["codes"]) == 2
-    assert payload["ideas"][0]["candidates"] == [{"code_id": "a", "retrieval_score": .8}]
-    assert [x["code_id"] for x in payload["ideas"][1]["candidates"]] == ["a", "b"]
+    # Chỉ gửi danh sách mã theo thứ hạng; điểm retrieval không vào prompt.
+    assert payload["ideas"][0]["candidates"] == ["a"]
+    assert payload["ideas"][1]["candidates"] == ["a", "b"]
+    assert "retrieval_score" not in json.dumps(payload)
     assert code["signature_similarity"] == {"weighted": .5}
     assert "signature_similarity" not in payload["codes"][0]
 
@@ -73,11 +120,11 @@ def test_truncation_recovery_is_bounded_and_keeps_failed_usage():
 
 
 def test_semantic_contract_failures_keep_usage(monkeypatch):
-    from app.pipeline.semantic_verifier import verify_pair, propose_scope
+    from app.pipeline.semantic_verifier import verify_pair
     from app.pipeline.dynamic_mapping import _reconcile_new_code_batch
     item = ItemSchema(id="bag", name="Balo", description="Khoang chứa")
     code = {"id": "a", "name": "Chứa đồ", "functional_signature": SIGNATURE}
-    for function in (verify_pair, propose_scope):
+    for function in (verify_pair,):
         client = FakeClient([{"content": '{}', "usage": {"total_tokens": 50}}])
         with pytest.raises(LLMJSONError) as caught:
             function(item, "đựng đồ", code, client)

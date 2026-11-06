@@ -258,6 +258,12 @@ class IdeaExtractionResult(BaseModel):
 class CuratorDecision(BaseModel):
     idea_index: int = Field(ge=0)
     source_text: str = ""
+    # Căn cứ gọn dùng chung ở Curator và Challenger; backend vẫn kiểm tra lại.
+    grounded: bool = False
+    evidence: str = ""
+    comparisons: list[dict] = Field(default_factory=list)
+    different_code_ids: list[str] = Field(default_factory=list)
+    uncertainty_kind: str = ""
     proposal_group: str = ""
     # Chỉ backend gắn sau phân xử cặp, không tin giá trị model tự khai.
     pair_verified: bool = False
@@ -355,12 +361,14 @@ class SurveySessionOut(BaseModel):
 
 class PairVerdict(BaseModel):
     """Quan hệ cặp độc lập, không tái dùng enum quyết định Curator."""
-    source_text: str
+    # Contract mới không bắt chép câu nguồn; output cũ có chép thì backend vẫn đối chiếu.
+    source_text: str = ""
+    index: int | None = None
     relation: Literal["SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE", "IDEA_BROADER_THAN_CODE", "DIFFERENT", "UNCERTAIN"]
     goal_match: bool
     role_match: bool
     exclusion_hit: bool
-    evidence: str
+    evidence: str = ""
     reason: str
 
 
@@ -705,6 +713,8 @@ class AdminMappingReviewList(BaseModel):
     item_name: str
     pending_count: int
     total_count: int
+    # Số ý đang chờ theo loại vấn đề (TECHNICAL_ERROR, CONTRACT_ERROR, MISSING_DECISION...) để theo dõi tần suất.
+    issue_counts: dict[str, int] = Field(default_factory=dict)
     reviews: list[AdminMappingReviewIdea]
     code_options: list[AdminCodeOption]
 

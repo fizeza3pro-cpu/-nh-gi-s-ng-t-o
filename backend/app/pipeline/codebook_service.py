@@ -51,6 +51,7 @@ def list_curator_codes(db: Session, item_id: str) -> list[dict]:
     return [
         {
             "id": row.id,
+            "item_name": item.name,
             "name": row.name,
             "description": row.description,
             "functional_key": row.functional_key,
@@ -500,6 +501,11 @@ def persist_mapping(
         row.id: row
         for row in db.scalars(select(ItemCode).where(ItemCode.item_id == item.id)).all()
     }
+    # Phạm vi mã tại thời điểm LLM ra quyết định; dùng để chặn EXPAND dựa trên định nghĩa đã cũ.
+    snapshot_revisions = {
+        str(snapshot.get("id")): int(snapshot.get("scope_revision") or 0)
+        for snapshot in code_snapshots or [] if snapshot.get("id")
+    }
     for snapshot in code_snapshots or []:
         code = allowed_codes.get(str(snapshot.get("id") or ""))
         vector = snapshot.get("embedding") or []
@@ -528,6 +534,7 @@ def persist_mapping(
         if replace_indices is not None and index not in replace_indices:
             continue
         status = idea.status
+        issue_override = ""
         requires_extraction_review = idea.review_required
         code_row: ItemCode | None = None
         decision = None
@@ -565,12 +572,18 @@ def persist_mapping(
             decision = decisions.get(index)
             if decision is None:
                 has_uncertain = True
+                # Lỗi kỹ thuật của pipeline, không phải mơ hồ ngữ nghĩa: gắn nhãn riêng để admin thấy
+                # và đếm tần suất (chưa tự xử lý lại; xem quyết định ngày 07/11/2026).
+                issue_override = "MISSING_DECISION"
                 if index in duplicate_decision_indices:
                     reason = "Code Curator trả nhiều quyết định cho cùng một ý; không chọn phần tử cuối để tránh lệch dòng."
                     decision_name = "DUPLICATE_DECISION"
                 else:
                     reason = "Code Curator không trả quyết định cho ý này."
                     decision_name = "MISSING_DECISION"
+                db.add(PipelineAudit(item_id=item.id, response_id=response.id, event="CURATOR_MISSING_DECISION",
+                                     payload={"line_index": index, "decision_name": decision_name,
+                                              "duplicate": index in duplicate_decision_indices}))
             else:
                 decision_name = decision.decision
                 confidence = decision.confidence
@@ -602,7 +615,15 @@ def persist_mapping(
                         decision, decision.existing_code_id or ""
                     )
                     final_match_error = _stored_match_review_reason(idea, decision)
-                    if (
+                    if (decision.existing_code_id in snapshot_revisions
+                            and decision.existing_code_id not in allowed_codes):
+                        # Mã đích vừa bị hấp thụ vào mã khác ngay trong lượt này: đối chiếu lại với mã mới.
+                        has_uncertain = True
+                        decision_name = "STALE_SCOPE_REVIEW"
+                        issue_override = "STALE_SCOPE"
+                        code_row = None
+                        reason = "Mã đích vừa được gộp vào mã khác trong lúc xử lý; cần đối chiếu lại."
+                    elif (
                         code_row is None
                         or code_row.validation_status != CodeValidationStatus.ACCEPTED
                         or code_row.maturity_status != CodeMaturityStatus.ACTIVE
@@ -715,10 +736,25 @@ def persist_mapping(
                             )
                         )
                 elif decision.decision == "EXPAND_EXISTING":
+                    scope_ids = [code_id for code_id in [decision.existing_code_id, *decision.absorbed_code_ids] if code_id]
+                    # Đổi phạm vi hoặc bị hấp thụ (biến khỏi allowed_codes) sau thời điểm ra quyết định.
+                    stale_scope = any(
+                        code_id in snapshot_revisions and (
+                            code_id not in allowed_codes
+                            or int(allowed_codes[code_id].scope_revision or 0) != snapshot_revisions[code_id])
+                        for code_id in scope_ids
+                    )
                     if not _curator_is_grounded(item, decision):
                         has_uncertain = True
                         decision_name = "CURATOR_OBJECT_GUARD"
                         reason = f"Chưa xác nhận được phạm vi mới sử dụng đúng {item.name}."
+                    elif stale_scope:
+                        # Hai EXPAND cùng mã trong một lượt từng làm lượt sau ghi đè phạm vi đã khái quát.
+                        has_uncertain = True
+                        decision_name = "STALE_SCOPE_REVIEW"
+                        issue_override = "STALE_SCOPE"
+                        code_row = None
+                        reason = "Mã vừa được đổi phạm vi trong lúc xử lý; cần đối chiếu lại với định nghĩa mới."
                     else:
                         code_row, changed_ids, expansion_error = _expand_existing_code(
                             db,
@@ -784,6 +820,13 @@ def persist_mapping(
                 review_payload={
                     "proposed_decision": decision_name,
                     "codebook_epoch": item.codebook_epoch or 0,
+                    "issue_type": issue_override or (
+                        "TECHNICAL_ERROR" if decision and decision.policy_gates.get("technical_error")
+                        else "CONTRACT_ERROR" if decision and decision.policy_gates.get("contract_error")
+                        else "CODEBOOK_CONFLICT" if decision and decision.policy_gates.get("codebook_conflict")
+                        else "MISSING_CANDIDATE" if decision and decision.policy_gates.get("missing_candidate")
+                        else "SEMANTIC_AMBIGUITY" if status == "VALID" and code_row is None else ""
+                    ),
                 },
             )
         )

@@ -21,6 +21,18 @@ import type {
 const PAGE_SIZE = 30;
 type View = "REVIEWS" | "CODES" | "DECISIONS" | "EXCLUDED" | "PIPELINE";
 
+/** Nhãn loại vấn đề của ý chờ phân xử; dùng cho thẻ từng ý và dòng thống kê tần suất. */
+const ISSUE_LABELS: Record<string, string> = {
+  TECHNICAL_ERROR: "Lỗi xử lý kỹ thuật",
+  CONTRACT_ERROR: "AI trả sai định dạng",
+  STALE_SCOPE: "Mã vừa đổi phạm vi, đang đối chiếu lại",
+  MISSING_DECISION: "AI bỏ sót ý (lỗi kỹ thuật, cần admin gán mã)",
+  CODEBOOK_CONFLICT: "Code trùng phạm vi",
+  MISSING_CANDIDATE: "Thiếu code ứng viên",
+  SEMANTIC_AMBIGUITY: "Cần làm rõ cách phân nhóm",
+  UNLABELED: "Dữ liệu cũ chưa phân loại",
+};
+
 const decisionLabel: Record<string, string> = {
   MATCH_EXISTING: "Khớp mã đang có",
   CREATE_NEW: "Tạo mã trực tiếp",
@@ -309,6 +321,15 @@ function ReviewCard({ review, itemId, epoch, codes, onResolved }: {
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const proposal = review.mapping_evidence.proposal;
+  const legacyGates = proposal && typeof proposal === "object" && !Array.isArray(proposal)
+    ? (proposal as Record<string, unknown>).policy_gates : null;
+  const gateValues = legacyGates && typeof legacyGates === "object" && !Array.isArray(legacyGates)
+    ? legacyGates as Record<string, unknown> : {};
+  const issue = typeof review.review_payload.issue_type === "string" ? review.review_payload.issue_type
+    : gateValues.technical_error ? "TECHNICAL_ERROR" : gateValues.contract_error ? "CONTRACT_ERROR"
+      : gateValues.codebook_conflict ? "CODEBOOK_CONFLICT" : "";
+  const issueLabel = ISSUE_LABELS[issue] ?? ISSUE_LABELS.SEMANTIC_AMBIGUITY;
   const options = codes.filter(code => code.id === selected || `${code.name} ${code.description ?? ""}`.toLocaleLowerCase("vi").includes(query.trim().toLocaleLowerCase("vi")));
   async function assign() {
     if (!selected || saving) return;
@@ -326,6 +347,7 @@ function ReviewCard({ review, itemId, epoch, codes, onResolved }: {
   }
   return <article className="border-b border-border p-6">
     <p className="font-medium">{review.original}</p>
+    <div className="mt-2"><Badge variant={["TECHNICAL_ERROR", "CONTRACT_ERROR", "MISSING_DECISION"].includes(issue) ? "destructive" : "secondary"}>{issueLabel}</Badge></div>
     <p className="mt-2 text-sm text-muted-foreground">{review.normalized}</p>
     <p className="mt-3 text-sm">{review.reason}</p>
     <div className="mt-3"><Signature value={review.functional_signature} /></div>
@@ -444,6 +466,13 @@ export default function AdminCodebooks() {
             <div className="border-b border-stone-300 bg-card px-5 py-5 md:px-7">
               <h2 className="font-serif text-2xl text-stone-900">Ý chưa đủ căn cứ phân loại</h2>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">AI tự phân loại trước. Với các ý chưa giải quyết được, quản trị viên có thể chọn mã phù hợp và xác nhận bên dưới.</p>
+              {reviews?.issue_counts && Object.keys(reviews.issue_counts).length > 0 ? (
+                <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1 font-mono text-xs text-stone-500">
+                  {Object.entries(reviews.issue_counts).sort((a, b) => b[1] - a[1]).map(([issue, count]) => (
+                    <span key={issue}>{ISSUE_LABELS[issue] ?? issue}: {count}</span>
+                  ))}
+                </p>
+              ) : null}
             </div>
             {reviews?.reviews.map((review) => <ReviewCard key={review.idea_id} review={review} itemId={itemId} epoch={summary.codebook_epoch} codes={reviews.code_options} onResolved={() => setRefreshVersion(value => value + 1)} />)}
             {!reviews?.reviews.length ? <p className="px-6 py-14 text-center text-sm text-stone-500">Không còn ý nào chờ phân xử.</p> : null}

@@ -32,7 +32,7 @@ raw_input (text tự do, lộn xộn)
       ▼
 ┌─────────────┐   Tầng 1 — app/pipeline/dynamic_mapping.py
 │  EXTRACT +  │   Tách ý → chuẩn hoá → Curator đối chiếu code hiện có
-│   CURATOR   │   → match/tạo/loại code → VALID / INVALID / DUPLICATE
+│   CURATOR   │   → match/tạo/mở rộng code → VALID / INVALID (DUPLICATE chỉ còn ở dữ liệu cũ)
 └─────────────┘
       │ (chỉ ý VALID đi tiếp)
       ▼
@@ -83,7 +83,7 @@ backend/
     core/
       deps.py                  # FastAPI Depends: get_current_user, require_admin...
       security.py               # hash password, tạo/giải JWT
-    models/models.py            # SQLAlchemy ORM: User, Item, Response, ItemCodeCounts, ItemStats
+    models/models.py            # SQLAlchemy ORM: User, Participant, Item, Response, ResponseIdea, ItemCode, SurveySession, PipelineAudit
     pipeline/                   # LÕI THUẬT TOÁN — xem mục 1
       dynamic_mapping.py · codebook_service.py · scoring.py · llm.py
       prompts/                  # prompt templates cho LLM
@@ -153,15 +153,16 @@ render.yaml / vercel.json           # config deploy
   độc lập và mọi lượt không bị `EXCLUDED` đều tham gia mẫu hiệu chỉnh. Tần suất code bằng số ý
   `VALID` của code chia tổng số ý `VALID` đã gắn code được chấp nhận của cùng đồ vật; số participant
   khác nhau vẫn được theo dõi riêng và dùng cho ngưỡng mở/ổn định điểm.
-- `Result.tsx` nhận kết quả qua navigation state và cache `sessionStorage`, sau đó có thể đọc lại
-  bằng UUID response. Không có trang lịch sử cá nhân.
+- `Result.tsx` poll API theo `needs_processing`, không cache kết quả trong `sessionStorage`; người tham gia
+  có trang lịch sử `/history` (xem quyết định 11/10 và 22/10).
 - Chỉ admin đăng nhập JWT tại `/admin/login`. Toàn bộ `/admin/*` dùng `AdminRoute`;
   `/dashboard` cũ chỉ chuyển hướng sang `/admin`.
-- Đồ vật bắt đầu với 0 code. AI tự động tách ý, đối chiếu công dụng, tạo hoặc loại code. Admin xem,
-  sửa, gộp, loại, xoá một code hoặc xoá toàn bộ code của từng đồ vật. Danh sách mã được lọc và
+- Đồ vật bắt đầu với 0 code. AI tự động tách ý, đối chiếu công dụng, tạo hoặc mở rộng code. Admin xem
+  codebook và gán mã cho ý chờ phân xử. Các hàm sửa/gộp/xoá mã (`patch_code`, `merge_code`, `delete_code`,
+  `delete_all_codes` trong `admin_controller.py`) hiện CHƯA có route/UI. Danh sách mã được lọc và
   phân trang ở backend; endpoint danh sách đồ vật chỉ trả thống kê tổng quan, không tải toàn bộ mã.
-- Khi chưa đủ mẫu, response ở `COLLECTING` và không hiển thị điểm. Sau ngưỡng codebook, điểm là
-  `PROVISIONAL`; khi đủ mẫu Originality, điểm chuyển thành `FINAL` dựa trên snapshot phiên bản.
+- Khi chưa đủ mẫu, response ở `COLLECTING` và không hiển thị điểm. Đủ hai ngưỡng (người tham gia và số ý)
+  thì chấm và chuyển thẳng `FINAL`, đóng băng cùng snapshot căn cứ; `PROVISIONAL` chỉ còn ở dữ liệu cũ.
 - Migration `a4f7c2e91b36` đã xoá dữ liệu khảo sát/code cũ và cấu trúc tĩnh; migration
   `b91d6e4f30ac` xoá tài khoản USER legacy; `d7e8f901a234` thêm định danh email participant.
   Migration dữ liệu `e2c4b6d8f013` đưa mọi response không bị `EXCLUDED` vào mẫu hiệu chỉnh;
@@ -248,3 +249,59 @@ Các quy tắc sau thay thế mô tả cũ tương ứng bên trên:
 - Candidate mới dùng vector câu gốc so định nghĩa/centroid câu gốc, cộng cosine riêng goal/object_role/mechanism. Không nối ba trường để tạo vector câu gốc. Điểm trùng từ vẫn dùng cho heuristic/audit legacy.
 - Biểu diễn `raw-fields-v3` và profile điểm `raw-fields-v1` phải được lưu để không lẫn vector/ngưỡng cũ. MATCH mới cần kiểm chứng ngữ nghĩa độc lập trong giai đoạn chưa hiệu chỉnh, không coi điểm retrieval là xác suất.
 - Migration `c2f4a6b8d013` thêm cache `ItemCode.signature_embeddings`. Dữ liệu cũ chuyển bằng `scripts.rebuild_retrieval_vectors`, mặc định chỉ thống kê; apply cần backup mới và gửi văn bản tới provider embedding. Chỉ sửa cache vector kỹ thuật, không chạy lại mapping/scoring hoặc sửa snapshot FINAL.
+
+## Quyết định bổ sung ngày 25/10/2026 — một bước phân xử cuối
+
+- Các mô tả về verifier sau Challenger ở tài liệu cũ được thay bằng luồng: Curator → Challenger cuối khi có rủi ro → kiểm tra backend → lưu. `adjudication.py` đồng thời chọn MATCH/CREATE/EXPAND/UNCERTAIN và đối chiếu căn cứ; không gọi tiếp pair verifier hoặc decision verifier cho cùng lựa chọn. `verify_decisions()` chỉ là tên gọi tương thích tới cùng bộ phân xử.
+- MATCH theo `raw-fields-v1` được xét trong Challenger cuối; backend đặt `pair_verified` sau kiểm tra căn cứ/quan hệ. Mã được chọn không phải đứng hạng 1. Không tin cờ kiểm chứng hoặc cờ đã qua Challenger do Curator tự khai.
+- Ứng viên lấy từ nhiều kênh trên cùng tập vector. Ca tạo mới/chưa rõ/mở rộng được tìm rộng hơn trước phân xử; tối đa 24 định nghĩa mỗi ý vào Challenger, giữ mã đích khi hạng thấp. Chia lô theo ngân sách output ước lượng; không coi điểm hay ngưỡng retrieval là kết luận ngữ nghĩa.
+- Contract phân xử cuối có câu nguồn, trích dẫn nguyên văn và đối chiếu từng mã được giao. Quy tắc loại viện dẫn phải thật sự nằm trong exclusion_rules. Một mã phụ UNCERTAIN chỉ chặn nếu còn cạnh tranh về khả năng gán. Nhiều mã cùng bao phủ được ghi CODEBOOK_CONFLICT, audit nền ưu tiên đúng cặp trước khi cân nhắc gộp.
+- Sai contract ở một ý chỉ retry đúng ý đó tối đa một lần, giữ kết quả hợp lệ khác. Lỗi API không fan-out thành nhiều lời gọi đơn. Audit lưu loại lỗi, thông báo, hàng bị từ chối và danh sách mã thực sự được giao. Lỗi kỹ thuật không được mô tả thành kết luận mơ hồ ngữ nghĩa.
+- EXPAND vẫn qua `scope_audit` trên các member thật và mã lân cận; giữ guard epoch/member dưới khóa. Pair verifier còn dùng cho audit codebook nền, không phải tầng mặc định sau Challenger của response.
+- `scripts.inspect_codebook_quality` chỉ đọc DB và tạo báo cáo tín hiệu code trùng/thiếu ranh giới; không gọi API, không tự gộp hoặc sửa dữ liệu FINAL. Các ngưỡng của công cụ chỉ sàng lọc ca cần xem xét, không phải ngưỡng chấp nhận mã.
+
+## Quyết định triển khai ngày 26/10/2026 — căn cứ gọn và phục hồi kỹ thuật
+
+- Curator và Challenger dùng chung contract căn cứ: `comparisons` cho code đích/đối thủ; `different_code_ids` xác nhận code khác biệt rõ. Backend kiểm tra coverage không thiếu/trùng/lạ. Quan hệ đích lấy duy nhất từ comparison; không yêu cầu LLM khai lại `code_relation`. Đọc output lịch sử vẫn được.
+- Lưu output Curator trước/sau chuẩn hóa trong audit để đánh giá riêng, không suy tỷ lệ đúng từ số lần qua Challenger. Challenger nhận `review_question`, chia lô theo output và ngữ cảnh, có preflight cho request đơn vượt ngân sách.
+- `curator_direct_acceptance_enabled=false` mặc định: chỉ mở sau nghiệm thu nhãn độc lập; đường trực tiếp cần căn cứ được backend kiểm tra, không tin cờ model tự khai. `retrieval_rank_fusion_enabled=false` mặc định cho tới khi đối chứng. Không coi test giả lập hoặc fixture tự đặt là nghiệm thu chất lượng thực.
+- Vector mới `raw-fields-v4`, profile `raw-fields-v2`, thêm ngữ cảnh đồ vật đã biết vào câu gốc/định nghĩa, không suy diễn công dụng. Chuyển cache bằng script có backup; không sửa bài FINAL, snapshot hoặc replay scoring. Centroid có diagnostics riêng EMPTY/INCOMPLETE_REPRESENTATION/SEMANTIC_DRIFT/READY trong JSON cache; vẫn giữ guard.
+- Lỗi kỹ thuật có `issue_type=TECHNICAL_ERROR`, phục hồi tối đa theo `technical_mapping_retry_limit`, chỉ chạy response lỗi, không tiêu ngân sách resolver ngữ nghĩa và không chờ epoch. Ngữ nghĩa mơ hồ/conflict vẫn cần ngữ cảnh mới hoặc admin; không tự gộp code để giảm UNCERTAIN.
+
+## Sửa lỗi contract mapping ngày 05/11/2026
+
+- Curator/Challenger không nhận `normalized`; backend quyết định trích dẫn bằng `grounded_evidence`: đoạn nằm trong câu gốc (so sau chuẩn hoá) được giữ; đoạn bao trùm câu gốc được thay bằng câu gốc; câu ≤8 từ được để trống. Trích dẫn bịa vẫn bị từ chối. Căn cứ Curator lỗi không được chuyển tiếp cho Challenger.
+- Prompt gửi mã ngắn `C01..` thay UUID (`_shared_candidate_payload(alias_map=...)`, `restore_code_aliases`), chỉ đổi ở trường ID. `idea_index`/`line_index` dạng chuỗi số được chấp nhận; ví dụ prompt phải là số nguyên.
+- Sai contract có `issue_type=CONTRACT_ERROR` (gate `contract_error`), chỉ retry một lần đúng ý trong cùng lượt, không lên lịch phục hồi kỹ thuật. `TECHNICAL_ERROR` chỉ dành cho lỗi provider/mạng/ngân sách request. Khi sai contract, audit lưu `raw_decisions`.
+- Curator bị cắt output thì chia đôi lô, không tách N lời gọi đơn. Challenger ước lượng output theo số đo thực tế, `LLM_CHALLENGER_MAX_TOKENS=4096` mặc định.
+
+## Quyết định ngày 05/11/2026 — tối ưu prompt và tiêu chí hợp lệ
+
+- Mọi prompt đặt quy tắc tĩnh trước, dữ liệu (`{item_name}`, catalog, ý) ở cuối để tận dụng prefix cache; phần quy tắc không chứa tên đồ vật. Không đưa ví dụ gắn với một đồ vật cụ thể vào prompt dùng chung.
+- Curator chỉ nhận danh sách mã ứng viên theo thứ hạng, không nhận `retrieval_score`.
+- Scoring, pair_verifier, scope_member_audit không bắt model chép lại câu nguồn; định danh bằng `idea_id`/`index`, bằng chứng kiểm tra bằng `grounded_evidence`. Output cũ có chép vẫn được đối chiếu.
+- Đã xoá prompt/hàm chết: `decision_verifier.txt`, `code_boundary_repair.txt` + `_repair_missing_boundaries`, `scope_expansion.txt` + `propose_scope`.
+- Tiêu chí INVALID mới (xem md.md, BƯỚC 2): bán/trao đổi/cầm cố/cho mượn/cho thuê/tặng/làm quà; phá bỏ hình dạng để chỉ lấy chất liệu (tái chế, phế liệu, nung chảy, đúc lại, nghiền). Gia công tạo hình còn dựa trên hình dạng/cấu trúc đồ vật (cắt, mài, uốn, khoan, xâu, tháo dùng bộ phận) vẫn VALID (06/11/2026). Trang trí/kỷ niệm/biểu tượng vẫn VALID; công dụng thông thường vẫn VALID. Chỉ áp cho lượt Extraction mới; không tự sửa ý/mã cũ hoặc điểm FINAL.
+
+## Quyết định ngày 06/11/2026 — Elaboration chỉ đếm chi tiết thêm vào
+
+- Prompt scoring định nghĩa công dụng cốt lõi (động từ/vai trò chính + tân ngữ trực tiếp) và không tính phần này vào target/mechanism/context/goal; xem md.md mục 4. ELABORATION.
+- `SCORING_TEMPERATURE=0` (config, `.env.example`, `render.yaml`). Nhận xét định tính dùng `CREATIVE_FEEDBACK_TEMPERATURE=0.2` riêng, không phụ thuộc nhiệt độ chấm.
+- Điểm FINAL cũ giữ nguyên; không chấm lại.
+- `SCORING_RUNS=3` mặc định (config, `.env.example`, `render.yaml`): chi tiết chỉ được tính khi ≥2/3 lượt cùng ghi nhận; ngưỡng tính theo số lượt cấu hình. Một lượt lỗi được bỏ qua (usage vẫn ghi vào `failed_runs`); dưới đa số lượt hợp lệ thì báo lỗi, không chấm từ một lượt.
+- Output scoring dùng JSON phẳng `{"idea_id","target","mechanism","context","goal"}`; schema lồng `facets/evidence` cũ vẫn đọc được. Schema lồng 4 cấp từng khiến model thiếu dấu ngoặc lặp lại ở temperature 0.
+
+## Sửa lỗi ngày 06/11/2026 — quan hệ BROADER, retry gộp, EXPAND trên phạm vi cũ
+
+- `IDEA_BROADER_THAN_CODE` chỉ dùng khi cùng mục đích và vai trò nhưng mã quá hẹp; có BROADER thì phải EXPAND mã đó, CREATE_NEW thì mọi mã DIFFERENT (Curator/Challenger prompt). Backend đọc BROADER kèm goal_match=false và role_match=false là DIFFERENT (gate `broader_relabeled_different`, evaluation `relabeled_from`).
+- Các ý sai contract trong cùng lô được retry chung một request; mỗi ý vẫn tối đa một lần.
+- `persist_mapping` so `scope_revision` của mã đích/mã hấp thụ với snapshot lúc ra quyết định. EXPAND dựa trên phạm vi đã đổi (kể cả do EXPAND trước trong cùng lượt) bị giữ lại với `issue_type=STALE_SCOPE`, chạy lại sớm theo đường phục hồi kỹ thuật với định nghĩa mới, không tiêu ngân sách resolver.
+
+## Rà soát ngày 07/11/2026 — ý treo, cấu hình deploy, retry
+
+- Ý sai contract (`CONTRACT_ERROR`) được chạy lại đúng `CONTRACT_MAPPING_RETRY_LIMIT=1` lần sau `CONTRACT_RETRY_DELAY_SECONDS=600` theo đường phục hồi kỹ thuật (đếm `contract_retry_count` trong checkpoint, không tiêu resolver); hết lượt thì chờ admin. Trước đó ý loại này treo PENDING_REVIEW vô thời hạn.
+- Curator bỏ sót ý: chưa tự xử lý, gắn `issue_type=MISSING_DECISION` và ghi audit `CURATOR_MISSING_DECISION` để đo tần suất; trang Codebook hiện số ý chờ theo từng loại vấn đề (`issue_counts`).
+- Bộ chặn phạm vi cũ coi mã đã bị hấp thụ trong cùng lượt là đổi phạm vi, áp dụng cho cả EXPAND và MATCH.
+- `chat_json`: retry sau JSON hỏng ở temperature < 0.2 dùng 0.2. Curator hỏng cả lô (không phải lỗi provider) chia đôi lô; chỉ lô một ý mới gọi lại đơn.
+- Challenger nhận `curator_comparisons` từ bản đối chiếu đã kiểm tra (bỏ nhãn BROADER tự mâu thuẫn). Scoring không tính một đoạn bằng chứng cho hai loại chi tiết.
+- Cấu hình deploy phải khớp local: `LLM_CURATOR_MAX_TOKENS=6144`, `LLM_CHALLENGER_MAX_TOKENS=4096`, `LLM_EXTRACTION_MAX_TOKENS=6144`, `LLM_SCORING_MAX_TOKENS=4096`, `CENTROID_RETRIEVAL_ENABLED=true` (config, `.env.example`, `render.yaml`).

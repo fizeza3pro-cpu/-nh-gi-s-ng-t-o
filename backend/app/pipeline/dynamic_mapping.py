@@ -16,6 +16,7 @@ from app.pipeline.code_retrieval import (
     signature_similarity,
     prepare_code_embeddings,
     RETRIEVAL_PROFILE,
+    select_diverse_candidates,
 )
 from app.pipeline.llm import LLMJSONError, chat_json
 from app.schemas.schemas import (
@@ -31,23 +32,12 @@ from app.schemas.schemas import (
 _PROMPT_DIR = Path(__file__).parent / "prompts"
 _EXTRACTION_TEMPLATE = (_PROMPT_DIR / "idea_extraction.txt").read_text(encoding="utf-8")
 _CURATOR_TEMPLATE = (_PROMPT_DIR / "code_curator.txt").read_text(encoding="utf-8")
-_CHALLENGER_TEMPLATE = (_PROMPT_DIR / "code_challenger.txt").read_text(encoding="utf-8")
-_BOUNDARY_REPAIR_TEMPLATE = (_PROMPT_DIR / "code_boundary_repair.txt").read_text(
-    encoding="utf-8"
-)
 EXTRACTION_CONTRACT_VERSION = 3
 _BATCH_RECONCILER_TEMPLATE = (_PROMPT_DIR / "code_batch_reconciler.txt").read_text(
     encoding="utf-8"
 )
 
 _MATCH_RELATIONS = {"SAME_CATEGORY", "IDEA_NARROWER_THAN_CODE"}
-_REVIEWABLE_DECISIONS = {
-    "OUT_OF_CODEBOOK",
-    "UNCERTAIN",
-    "EXPAND_EXISTING",
-    "INVALID",
-}
-
 _CORE_SIGNATURE_FIELDS = ("goal", "object_role", "mechanism")
 
 
@@ -123,6 +113,30 @@ def _one_decision_per_index(
     return CuratorResult(decisions=accepted), duplicate_indices, unexpected_indices
 
 
+def _parse_curator_rows(data, expected_indices):
+    """Cô lập hàng sai schema; không làm mất quyết định hợp lệ trong cùng request."""
+    values = data.get("decisions")
+    if not isinstance(values, list):
+        raise ValueError("Curator thiếu danh sách decisions.")
+    decisions, counts = [], {}
+    for value in values:
+        index = coerce_index(value.get("idea_index")) if isinstance(value, dict) else None
+        if index is not None:
+            counts[index] = counts.get(index, 0) + 1
+    for value in values:
+        try:
+            if not isinstance(value, dict) or coerce_index(value.get("idea_index")) is None:
+                continue
+            decisions.append(CuratorDecision.model_validate(
+                {**value, "idea_index": coerce_index(value.get("idea_index"))}))
+        except ValueError:
+            continue
+    duplicates = {index for index, count in counts.items() if count > 1}
+    result, parsed_duplicates, unexpected = _one_decision_per_index(
+        CuratorResult(decisions=[d for d in decisions if d.idea_index not in duplicates]), expected_indices)
+    return result, parsed_duplicates | duplicates, unexpected
+
+
 def _guard_ungrounded_creations(
     curator: CuratorResult, ideas: IdeaExtractionResult
 ) -> CuratorResult:
@@ -196,10 +210,10 @@ def _candidate_prompt_view(candidate: dict) -> dict:
     return {
         "id": candidate.get("id"),
         "name": candidate.get("name"),
-        "description": str(candidate.get("description") or "")[:320],
+        "description": str(candidate.get("description") or ""),
         "functional_signature": FunctionalSignature.model_validate(candidate.get("functional_signature") or {}).model_dump(),
-        "inclusion_rules": list(candidate.get("inclusion_rules") or [])[:2],
-        "exclusion_rules": list(candidate.get("exclusion_rules") or [])[:2],
+        "inclusion_rules": list(candidate.get("inclusion_rules") or []),
+        "exclusion_rules": list(candidate.get("exclusion_rules") or []),
         "positive_examples": list(candidate.get("positive_examples") or [])[:2],
         "retrieval_score": candidate.get("retrieval_score"),
         "semantic_similarity": candidate.get("semantic_similarity"),
@@ -207,8 +221,50 @@ def _candidate_prompt_view(candidate: dict) -> dict:
     }
 
 
-def _shared_candidate_payload(cases: list[dict], *, key: str = "ideas") -> str:
-    """Mỗi định nghĩa mã chỉ xuất hiện một lần; quyền chọn mã vẫn riêng cho từng ý."""
+_ID_KEYS = {"id", "code_id", "existing_code_id"}
+_ID_LIST_KEYS = {"different_code_ids", "absorbed_code_ids", "compared_code_ids", "nearest_code_ids", "candidates"}
+
+
+def _swap_code_ids(value, mapping: dict[str, str]):
+    """Đổi ID chỉ ở các trường định danh mã; không thay chuỗi trong văn bản tự do."""
+    if isinstance(value, list):
+        return [_swap_code_ids(item, mapping) for item in value]
+    if not isinstance(value, dict):
+        return value
+    swapped = {}
+    for key, item in value.items():
+        if key in _ID_KEYS and isinstance(item, str):
+            swapped[key] = mapping.get(item, item)
+        elif key in _ID_LIST_KEYS and isinstance(item, list):
+            swapped[key] = [mapping.get(entry, entry) if isinstance(entry, str) else entry for entry in item]
+        else:
+            swapped[key] = _swap_code_ids(item, mapping)
+    return swapped
+
+
+def restore_code_aliases(data, alias_map: dict[str, str] | None):
+    """Đổi mã ngắn trong output về UUID; mã lạ giữ nguyên để backend từ chối như ID sai."""
+    return _swap_code_ids(data, alias_map) if alias_map else data
+
+
+def coerce_index(value) -> int | None:
+    """Chấp nhận số nguyên hoặc chuỗi số; không coi bool/số thực là index."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _shared_candidate_payload(cases: list[dict], *, key: str = "ideas",
+                              alias_map: dict[str, str] | None = None) -> str:
+    """Mỗi định nghĩa mã chỉ xuất hiện một lần; quyền chọn mã vẫn riêng cho từng ý.
+
+    Khi truyền ``alias_map`` (dict rỗng), UUID được thay bằng mã ngắn C01, C02... để giảm token
+    output và tránh model chép sai UUID; dict được điền ánh xạ mã ngắn -> UUID để khôi phục.
+    """
     catalog, rows = {}, []
     for case in cases:
         references = []
@@ -216,11 +272,16 @@ def _shared_candidate_payload(cases: list[dict], *, key: str = "ideas") -> str:
             code_id = candidate["id"]
             catalog.setdefault(code_id, {k: v for k, v in candidate.items()
                 if k not in {"retrieval_score", "semantic_similarity", "signature_similarity"}})
-            # Điểm thành phần dùng cho guard/audit backend; Curator chỉ cần thứ hạng và điểm retrieval.
-            references.append({"code_id": code_id, **({"retrieval_score": candidate["retrieval_score"]}
-                if "retrieval_score" in candidate else {})})
+            # Không gửi điểm retrieval: điểm không chứng minh thuộc mã và dễ thành mỏ neo.
+            # Thứ tự danh sách đã thể hiện thứ hạng; điểm vẫn được giữ cho guard/audit backend.
+            references.append(code_id)
         rows.append({**{k: v for k, v in case.items() if k != "nearest_codes"}, "candidates": references})
-    return json.dumps({"codes": list(catalog.values()), key: rows}, ensure_ascii=False, separators=(",", ":"))
+    payload = {"codes": list(catalog.values()), key: rows}
+    if alias_map is not None:
+        forward = {code_id: f"C{number:02d}" for number, code_id in enumerate(catalog, 1)}
+        alias_map.update({alias: code_id for code_id, alias in forward.items()})
+        payload = _swap_code_ids(payload, forward)
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def _category_signature(signature):
@@ -476,7 +537,31 @@ def _normalize_curator_contract(
     """Đưa MATCH sai hợp đồng hoặc quá yếu sang Challenger trước khi lưu."""
     normalized = []
     for decision in curator.decisions:
-        decision = decision.model_copy(update={"pair_verified": False})
+        decision = decision.model_copy(update={
+            "pair_verified": False, "reviewed_by_challenger": False,
+            "policy_gates": {},
+        })
+        # Cùng bộ kiểm tra cho hai bước; không tin cờ kiểm chứng do mô hình khai.
+        # Contract cũ vẫn được đưa sang Challenger khi chưa có căn cứ gọn.
+        if decision.evidence or decision.comparisons or decision.different_code_ids:
+            from app.pipeline.adjudication import _validate_decision
+            try:
+                checked, outcome = _validate_decision(decision.model_dump(), decision,
+                    ideas.ideas[decision.idea_index],
+                    {code["id"]: code for code in candidates.get(decision.idea_index, [])}, provenance="CURATOR")
+                decision = checked.model_copy(update={
+                    "pair_verified": False, "reviewed_by_challenger": False,
+                    "policy_gates": {**checked.policy_gates,
+                        "final_adjudication_checked": False,
+                        "curator_evidence_checked": outcome == "ACCEPTED"},
+                })
+            except ValueError as exc:
+                # Giữ đề xuất và lý do gốc để Challenger đối chiếu đúng mã đích; chỉ bỏ căn cứ lỗi.
+                decision = decision.model_copy(update={"decision": "UNCERTAIN", "evidence": "",
+                    "reason": (f"Curator đề xuất {decision.decision}: {decision.reason} "
+                               f"(căn cứ chưa đạt contract: {str(exc)[:300]})"),
+                    # policy_gates chỉ chứa cờ bool; nội dung lỗi đã nằm trong reason.
+                    "policy_gates": {"curator_evidence_checked": False, "curator_contract_error": True}})
         retrieval_snapshot = [
             {
                 "code_id": candidate.get("id"),
@@ -498,6 +583,7 @@ def _normalize_curator_contract(
         update = {
             "retrieval_candidates": retrieval_snapshot,
             "nearest_code_ids": sorted(allowed_ids),
+            "compared_code_ids": sorted(allowed_ids),
         }
         if idea is not None:
             decision = _hydrate_curator_decision(decision, idea)
@@ -594,12 +680,11 @@ def run_idea_extraction(
             return {}
         accepted = {}
         for i in indices:
-            rows = [v for v in values if isinstance(v, dict) and type(v.get("line_index")) is int
-                    and v["line_index"] == i]
+            rows = [v for v in values if isinstance(v, dict) and coerce_index(v.get("line_index")) == i]
             if len(rows) != 1:
                 continue
             try:
-                idea = ExtractedIdea.model_validate(rows[0])
+                idea = ExtractedIdea.model_validate({**rows[0], "line_index": i})
             except ValueError:
                 continue
             if not idea.normalized.strip():
@@ -647,11 +732,9 @@ def run_idea_extraction(
 
 
 def _finalize_curator(item, ideas, curator, candidates, client, embedding_client):
-    """Giữ snapshot retrieval qua reconciler và đối chiếu ngữ nghĩa trước ghi mã."""
-    from app.pipeline.decision_verifier import verify_decisions
-
+    """Giữ snapshot retrieval và sinh vector; quyết định đã qua phân xử khi cần."""
     restored = CuratorResult(decisions=[decision.model_copy(update={
-        "compared_code_ids": sorted(_candidate_ids(candidates, decision.idea_index)),
+        "compared_code_ids": decision.compared_code_ids,
         "nearest_code_ids": sorted(_candidate_ids(candidates, decision.idea_index)),
         "retrieval_candidates": [{
             "code_id": c.get("id"), "name": c.get("name"),
@@ -662,9 +745,23 @@ def _finalize_curator(item, ideas, curator, candidates, client, embedding_client
             "exclusion_rules": c.get("exclusion_rules") or [],
         } for c in candidates.get(decision.idea_index, [])],
     }) for decision in curator.decisions])
-    checked, meta = verify_decisions(item, ideas, restored, candidates, client)
-    checked = _guard_ungrounded_creations(checked, ideas)
-    return _attach_decision_embeddings(checked, embedding_client), meta
+    checked = _guard_ungrounded_creations(restored, ideas)
+    return _attach_decision_embeddings(checked, embedding_client, item_name=item.name), {"skipped": True, "reason": "handled_by_final_adjudication"}
+
+
+def _expand_adjudication_candidates(curator, candidates, pool):
+    """Tìm rộng hơn trước phân xử cho ca chưa rõ/tạo mới, không gọi lại embedding hoặc LLM."""
+    for decision in curator.decisions:
+        if decision.decision not in {"UNCERTAIN", "CREATE_NEW", "EXPAND_EXISTING", "OUT_OF_CODEBOOK"}:
+            continue
+        rows = pool.get(decision.idea_index, [])
+        # Giới hạn ngữ cảnh mỗi ý; giữ mã đích dù không có hạng cao trong tổng điểm.
+        expanded = select_diverse_candidates(rows, min(24, max(settings.novelty_candidate_limit * 2, 12)),
+                                             required_ids=[decision.existing_code_id])
+        previous = candidates.get(decision.idea_index, [])
+        combined = {row["id"]: row for row in [*previous, *expanded]}
+        candidates[decision.idea_index] = sorted(combined.values(), key=lambda row: (-row.get("retrieval_score", 0), row["id"]))
+    return candidates
 
 
 def run_code_mapping(
@@ -676,18 +773,24 @@ def run_code_mapping(
     *,
     idea_indices: set[int] | None = None,
     _candidates: dict | None = None,
+    _candidate_pool: dict | None = None,
     _skip_reconciliation: bool = False,
 ) -> tuple[CuratorResult, dict]:
-    candidates = _candidates if _candidates is not None else rank_code_candidates(
+    pool = _candidate_pool if _candidate_pool is not None else rank_code_candidates(
         ideas,
         existing_codes,
-        limit=(len(existing_codes) if len(existing_codes) <= settings.codebook_full_scan_limit else settings.novelty_candidate_limit),
+        limit=len(existing_codes),
         embedding_client=embedding_client,
     )
+    candidates = _candidates if _candidates is not None else {
+        index: select_diverse_candidates(rows, len(rows) if len(existing_codes) <= settings.codebook_full_scan_limit
+                                        else settings.novelty_candidate_limit)
+        for index, rows in pool.items()
+    }
     valid_ideas = [
         {
+            # Không gửi câu chuẩn hoá: model từng trích câu diễn giải thay cho câu gốc.
             "idea_index": index,
-            "normalized": idea.normalized,
             "original": idea.original,
             "object_used": idea.object_used,
             "functional_signature": idea.functional_signature.model_dump(),
@@ -709,26 +812,48 @@ def run_code_mapping(
             "batch_reconciliation": {"skipped": True, "reason": "no_valid_idea"},
         }
     expected_indices = {int(case["idea_index"]) for case in valid_ideas}
-    if len(valid_ideas) > settings.mapping_batch_size:
+    alias_map: dict[str, str] = {}
+    payload_json = _shared_candidate_payload(valid_ideas, alias_map=alias_map)
+    input_too_large = len(payload_json) > settings.mapping_prompt_char_budget - len(_CURATOR_TEMPLATE)
+
+    def run_batches(size: int, reason: str, initial_failure: dict | None = None):
+        """Chia lô dùng chung; lô con không tự reconcile để tránh chạy hai lần."""
         decisions, batches = [], []
         ordered = sorted(expected_indices)
-        for offset in range(0, len(ordered), settings.mapping_batch_size):
+        for offset in range(0, len(ordered), size):
             partial, partial_meta = run_code_mapping(
                 item, ideas, existing_codes, client, embedding_client,
-                idea_indices=set(ordered[offset:offset + settings.mapping_batch_size]),
-                _candidates=candidates, _skip_reconciliation=True,
+                idea_indices=set(ordered[offset:offset + size]),
+                _candidates=candidates, _candidate_pool=pool, _skip_reconciliation=True,
             )
             decisions.extend(partial.decisions)
             batches.append(partial_meta)
+        split_meta = {"batches": batches, "split_reason": reason,
+                      **({"initial_failure": initial_failure} if initial_failure else {})}
+        combined = CuratorResult(decisions=decisions)
+        if _skip_reconciliation:
+            return combined, split_meta
         combined, reconciliation = _reconcile_new_code_batch(
-            item=item, ideas=ideas, curator=CuratorResult(decisions=decisions), client=client,
+            item=item, ideas=ideas, curator=combined, client=client,
         )
         combined, verification = _finalize_curator(item, ideas, combined, candidates, client, embedding_client)
-        return combined, {"batches": batches, "batch_reconciliation": reconciliation, "decision_verifier": verification}
+        return combined, {**split_meta, "batch_reconciliation": reconciliation, "decision_verifier": verification}
+
+    if len(valid_ideas) > settings.mapping_batch_size:
+        return run_batches(settings.mapping_batch_size, "batch_size")
+    if input_too_large and len(valid_ideas) > 1:
+        return run_batches(max(1, len(valid_ideas) // 2), "input_budget")
+    if input_too_large:
+        from app.pipeline.adjudication import _unresolved
+        source = CuratorDecision(idea_index=valid_ideas[0]["idea_index"], decision="UNCERTAIN", confidence=0)
+        return CuratorResult(decisions=[_unresolved(source,
+            "Ngữ cảnh Curator vượt ngân sách request.", "TECHNICAL_ERROR")]), {
+            "adjudicator": {"failed": True, "error_type": "RequestBudgetExceeded"},
+            "challenger": {"skipped": True, "reason": "input_budget"}}
     prompt = _CURATOR_TEMPLATE.format(
         item_name=item.name,
         item_description=item.description,
-        ideas_with_candidates_json=_shared_candidate_payload(valid_ideas),
+        ideas_with_candidates_json=payload_json,
     )
     meta: dict = {}
     batch_failed_and_retried = False
@@ -745,9 +870,8 @@ def run_code_mapping(
             stage="code_curator",
             include_raw_response=settings.store_raw_llm_response,
         )
-        validated, duplicate_indices, unexpected_indices = _one_decision_per_index(
-            CuratorResult.model_validate(data), expected_indices
-        )
+        data = restore_code_aliases(data, alias_map)
+        validated, duplicate_indices, unexpected_indices = _parse_curator_rows(data, expected_indices)
         if duplicate_indices or unexpected_indices:
             meta = {
                 **meta,
@@ -755,22 +879,37 @@ def run_code_mapping(
                 "unexpected_idea_indices": sorted(unexpected_indices),
             }
         result = _normalize_curator_contract(validated, ideas, candidates)
+        meta = {**meta, "raw_decisions": data.get("decisions", []),
+                "normalized_decisions": result.model_dump()["decisions"]}
     except (LLMJSONError, ValueError) as exc:
-        # Batch hỏng không được gọi lại nguyên prompt. Hỏi riêng từng ý với
-        # contract ngắn để cô lập lỗi và tránh nhân đôi chi phí của cả lượt.
-        batch_failed_and_retried = True
+        failure = _failure_meta(exc, meta)
+        # Provider lỗi không được nhân thành N lời gọi đơn cho N response.
+        if isinstance(exc, LLMJSONError) and failure.get("error_type", "LLMJSONError") != "LLMJSONError":
+            from app.pipeline.adjudication import _unresolved
+            unresolved = [_unresolved(CuratorDecision(idea_index=case["idea_index"], decision="UNCERTAIN",
+                confidence=0, reason=""), "Chưa gọi được Curator do lỗi kỹ thuật.", "TECHNICAL_ERROR") for case in valid_ideas]
+            return CuratorResult(decisions=unresolved), {"adjudicator": {**failure, "failed": True},
+                "challenger": {"skipped": True, "reason": "provider_failure"}}
         first_failure = {
             **_failure_meta(exc, meta),
             "failed": True,
             "reason": str(exc),
         }
+        # Lô hỏng (bị cắt output, JSON lỗi, sai contract cả lô): chia đôi thay vì tách N lời gọi đơn,
+        # mỗi lời gọi đơn đều gửi lại catalog mã. Chỉ lô một ý mới dùng lượt thử lại đơn bên dưới.
+        if len(valid_ideas) > 1:
+            reason = "output_truncated" if failure.get("error_category") == "OUTPUT_TRUNCATED" else "curator_failure"
+            return run_batches(max(1, len(valid_ideas) // 2), reason, first_failure)
+        # Lô một ý: hỏi lại đúng ý đó với contract ngắn.
+        batch_failed_and_retried = True
         recovered: list[CuratorDecision] = []
         retry_metas: list[dict] = []
         for case in valid_ideas:
+            retry_aliases: dict[str, str] = {}
             retry_prompt = _CURATOR_TEMPLATE.format(
                 item_name=item.name,
                 item_description=item.description,
-                ideas_with_candidates_json=_shared_candidate_payload([case]),
+                ideas_with_candidates_json=_shared_candidate_payload([case], alias_map=retry_aliases),
             )
             retry_meta = {}
             try:
@@ -786,8 +925,8 @@ def run_code_mapping(
                     stage="code_curator_retry_single",
                     include_raw_response=settings.store_raw_llm_response,
                 )
-                retried, _, _ = _one_decision_per_index(
-                    CuratorResult.model_validate(retry_data),
+                retried, _, _ = _parse_curator_rows(
+                    restore_code_aliases(retry_data, retry_aliases),
                     {int(case["idea_index"])},
                 )
                 recovered.extend(
@@ -836,10 +975,11 @@ def run_code_mapping(
                 idea_index = int(case["idea_index"])
                 if idea_index not in missing_indices:
                     continue
+                retry_aliases: dict[str, str] = {}
                 retry_prompt = _CURATOR_TEMPLATE.format(
                     item_name=item.name,
                     item_description=item.description,
-                    ideas_with_candidates_json=_shared_candidate_payload([case]),
+                    ideas_with_candidates_json=_shared_candidate_payload([case], alias_map=retry_aliases),
                 )
                 retry_meta = {}
                 try:
@@ -855,8 +995,8 @@ def run_code_mapping(
                         stage="code_curator_retry_missing",
                         include_raw_response=settings.store_raw_llm_response,
                     )
-                    retried, _, _ = _one_decision_per_index(
-                        CuratorResult.model_validate(retry_data), {idea_index}
+                    retried, _, _ = _parse_curator_rows(
+                        restore_code_aliases(retry_data, retry_aliases), {idea_index}
                     )
                     recovered.extend(
                         decision
@@ -888,16 +1028,8 @@ def run_code_mapping(
                 "unresolved_indices": sorted(still_missing),
                 "failed": bool(still_missing),
             }
-    result, boundary_repair_meta = _repair_missing_boundaries(
-        item=item,
-        cases=valid_ideas,
-        challenged=result,
-        client=client,
-    )
-    if boundary_repair_meta is not None:
-        meta = {**meta, "boundary_repair": boundary_repair_meta}
     result, challenge_meta = run_code_challenger(
-        item, ideas, candidates, result, client, embedding_client
+        item, ideas, _expand_adjudication_candidates(result, candidates, pool), result, client, embedding_client
     )
     reconciliation_meta = {"skipped": True}
     if not _skip_reconciliation:
@@ -907,9 +1039,6 @@ def run_code_mapping(
     # Challenger/Reconciler có thể đề xuất CREATE_NEW trở lại; áp chốt lần cuối trước khi
     # sinh embedding và trước khi kết quả có cơ hội đi vào codebook.
     result = _guard_ungrounded_creations(result, ideas)
-    result = CuratorResult(decisions=[decision.model_copy(update={
-        "compared_code_ids": sorted(_candidate_ids(candidates, decision.idea_index)),
-    }) for decision in result.decisions])
     verification = {"skipped": True, "reason": "partial_batch"}
     if not _skip_reconciliation:
         result, verification = _finalize_curator(item, ideas, result, candidates, client, embedding_client)
@@ -922,7 +1051,7 @@ def run_code_mapping(
 
 
 def _attach_decision_embeddings(
-    curator: CuratorResult, embedding_client: OpenAI | None
+    curator: CuratorResult, embedding_client: OpenAI | None, *, item_name: str = ""
 ) -> CuratorResult:
     """Gắn vector do backend sinh; không tin vector hoặc model name từ LLM."""
     selected = [
@@ -932,7 +1061,7 @@ def _attach_decision_embeddings(
     ]
     if not selected:
         return curator
-    codes = [{"name": d.code_name, "description": d.code_description,
+    codes = [{"name": d.code_name, "description": d.code_description, "item_name": item_name,
               "functional_signature": d.functional_signature.model_dump()} for d in selected]
     prepare_code_embeddings(codes, embedding_client)
     vectors = iter(codes)
@@ -1017,161 +1146,6 @@ def _has_reusable_scope(
         )
         and len(variants) >= 2
     )
-
-
-def _repair_missing_boundaries(
-    *,
-    item: Item,
-    cases: list[dict],
-    challenged: CuratorResult,
-    client: OpenAI,
-) -> tuple[CuratorResult, dict | None]:
-    """Gọi lại bằng prompt ngắn khi đề xuất chưa có phạm vi category tái sử dụng được."""
-    cases_by_index = {int(case["idea_index"]): case for case in cases}
-    incomplete = [
-        decision
-        for decision in challenged.decisions
-        if decision.decision in {"CREATE_NEW", "EXPAND_EXISTING"}
-        and not _has_reusable_scope(
-            decision,
-            source_text=str(
-                cases_by_index.get(decision.idea_index, {}).get("original", "")
-            ),
-        )
-    ]
-    if not incomplete:
-        return challenged, None
-
-    repair_cases = []
-    for decision in incomplete:
-        case = cases_by_index.get(decision.idea_index, {})
-        repair_cases.append(
-            {
-                "idea_index": decision.idea_index,
-                "original": case.get("original", ""),
-                "normalized": case.get("normalized", ""),
-                "decision_to_preserve": decision.model_dump(
-                    include={"decision", "code_relation", "existing_code_id", "code_name", "code_description",
-                             "functional_signature", "scope_variants", "inclusion_rules", "exclusion_rules",
-                             "absorbed_code_ids", "reason", "confidence"}
-                ),
-                "nearest_codes": case.get("nearest_codes", []),
-                "other_ideas_in_submission": [
-                    {
-                        "idea_index": other.get("idea_index"),
-                        "original": other.get("original", ""),
-                        "functional_signature": other.get("functional_signature", {}),
-                    }
-                    for other in cases
-                    if other.get("idea_index") != decision.idea_index
-                ],
-            }
-        )
-
-    prompt = _BOUNDARY_REPAIR_TEMPLATE.format(
-        item_name=item.name,
-        item_description=item.description,
-        repair_cases_json=json.dumps(
-            repair_cases, ensure_ascii=False, separators=(",", ":")
-        ),
-    )
-    meta = {}
-    try:
-        data, meta = chat_json(
-            client,
-            model=settings.active_challenger_model,
-            temperature=settings.code_curator_temperature,
-            prompt=prompt,
-            provider=settings.llm_provider,
-            reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("boundary_repair", len(incomplete)),
-            max_retries=settings.llm_max_retries,
-            stage="boundary_repair",
-            include_raw_response=settings.store_raw_llm_response,
-        )
-        repaired = CuratorResult.model_validate(data)
-    except (LLMJSONError, ValueError) as exc:
-        # Thiếu ranh giới thì không được tạo/mở rộng code.
-        repaired = CuratorResult(decisions=[])
-        meta = {**_failure_meta(exc, meta), "failed": True, "reason": str(exc)}
-    repaired_by_index = {
-        decision.idea_index: decision for decision in repaired.decisions
-    }
-    incomplete_indices = {decision.idea_index for decision in incomplete}
-    final: list[CuratorDecision] = []
-    for decision in challenged.decisions:
-        if decision.idea_index not in incomplete_indices:
-            final.append(decision)
-            continue
-        candidate = repaired_by_index.get(decision.idea_index)
-        same_target = (
-            decision.decision != "EXPAND_EXISTING"
-            or (
-                candidate is not None
-                and candidate.existing_code_id == decision.existing_code_id
-                and candidate.code_relation == "IDEA_BROADER_THAN_CODE"
-            )
-        )
-        merged_candidate = (
-            decision.model_copy(
-                update={
-                    "code_name": candidate.code_name or decision.code_name,
-                    "code_description": (
-                        candidate.code_description or decision.code_description
-                    ),
-                    "functional_signature": _category_signature(
-                        candidate.functional_signature
-                        if candidate.functional_signature.goal.strip()
-                        else decision.functional_signature
-                    ),
-                    "inclusion_rules": candidate.inclusion_rules,
-                    "exclusion_rules": candidate.exclusion_rules,
-                    "scope_variants": candidate.scope_variants,
-                    "reason": candidate.reason or decision.reason,
-                    "confidence": candidate.confidence,
-                }
-            )
-            if candidate is not None
-            else None
-        )
-        if (
-            candidate is not None
-            and candidate.decision == decision.decision
-            and same_target
-            and merged_candidate is not None
-            and _has_reusable_scope(
-                merged_candidate,
-                source_text=str(
-                    cases_by_index.get(decision.idea_index, {}).get("original", "")
-                ),
-            )
-        ):
-            final.append(merged_candidate)
-            continue
-
-        failed_gate = (
-            "counterexample_passed"
-            if decision.decision == "CREATE_NEW"
-            else "hard_negatives_excluded"
-        )
-        final.append(
-            decision.model_copy(
-                update={
-                    "decision": "UNCERTAIN",
-                    "code_relation": "UNCERTAIN",
-                    "existing_code_id": None,
-                    "policy_gates": {
-                        **decision.policy_gates,
-                        failed_gate: False,
-                    },
-                    "reason": (
-                        "Chưa xác lập được category tái sử dụng với chữ ký cấp nhóm, "
-                        "biến thể phạm vi và ranh giới bao gồm/loại trừ cụ thể."
-                    ),
-                }
-            )
-        )
-    return CuratorResult(decisions=final), meta
 
 
 def _potential_new_code_overlaps(
@@ -1439,294 +1413,7 @@ def run_code_challenger(
     client: OpenAI,
     embedding_client: OpenAI | None = None,
 ) -> tuple[CuratorResult, dict]:
-    """Chỉ phân xử các ca mơ hồ, mở rộng phạm vi hoặc mâu thuẫn tính hợp lệ."""
-    reviewable = [
-        decision
-        for decision in curator.decisions
-        if decision.decision in _REVIEWABLE_DECISIONS
-        and decision.policy_gates.get("goal_grounded_in_source") is not False
-    ]
-    if not reviewable:
-        return curator, {"skipped": True, "reason": "no_reviewable_decision"}
+    """Phân xử cuối gồm cả kiểm chứng; không gọi thêm verifier sau quyết định này."""
+    from app.pipeline.adjudication import adjudicate_decisions
 
-    cases = []
-    for decision in reviewable:
-        if decision.idea_index >= len(ideas.ideas):
-            continue
-        idea = ideas.ideas[decision.idea_index]
-        cases.append(
-            {
-                "idea_index": decision.idea_index,
-                "original": idea.original,
-                "normalized": idea.normalized,
-                "functional_signature": idea.functional_signature.model_dump(),
-                "adjudicator_reason": decision.reason,
-                "adjudicator_decision": decision.decision,
-                "adjudicator_relation": decision.code_relation,
-                "proposed_code": {
-                    "existing_code_id": decision.existing_code_id,
-                    "name": decision.code_name,
-                },
-                "nearest_codes": [
-                    _candidate_prompt_view(candidate)
-                    for candidate in candidates.get(decision.idea_index, [])
-                ],
-            }
-        )
-    if not cases:
-        return curator, {"skipped": True, "reason": "invalid_indices"}
-    expected_indices = {int(case["idea_index"]) for case in cases}
-
-    prompt = _CHALLENGER_TEMPLATE.format(
-        item_name=item.name,
-        item_description=item.description,
-        codebook_is_empty=str(not any(candidates.values())).lower(),
-        challenger_cases_json=_shared_candidate_payload(cases, key="cases"),
-    )
-    meta: dict = {}
-    try:
-        data, meta = chat_json(
-            client,
-            model=settings.active_challenger_model,
-            temperature=settings.code_curator_temperature,
-            prompt=prompt,
-            provider=settings.llm_provider,
-            reasoning_effort=settings.active_reasoning_effort,
-            max_tokens=settings.max_tokens_for("code_challenger", len(cases)),
-            max_retries=settings.llm_max_retries,
-            stage="code_challenger",
-            include_raw_response=settings.store_raw_llm_response,
-        )
-        challenged, duplicate_indices, unexpected_indices = _one_decision_per_index(
-            CuratorResult.model_validate(data), expected_indices
-        )
-        if duplicate_indices or unexpected_indices:
-            meta = {
-                **meta,
-                "duplicate_idea_indices": sorted(duplicate_indices),
-                "unexpected_idea_indices": sorted(unexpected_indices),
-            }
-    except (LLMJSONError, ValueError) as exc:
-        # Không chấp nhận quyết định chưa được Challenger phản biện.
-        return CuratorResult(
-            decisions=[
-                decision.model_copy(
-                    update={
-                        "decision": "UNCERTAIN",
-                        "code_relation": "UNCERTAIN",
-                        "existing_code_id": None,
-                        "reason": "Challenger không trả quyết định hợp lệ; cần đối chiếu lại.",
-                    }
-                )
-                if decision.decision in _REVIEWABLE_DECISIONS
-                else decision
-                for decision in curator.decisions
-            ]
-        ), {**_failure_meta(exc, meta), "failed": True, "reason": str(exc)}
-
-    returned_indices = {decision.idea_index for decision in challenged.decisions}
-    missing_indices = expected_indices - returned_indices
-    if missing_indices:
-        retry_cases = [
-            case for case in cases if int(case["idea_index"]) in missing_indices
-        ]
-        retry_prompt = _CHALLENGER_TEMPLATE.format(
-            item_name=item.name,
-            item_description=item.description,
-            codebook_is_empty=str(not any(candidates.values())).lower(),
-            challenger_cases_json=_shared_candidate_payload(retry_cases, key="cases"),
-        )
-        retry_meta = {}
-        try:
-            retry_data, retry_meta = chat_json(
-                client,
-                model=settings.active_challenger_model,
-                temperature=settings.code_curator_temperature,
-                prompt=retry_prompt,
-                provider=settings.llm_provider,
-                reasoning_effort=settings.active_reasoning_effort,
-                max_tokens=settings.max_tokens_for("code_challenger", len(retry_cases)),
-                max_retries=settings.llm_max_retries,
-                stage="code_challenger_retry_missing",
-                include_raw_response=settings.store_raw_llm_response,
-            )
-            retried, retry_duplicates, retry_unexpected = _one_decision_per_index(
-                CuratorResult.model_validate(retry_data), missing_indices
-            )
-            accepted_retry = [
-                decision
-                for decision in retried.decisions
-                if decision.idea_index in missing_indices
-            ]
-            challenged = CuratorResult(
-                decisions=[*challenged.decisions, *accepted_retry]
-            )
-            meta = {
-                "runs": [meta, retry_meta],
-                "strategy": "retry_missing_only",
-                "initial_missing_indices": sorted(missing_indices),
-                "retry_duplicate_idea_indices": sorted(retry_duplicates),
-                "retry_unexpected_idea_indices": sorted(retry_unexpected),
-            }
-        except (LLMJSONError, ValueError) as exc:
-            meta = {
-                "runs": [meta, {**_failure_meta(exc, retry_meta), "failed": True}],
-                "strategy": "retry_missing_only",
-                "initial_missing_indices": sorted(missing_indices),
-            }
-    hydrated_decisions: list[CuratorDecision] = []
-    for decision in challenged.decisions:
-        decision = decision.model_copy(update={"pair_verified": False})
-        if decision.idea_index >= len(ideas.ideas):
-            hydrated_decisions.append(decision)
-            continue
-        idea = ideas.ideas[decision.idea_index]
-        update = {
-            "nearest_code_ids": sorted(
-                _candidate_ids(candidates, decision.idea_index)
-            ),
-        }
-        decision = _hydrate_curator_decision(decision, idea)
-        hydrated_decisions.append(decision.model_copy(update=update))
-    challenged = CuratorResult(decisions=hydrated_decisions)
-    challenged, boundary_repair_meta = _repair_missing_boundaries(
-        item=item,
-        cases=cases,
-        challenged=challenged,
-        client=client,
-    )
-    if boundary_repair_meta is not None:
-        meta = {**meta, "boundary_repair": boundary_repair_meta}
-    replacements = {decision.idea_index: decision for decision in challenged.decisions}
-    source_by_index = {decision.idea_index: decision for decision in reviewable}
-    for idea_index, source in source_by_index.items():
-        replacement = replacements.get(idea_index)
-        if replacement is None:
-            replacements[idea_index] = source.model_copy(
-                update={
-                    "decision": "UNCERTAIN",
-                    "existing_code_id": None,
-                    "reason": "Challenger không trả quyết định cho trường hợp cần phản biện.",
-                }
-            )
-            continue
-        idea = ideas.ideas[idea_index] if idea_index < len(ideas.ideas) else None
-        if idea is not None:
-            update = {
-                "nearest_code_ids": sorted(_candidate_ids(candidates, idea_index)),
-            }
-            replacement = _hydrate_curator_decision(replacement, idea).model_copy(
-                update=update
-            )
-            replacements[idea_index] = replacement
-        allowed_ids = _candidate_ids(candidates, idea_index)
-        invalid_match = (
-            replacement.decision in {"MATCH_EXISTING", "EXPAND_EXISTING"}
-            and replacement.existing_code_id not in allowed_ids
-        )
-        weak_match_reason = (
-            _match_review_reason(
-                idea, replacement, candidates, challenged=True
-            )
-            if idea is not None and not invalid_match
-            else None
-        )
-        if weak_match_reason and not invalid_match and idea is not None:
-            from app.pipeline.semantic_verifier import verify_pair, propose_scope
-            candidate = _candidate_by_id(candidates, idea_index, replacement.existing_code_id)
-            try:
-                verdict, pair_meta = verify_pair(item, idea.original, candidate, client)
-                meta.setdefault("pair_checks", []).append(pair_meta)
-                if verdict.relation == "IDEA_BROADER_THAN_CODE" and verdict.role_match:
-                    proposed, scope_meta = propose_scope(item, idea.original, candidate, client)
-                    meta.setdefault("scope_proposals", []).append(scope_meta)
-                    replacement = _hydrate_curator_decision(proposed, idea).model_copy(update={
-                        "idea_index": idea_index, "nearest_code_ids": sorted(allowed_ids),
-                    })
-                    replacements[idea_index] = replacement
-                    source = replacement
-                    weak_match_reason = None
-                if verdict.relation in _MATCH_RELATIONS and verdict.goal_match and verdict.role_match and not verdict.exclusion_hit:
-                    replacement = replacement.model_copy(update={
-                        "pair_verified": True, "source_text": idea.original,
-                        "code_relation": verdict.relation,
-                        "existing_code_evaluations": [{
-                            "code_id": replacement.existing_code_id, "relation": verdict.relation,
-                            "goal_match": True, "role_match": True, "mechanism_match": True,
-                            "excluded_by": "", "verdict": "MATCH", "source": "PAIR_VERIFIER",
-                            "evidence": verdict.evidence, "reason": verdict.reason,
-                        }],
-                    })
-                    replacements[idea_index] = replacement
-                    weak_match_reason = None
-            except (LLMJSONError, ValueError) as exc:
-                meta.setdefault("pair_checks", []).append({**_failure_meta(exc), "failed": True})
-        invalid_expand = (
-            replacement.decision == "EXPAND_EXISTING"
-            and (
-                source.decision != "EXPAND_EXISTING"
-                or source.existing_code_id != replacement.existing_code_id
-                or replacement.code_relation != "IDEA_BROADER_THAN_CODE"
-            )
-        )
-        create_without_agreement = (
-            replacement.decision == "CREATE_NEW"
-            and source.decision
-            not in {"OUT_OF_CODEBOOK", "CREATE_NEW", "UNCERTAIN", "INVALID"}
-        )
-        if invalid_match or weak_match_reason or invalid_expand or create_without_agreement:
-            replacements[idea_index] = replacement.model_copy(
-                update={
-                    "decision": "UNCERTAIN",
-                    "existing_code_id": None,
-                    "reason": (
-                        "Challenger chưa chứng minh được MATCH an toàn: "
-                        + (
-                            "code không thuộc tập ứng viên hợp lệ."
-                            if invalid_match
-                            else (
-                                "hai tầng không đồng ý về việc mở rộng/tạo code."
-                                if invalid_expand or create_without_agreement
-                                else str(weak_match_reason)
-                            )
-                        )
-                    ),
-                }
-            )
-        elif replacement.decision == "MATCH_EXISTING" and idea is not None:
-            audit = _match_guard_evidence(
-                idea, replacement, candidates, challenged=True
-            )
-            replacements[idea_index] = replacement.model_copy(
-                update={
-                    "existing_code_evaluations": [
-                        *replacement.existing_code_evaluations,
-                        *([audit] if audit else []),
-                    ],
-                    "reviewed_by_challenger": True,
-                }
-            )
-        elif replacement.decision in {"CREATE_NEW", "EXPAND_EXISTING"}:
-            replacements[idea_index] = replacement.model_copy(
-                update={"reviewed_by_challenger": True}
-            )
-        elif replacement.decision == "INVALID":
-            replacements[idea_index] = replacement.model_copy(
-                update={
-                        "decision": "UNCERTAIN",
-                        "reason": "Curator và Challenger bất đồng về tính hợp lệ của ý.",
-                }
-            )
-    final = []
-    for decision in curator.decisions:
-        resolved = (
-            replacements.get(decision.idea_index, decision)
-            if decision.decision in _REVIEWABLE_DECISIONS
-            else decision
-        )
-        final.append(
-            resolved.model_copy(
-                update={"retrieval_candidates": decision.retrieval_candidates}
-            )
-        )
-    return CuratorResult(decisions=final), meta
+    return adjudicate_decisions(item, ideas, curator, candidates, client)

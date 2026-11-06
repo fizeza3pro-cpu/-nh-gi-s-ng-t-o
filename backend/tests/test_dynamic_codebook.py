@@ -12,6 +12,32 @@ def _grounded_new_checks(extraction, codes=()):
         "comparisons": [{"code_id": code["id"], "relation": "DIFFERENT",
                          "reason": "Mục đích và vai trò chức năng khác."} for code in codes],
     } for index, idea in enumerate(extraction.ideas)]}, ensure_ascii=False)
+
+def _final_output(payload, extraction, codes=()):
+    """Nâng fixture quyết định cũ lên contract phân xử cuối với căn cứ đã xác định trong test."""
+    data = json.loads(payload) if isinstance(payload, str) else payload
+    for row in data["decisions"]:
+        idea = extraction.ideas[row["idea_index"]]
+        row.update(source_text=idea.original, grounded=True, evidence=idea.original)
+        row["reason"] = row.get("reason") or "Công dụng đã có căn cứ trong câu gốc."
+        if row["decision"] == "CREATE_NEW":
+            row["code_relation"] = "DIFFERENT"
+        comparisons = []
+        for code in codes:
+            evaluation = next((value for value in row.get("existing_code_evaluations", [])
+                               if value["code_id"] == code["id"]), None)
+            matches = row["decision"] == "MATCH_EXISTING" and row.get("existing_code_id") == code["id"]
+            comparisons.append({
+                "code_id": code["id"], "relation": (evaluation or {}).get("relation",
+                    row.get("code_relation", "SAME_CATEGORY") if matches else "DIFFERENT"),
+                "goal_match": (evaluation or {}).get("goal_match", matches),
+                "role_match": (evaluation or {}).get("role_match", matches),
+                "excluded_by": (evaluation or {}).get("excluded_by", ""),
+                "reason": "Đối chiếu công dụng đã xác định cho fixture.",
+            })
+        row["comparisons"] = comparisons
+    return json.dumps(data, ensure_ascii=False)
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -209,7 +235,7 @@ def test_empty_codebook_keeps_disagreement_uncertain():
         },
         ensure_ascii=False,
     )
-    client = FakeClient([adjudicator, challenger])
+    client = FakeClient([adjudicator, _final_output(challenger, extraction)])
 
     result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
@@ -222,7 +248,7 @@ def test_empty_codebook_keeps_disagreement_uncertain():
     assert client.chat.completions.calls == 2
     assert decision.decision == "UNCERTAIN"
     assert decision.existing_code_id is None
-    assert meta["challenger"]["response_id"] == "fake-2"
+    assert meta["challenger"]["runs"][0]["response_id"] == "fake-2"
 
 
 def test_empty_codebook_keeps_incomplete_signature_uncertain():
@@ -382,7 +408,7 @@ def test_challenger_repairs_missing_or_generic_code_boundaries():
         },
         ensure_ascii=False,
     )
-    client = FakeClient([adjudicator, incomplete, repaired, _grounded_new_checks(extraction)])
+    client = FakeClient([adjudicator, _final_output(incomplete, extraction), _final_output(repaired, extraction)])
 
     result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
@@ -397,7 +423,7 @@ def test_challenger_repairs_missing_or_generic_code_boundaries():
     assert decision.inclusion_rules
     assert decision.exclusion_rules
     assert decision.reviewed_by_challenger is True
-    assert meta["challenger"]["boundary_repair"]["response_id"] == "fake-3"
+    assert meta["challenger"]["runs"][1]["response_id"] == "fake-3"
 
 
 def test_weak_wrong_match_is_sent_to_challenger_and_created_as_new_code():
@@ -481,7 +507,7 @@ def test_weak_wrong_match_is_sent_to_challenger_and_created_as_new_code():
         },
         ensure_ascii=False,
     )
-    client = FakeClient([wrong_match, create_new, _grounded_new_checks(extraction, [plant_code])])
+    client = FakeClient([wrong_match, _final_output(create_new, extraction, [plant_code])])
 
     result, _ = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
@@ -495,8 +521,8 @@ def test_weak_wrong_match_is_sent_to_challenger_and_created_as_new_code():
     assert result.decisions[0].code_name == "Dụng cụ gãi bằng vỏ đạn"
 
 
-def test_challenger_cannot_reapprove_same_weak_match():
-    """Hai lượt LLM cùng thiên vị top-1 vẫn phải abstain thay vì gộp sai."""
+def test_challenger_cannot_accept_match_without_grounding_contract():
+    """MATCH thiếu căn cứ phân xử không được nhận chỉ vì model lặp lại lựa chọn."""
     signature = FunctionalSignature(
         goal="đậy kín",
         object_role="nắp",
@@ -552,7 +578,7 @@ def test_challenger_cannot_reapprove_same_weak_match():
 
     assert result.decisions[0].decision == "UNCERTAIN"
     assert result.decisions[0].existing_code_id is None
-    assert "MATCH an toàn" in result.decisions[0].reason
+    assert result.decisions[0].policy_gates["contract_error"]
 
 
 def test_numeric_match_gate_rejects_llm_flags_when_backend_signals_are_weak():
@@ -733,7 +759,7 @@ def test_challenger_can_resolve_uncertain_as_create_new_with_full_evidence():
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [],
-        FakeClient([uncertain, create_new, _grounded_new_checks(extraction)]),
+        FakeClient([uncertain, _final_output(create_new, extraction)]),
     )
 
     assert result.decisions[0].decision == "CREATE_NEW"
@@ -804,15 +830,15 @@ def test_match_with_false_goal_flag_is_rejected_even_when_verdict_says_match():
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
         extraction,
         [jewelry],
-        FakeClient([contradictory_match, contradictory_match]),
+        FakeClient([contradictory_match, _final_output(contradictory_match, extraction, [jewelry])]),
     )
 
     assert result.decisions[0].decision == "UNCERTAIN"
     assert result.decisions[0].existing_code_id is None
-    assert "mục đích chức năng không khớp" in result.decisions[0].reason
+    assert "mâu thuẫn" in result.decisions[0].reason
 
 
-def test_strong_match_skips_challenger_and_records_backend_audit():
+def test_strong_match_has_one_final_adjudication_and_records_evidence():
     signature = FunctionalSignature(
         goal="trang trí",
         object_role="vật liệu",
@@ -869,7 +895,7 @@ def test_strong_match_skips_challenger_and_records_backend_audit():
     verification = json.dumps({"checks": [{"idea_index": 0, "source_text": extraction.ideas[0].original,
         "grounded": True, "evidence": "gắn vỏ đạn", "reason": "Cùng chức năng trang trí",
         "comparisons": [{"code_id": "decoration", "relation": "SAME_CATEGORY", "reason": "Mã bao phủ công dụng"}]}]}, ensure_ascii=False)
-    client = FakeClient([match, verification])
+    client = FakeClient([match, _final_output(match, extraction, [code])])
 
     result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại của viên đạn"),
@@ -881,10 +907,10 @@ def test_strong_match_skips_challenger_and_records_backend_audit():
     assert client.chat.completions.calls == 2
     assert result.decisions[0].decision == "MATCH_EXISTING"
     audit = result.decisions[0].existing_code_evaluations[-1]
-    assert audit["source"] == "DECISION_VERIFIER"
+    assert audit["source"] == "FINAL_ADJUDICATOR"
     assert result.decisions[0].pair_verified
     assert audit["verdict"] == "MATCH"
-    assert meta["challenger"]["skipped"] is True
+    assert meta["challenger"]["strategy"] == "final_adjudication_v2"
 
 
 
@@ -972,7 +998,7 @@ def test_challenger_retries_only_missing_decisions_before_admin_review():
         {"decisions": [create_payload(1, "Vật chèn giấy từ vỏ đạn")]},
         ensure_ascii=False,
     )
-    client = FakeClient([adjudicator, first_challenge, retry_missing, _grounded_new_checks(extraction)])
+    client = FakeClient([adjudicator, _final_output(first_challenge, extraction), _final_output(retry_missing, extraction)])
 
     result, meta = run_code_mapping(
         Item(id="vo_dan", name="Vỏ đạn", description="Vỏ kim loại"),
@@ -985,8 +1011,8 @@ def test_challenger_retries_only_missing_decisions_before_admin_review():
     assert [decision.decision for decision in result.decisions] == [
         "CREATE_NEW", "CREATE_NEW"
     ]
-    assert meta["challenger"]["strategy"] == "retry_missing_only"
-    assert meta["challenger"]["initial_missing_indices"] == [1]
+    assert meta["challenger"]["strategy"] == "final_adjudication_v2"
+    assert list(meta["challenger"]["runs"][0]["contract_errors"]) == [1]
 
 
 @pytest.mark.parametrize("grouped_contract", [False, True])
@@ -1132,7 +1158,7 @@ def test_overlapping_new_codes_in_same_submission_are_reconciled(grouped_contrac
         canonical = json.loads(reconciled)["decisions"][0]
         canonical.pop("positive_examples")
         reconciled = json.dumps({"groups": [{"idea_indices": [0, 1], "canonical": canonical}]}, ensure_ascii=False)
-    client = FakeClient([adjudicator, challenger, reconciled, _grounded_new_checks(extraction)])
+    client = FakeClient([adjudicator, _final_output(challenger, extraction), reconciled])
 
     result, meta = run_code_mapping(
         Item(id="thung_dan", name="Thùng đạn", description="Thùng gỗ có nắp"),
@@ -1223,10 +1249,12 @@ def test_repeated_valid_lines_are_mapped_and_scored_separately():
             "idea_index": index, "source_text": row["original"], "decision": "MATCH_EXISTING",
             "existing_code_id": code.id, "code_relation": "SAME_CATEGORY", "confidence": 0.99,
         } for index in range(2)]}, ensure_ascii=False)])
-        curator_client.chat.completions._responses.append(json.dumps({"checks": [{
+        curator_client.chat.completions._responses.append(json.dumps({"decisions": [{
             "idea_index": index, "source_text": row["original"], "grounded": True,
-            "evidence": "tặng", "reason": "Công dụng trao tặng có trong câu gốc", "comparisons": [{
-                "code_id": code.id, "relation": "SAME_CATEGORY", "reason": "Cùng chức năng tặng quà"}]
+            "evidence": "tặng", "decision": "MATCH_EXISTING", "existing_code_id": code.id,
+            "code_relation": "SAME_CATEGORY", "confidence": .99,
+            "reason": "Công dụng trao tặng có trong câu gốc", "comparisons": [{
+                "code_id": code.id, "relation": "SAME_CATEGORY", "goal_match": True, "role_match": True, "reason": "Cùng chức năng tặng quà"}]
         } for index in range(2)]}, ensure_ascii=False))
         snapshots = list_curator_codes(db, item.id)
         curator, _ = run_code_mapping(item_schema, extraction, snapshots, curator_client)
@@ -1527,8 +1555,9 @@ def test_small_codebook_searches_all_compact_candidates():
     )
 
     prompt = client.chat.completions.requests[0]["messages"][0]["content"]
-    included_ids = [code["id"] for code in codes if code["id"] in prompt]
-    assert len(included_ids) == 7
+    # Prompt dùng mã ngắn C01..C07 thay UUID để giảm token và tránh chép sai ID.
+    assert all(f'"id":"C{number:02d}"' in prompt for number in range(1, 8))
+    assert not any(code["id"] in prompt for code in codes)
     assert "scope_history" not in prompt
 
 

@@ -43,7 +43,7 @@ def generate_creative_feedback(item, scores, client, *, fallback):
     meta = {}
     try:
         data, meta = chat_json(
-            client, model=settings.active_llm_model, temperature=min(settings.scoring_temperature, 0.2),
+            client, model=settings.active_llm_model, temperature=settings.creative_feedback_temperature,
             prompt=_TEMPLATE_PATH.read_text(encoding="utf-8").format(item_name=item.name, ideas_json=json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
             provider=settings.llm_provider, reasoning_effort=settings.active_reasoning_effort,
             max_tokens=settings.max_tokens_for("creative_feedback"), max_retries=0,

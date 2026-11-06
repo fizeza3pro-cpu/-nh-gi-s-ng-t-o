@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # --- BytePlus ModelArk ---
     byteplus_api_key: str = ""
     byteplus_base_url: str = "https://ark.ap-southeast.bytepluses.com/api/v3"
-    byteplus_model: str = "deepseek-v4-flash-260425"
+    byteplus_model: str = "deepseek-v4-1-flash-economy-261017"
     byteplus_code_curator_model: str | None = None
     byteplus_challenger_model: str | None = None
     # Mức reasoning chỉ là một tham số; DeepSeek v4 cần thêm byteplus_thinking
@@ -63,22 +63,24 @@ class Settings(BaseSettings):
 
     # --- Pipeline ---
     mapping_temperature: float = 0.1
-    scoring_temperature: float = 0.4
-    scoring_runs: int = 1
+    # Trích bằng chứng Elaboration cần ổn định giữa các lần chấm; 0.4 làm cùng câu dao động 1-3 điểm.
+    scoring_temperature: float = 0.0
+    creative_feedback_temperature: float = 0.2
+    # Đa số 2/3 lượt trích bằng chứng; temperature 0 của provider vẫn chưa tất định hoàn toàn.
+    scoring_runs: int = Field(default=3, ge=1, le=5)
     code_curator_temperature: float = 0.1
     # Chỉ đưa vài code gần nhất vào prompt. Quét toàn bộ codebook làm kích thước
     # output tăng theo tích số ý × số code dù model chỉ cần chọn một kết quả.
     code_candidate_limit: int = Field(default=3, ge=1, le=8)
     # Codebook nhỏ được đối chiếu toàn bộ; lớn hơn ngưỡng này lấy novelty_candidate_limit.
     codebook_full_scan_limit: int = Field(default=20, ge=1, le=100)
-    # Cổng tạm thời cho auto-MATCH, cần hiệu chỉnh lại bằng dữ liệu chuyên gia.
+    # Cổng cho dữ liệu legacy; raw-fields-v1 dùng phân xử căn cứ, không áp các ngưỡng này.
     auto_match_retrieval_floor: float = Field(default=0.60, ge=0.0, le=1.0)
     auto_match_semantic_floor: float = Field(default=0.70, ge=0.0, le=1.0)
     auto_match_margin_floor: float = Field(default=0.08, ge=0.0, le=1.0)
     auto_match_goal_floor: float = Field(default=0.20, ge=0.0, le=1.0)
     auto_match_structural_floor: float = Field(default=0.20, ge=0.0, le=1.0)
-    # Challenger có thể xác nhận cách diễn đạt đồng nghĩa dù token cấu trúc ít giao nhau,
-    # nhưng vẫn phải chọn top-1 với semantic và margin đủ rõ.
+    # Giữ để đọc/kiểm tra MATCH legacy; Challenger cuối mới không buộc hạng 1 hoặc margin này.
     challenged_match_retrieval_floor: float = Field(default=0.50, ge=0.0, le=1.0)
     challenged_match_semantic_floor: float = Field(default=0.70, ge=0.0, le=1.0)
     challenged_match_margin_floor: float = Field(default=0.08, ge=0.0, le=1.0)
@@ -94,7 +96,16 @@ class Settings(BaseSettings):
     resolver_max_attempts: int = Field(default=3, ge=1, le=6)
     resolver_retry_seconds: int = Field(default=15, ge=1, le=600)
     mapping_batch_size: int = Field(default=5, ge=1, le=10)
+    mapping_prompt_char_budget: int = Field(default=48000, ge=4000, le=200000)
     novelty_candidate_limit: int = Field(default=12, ge=3, le=30)
+    # Chỉ bật sau nghiệm thu trên nhãn độc lập; không tự mở bằng test giả lập.
+    curator_direct_acceptance_enabled: bool = False
+    retrieval_rank_fusion_enabled: bool = False
+    technical_mapping_retry_limit: int = Field(default=2, ge=0, le=3)
+    # Sai contract còn sót sau khi sửa prompt mang tính ngẫu nhiên: cho đúng một lần chạy lại có hẹn giờ,
+    # không để bài treo PENDING_REVIEW vô thời hạn; sau đó mới chuyển admin.
+    contract_mapping_retry_limit: int = Field(default=1, ge=0, le=2)
+    contract_retry_delay_seconds: int = Field(default=600, ge=30, le=86400)
     llm_timeout_seconds: float = Field(default=60, ge=5, le=180)
     survey_grace_seconds: int = Field(default=60, ge=0, le=300)
     survey_session_required: bool = True
@@ -103,15 +114,17 @@ class Settings(BaseSettings):
     auto_code_audit_enabled: bool = True
     scope_audit_max_cases: int = Field(default=80, ge=8, le=500)
     llm_extraction_max_tokens: int = Field(default=6144, ge=512, le=16384)
-    llm_curator_max_tokens: int = Field(default=4096, ge=512, le=16384)
-    llm_challenger_max_tokens: int = Field(default=3072, ge=512, le=16384)
+    # 5 ý kèm định nghĩa mã mới đo được ~4.2k token output; 4096 từng bị cắt.
+    llm_curator_max_tokens: int = Field(default=6144, ge=512, le=16384)
+    # Đủ cho 3-5 ý mỗi lô khi dùng mã ngắn C01; output đo thực tế khoảng 300-700 token/ý.
+    llm_challenger_max_tokens: int = Field(default=4096, ge=512, le=16384)
     llm_scoring_max_tokens: int = Field(default=4096, ge=512, le=16384)
     llm_aux_max_tokens: int = Field(default=3072, ge=512, le=16384)
     llm_max_retries: int = Field(default=1, ge=0, le=3)
     byteplus_thinking: Literal["enabled", "disabled"] = "disabled"
     store_raw_llm_response: bool = False
     # Bật tâm trung bình để hỗ trợ vector định nghĩa mã; không dùng vector ý đại diện.
-    centroid_retrieval_enabled: bool = False
+    centroid_retrieval_enabled: bool = True
     centroid_drift_cosine_floor: float = Field(default=0.7, ge=-1.0, le=1.0)
     cluster_proposal_similarity_floor: float = Field(default=0.9, ge=0.0, le=1.0)
     cors_origins: str = "http://localhost:5173"

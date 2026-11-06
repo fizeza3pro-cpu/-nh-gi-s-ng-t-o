@@ -1029,10 +1029,19 @@ def get_mapping_reviews(
         .order_by(ResponseIdea.created_at, ResponseIdea.id)
         .limit(limit)
     ).all()
+    issue_counts: dict[str, int] = {}
+    for payload in db.scalars(
+        select(ResponseIdea.review_payload)
+        .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+        .where(ResponseModel.item_id == item_id, ResponseIdea.review_status == "PENDING")
+    ):
+        issue = str((payload or {}).get("issue_type") or "UNLABELED")
+        issue_counts[issue] = issue_counts.get(issue, 0) + 1
     return AdminMappingReviewList(
         item_id=item.id,
         item_name=item.name,
         pending_count=pending_count,
+        issue_counts=issue_counts,
         total_count=total_count,
         code_options=list_code_options(db, item_id),
         reviews=[

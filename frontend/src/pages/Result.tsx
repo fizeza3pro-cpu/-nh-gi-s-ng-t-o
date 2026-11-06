@@ -38,7 +38,7 @@ function ResultThinkingPanel({
     ? "Bài đã được lưu. Hãy kết nối lại để xem tiến độ; bạn không cần nộp lại bài."
     : loadingInitial
       ? "Hệ thống đang lấy trạng thái mới nhất của bài làm từ lịch sử."
-      : "Bài đã được lưu. AI đang xử lý các ý tưởng của bạn, kết quả sẽ tự động xuất hiện khi hoàn tất.";
+      : "Bài đã được lưu. AI đang xử lý các ý tưởng của bạn, kết quả sẽ tự động xuất hiện khi hoàn tất. Quá trình chấm có thể mất vài phút, bạn có thể thoát trang này và xem lại kết quả trong mục Lịch sử.";
 
   return (
     <div className="container grid min-h-[70vh] max-w-xl place-items-center py-12">

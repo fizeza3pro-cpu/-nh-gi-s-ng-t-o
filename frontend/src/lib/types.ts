@@ -400,6 +400,7 @@ export interface AdminMappingReviewList {
   item_name: string;
   pending_count: number;
   total_count: number;
+  issue_counts?: Record<string, number>;
   reviews: AdminMappingReviewIdea[];
   code_options: AdminCodeOption[];
 }

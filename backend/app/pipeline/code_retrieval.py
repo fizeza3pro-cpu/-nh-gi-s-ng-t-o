@@ -10,10 +10,10 @@ import json
 from openai import OpenAI
 
 from app.config import settings
-from app.pipeline.embedding import embed_texts, embedding_model, local_embedding
+from app.pipeline.embedding import embed_texts, embedding_model, local_embedding, response_embedding_text
 from app.schemas.schemas import FunctionalSignature, IdeaExtractionResult
 
-RETRIEVAL_PROFILE = "raw-fields-v1"
+RETRIEVAL_PROFILE = "raw-fields-v2"
 SIGNATURE_WEIGHTS = {"goal": 0.4, "object_role": 0.3, "mechanism": 0.3}
 _FIELD_LABELS = {"goal": "Mục đích", "object_role": "Vai trò của vật", "mechanism": "Cơ chế"}
 
@@ -111,7 +111,8 @@ def rank_code_candidates(
     if not valid_rows:
         return {}
 
-    queries = [{"text": idea.original, "functional_signature": idea.functional_signature.model_dump()}
+    queries = [{"text": response_embedding_text(idea.original, idea.object_used),
+                "functional_signature": idea.functional_signature.model_dump()}
                for _, idea in valid_rows]
     code_rows = [{**code, "text": code_definition_text(code)} for code in codes]
     _embed_representations([*queries, *code_rows], embedding_client)
@@ -154,6 +155,9 @@ def rank_code_candidates(
                 signature_similarity=similarities,
                 lexical_similarity=lexical,
                 definition_similarity=round(definition_similarity, 6),
+                text_similarity=round(_field_similarity(idea.original, " ".join([
+                    code_definition_text(code), *(code.get("positive_examples") or [])[:2]
+                ])), 6),
                 centroid_similarity=round(centroid_similarity, 6) if centroid_similarity is not None else None,
                 retrieval_profile=RETRIEVAL_PROFILE,
                 raw_weight=settings.retrieval_raw_weight,
@@ -167,7 +171,63 @@ def rank_code_candidates(
 
 def code_definition_text(code: dict) -> str:
     """Định nghĩa là điểm neo câu văn khi chưa có tâm câu gốc đủ điều kiện."""
-    return " ".join(str(code.get(key) or "").strip() for key in ("name", "description")).strip() or core_signature_text(code.get("functional_signature") or {})
+    text = " ".join(str(code.get(key) or "").strip() for key in ("name", "description")).strip() or core_signature_text(code.get("functional_signature") or {})
+    return response_embedding_text(text, code.get("item_name") or "")
+
+
+def select_diverse_candidates(rows: list[dict], limit: int, *, required_ids=()) -> list[dict]:
+    """Giữ mã được chọn và lấy ứng viên từ nhiều kênh; điểm chỉ quyết định thứ tự hiển thị."""
+    if limit <= 0:
+        return []
+    if settings.retrieval_rank_fusion_enabled:
+        return reciprocal_rank_candidates(rows, limit, required_ids=required_ids)
+    required = set(required_ids)
+    selected = {row["id"]: row for row in rows if row["id"] in required}
+    channels = [
+        sorted(rows, key=lambda row: (-float(row.get("retrieval_score") or 0), row["id"])),
+        sorted(rows, key=lambda row: (-float((row.get("signature_similarity") or {}).get("goal") or 0), row["id"])),
+        sorted(rows, key=lambda row: (-float(row.get("definition_similarity") or row.get("semantic_similarity") or 0), row["id"])),
+        sorted(rows, key=lambda row: (-float((row.get("signature_similarity") or {}).get("weighted") or 0), row["id"])),
+        sorted(rows, key=lambda row: (-float(row.get("text_similarity") or 0), row["id"])),
+    ]
+    # Không thêm một mã tùy ý theo ID khi kênh phụ không có tín hiệu.
+    channel_scores = [None, lambda row: (row.get("signature_similarity") or {}).get("goal"),
+                      lambda row: row.get("definition_similarity") or row.get("semantic_similarity"),
+                      lambda row: (row.get("signature_similarity") or {}).get("weighted"),
+                      lambda row: row.get("text_similarity")]
+    channels = [channel if score is None else [row for row in channel if float(score(row) or 0) > 0]
+                for channel, score in zip(channels, channel_scores)]
+    for position in range(len(rows)):
+        for channel in channels:
+            if len(selected) >= limit:
+                break
+            if position >= len(channel):
+                continue
+            row = channel[position]
+            selected.setdefault(row["id"], row)
+        if len(selected) >= limit:
+            break
+    return sorted(selected.values(), key=lambda row: (-float(row.get("retrieval_score") or 0), row["id"]))
+
+
+def reciprocal_rank_candidates(rows, limit, *, required_ids=()):
+    """Hợp nhất ba kênh, không đếm lại goal và tổng chức năng như hai phiếu độc lập."""
+    scores = {row["id"]: 0.0 for row in rows}
+    for score in (lambda row: row.get("semantic_similarity"),
+                  lambda row: (row.get("signature_similarity") or {}).get("weighted"),
+                  lambda row: row.get("text_similarity")):
+        ranked = sorted((row for row in rows if float(score(row) or 0) > 0),
+                        key=lambda row: (-float(score(row)), row["id"]))
+        for rank, row in enumerate(ranked, 1):
+            scores[row["id"]] += 1.0 / (60 + rank)
+    ordered = sorted(rows, key=lambda row: (-scores[row["id"]], row["id"]))
+    required = [row for row in ordered if row["id"] in set(required_ids)]
+    selected = {row["id"]: row for row in required[:limit]}
+    for row in ordered:
+        if len(selected) >= limit:
+            break
+        selected.setdefault(row["id"], row)
+    return [{**row, "fusion_score": scores[row["id"]]} for row in ordered if row["id"] in selected]
 
 
 def _representation_digest(row: dict) -> str:

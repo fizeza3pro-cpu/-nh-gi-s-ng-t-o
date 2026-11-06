@@ -16,6 +16,14 @@ from app.pipeline.embedding import embedding_model
 from scripts.rebuild_retrieval_vectors import rebuild_vectors
 
 
+def test_final_guard_allows_live_mapping_cache_but_freezes_score_basis():
+    from scripts.rebuild_retrieval_vectors import _row_digest
+    row = {"id": "r", "mapping": {"current_code": "old"}, "scoring_meta": {"mapping_snapshot": "frozen"},
+           "scoring": {"score": 1}, "scored_at": "same"}
+    assert _row_digest(row) == _row_digest({**row, "mapping": {"current_code": "merged"}})
+    assert _row_digest(row) != _row_digest({**row, "scoring_meta": {"mapping_snapshot": "changed"}})
+
+
 def test_additive_migration_preserves_existing_rows(monkeypatch):
     path = Path(__file__).parents[1] / "alembic/versions/c2f4a6b8d013_add_signature_embeddings.py"
     spec = importlib.util.spec_from_file_location("retrieval_migration", path)
@@ -67,6 +75,13 @@ def test_backfill_only_updates_vectors_and_requires_new_backup(monkeypatch, tmp_
         code = db.get(ItemCode, "c")
         assert code.centroid_model == embedding_model(None) and code.centroid_count == 1
         assert code.signature_embeddings["goal"]
+    # Dựng tâm từ cache là thao tác cục bộ; tuyệt đối không tạo embedding mới.
     import pytest
+    monkeypatch.setattr("scripts.rebuild_retrieval_vectors.embed_texts",
+                        lambda *a, **kw: pytest.fail("Không gọi provider khi chỉ dựng tâm"))
+    monkeypatch.setattr("scripts.rebuild_retrieval_vectors.prepare_code_embeddings",
+                        lambda *a, **kw: pytest.fail("Không đổi embedding code khi chỉ dựng tâm"))
+    refreshed = rebuild_vectors(factory, apply=True, centroids_only=True, backup_path=tmp_path / "centroids.json")
+    assert refreshed["centroids_updated"] == 1 and refreshed["final_unchanged"]
     with pytest.raises(FileExistsError):
         rebuild_vectors(factory, apply=True, backup_path=backup)

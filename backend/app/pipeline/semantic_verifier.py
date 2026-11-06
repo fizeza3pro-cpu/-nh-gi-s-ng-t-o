@@ -1,11 +1,12 @@
-"""Phân xử cặp ngắn chỉ cho quyết định yếu; không gửi cả bài để tránh lẫn dòng."""
+"""Phân xử cặp ngắn cho audit codebook nền; không gửi cả bài để tránh lẫn dòng."""
 import hashlib
 import json
 from pathlib import Path
 
 from app.config import settings
+from app.pipeline.adjudication import grounded_evidence
 from app.pipeline.llm import chat_json, LLMJSONError
-from app.schemas.schemas import PairVerdict, CuratorDecision
+from app.schemas.schemas import PairVerdict
 
 _TEMPLATE = (Path(__file__).parent / "prompts/pair_verifier.txt").read_text(encoding="utf-8")
 
@@ -24,29 +25,10 @@ def verify_pair(item, original: str, code: dict, client):
         verdict = PairVerdict.model_validate(data)
     except ValueError as exc:
         raise LLMJSONError("Phân xử cặp sai contract.", metadata=meta) from exc
-    if verdict.source_text != original or not verdict.evidence.strip() or verdict.evidence.casefold() not in original.casefold():
+    evidence = grounded_evidence(verdict.evidence, original)
+    if (verdict.source_text and verdict.source_text != original) or evidence is None:
         raise LLMJSONError("Phân xử cặp không giữ đúng câu và bằng chứng nguồn.", metadata=meta)
+    verdict = verdict.model_copy(update={"source_text": original, "evidence": evidence})
     meta["source_digest"] = hashlib.sha256(original.encode()).hexdigest()
     meta["verdict"] = verdict.model_dump()
     return verdict, meta
-
-
-def propose_scope(item, original, code, client):
-    """Đề xuất sửa mã hẹp; worker còn phải kiểm chứng mọi member trước khi áp dụng."""
-    prompt = (Path(__file__).parent / "prompts/scope_expansion.txt").read_text(encoding="utf-8").format(
-        item_name=item.name, item_description=item.description, source_json=json.dumps(original, ensure_ascii=False),
-        code_json=json.dumps({key: code.get(key) for key in (
-            "id", "name", "description", "functional_signature", "inclusion_rules", "exclusion_rules", "positive_examples")}, ensure_ascii=False))
-    data, meta = chat_json(client, model=settings.active_challenger_model,
-        temperature=settings.code_curator_temperature, prompt=prompt, provider=settings.llm_provider,
-        reasoning_effort=settings.active_reasoning_effort, max_tokens=settings.max_tokens_for("scope_proposal", 1),
-        max_retries=settings.llm_max_retries, stage="scope_proposal")
-    try:
-        decision = CuratorDecision.model_validate(data)
-    except ValueError as exc:
-        raise LLMJSONError("Đề xuất phạm vi sai contract.", metadata=meta) from exc
-    if decision.source_text != original or decision.existing_code_id != code["id"]:
-        raise LLMJSONError("Đề xuất scope lệch nguồn hoặc code đích.", metadata=meta)
-    return decision.model_copy(update={"decision": "EXPAND_EXISTING", "code_relation": "IDEA_BROADER_THAN_CODE",
-        "absorbed_code_ids": [], "reviewed_by_challenger": True,
-        "existing_code_evaluations": [{"code_id": code["id"], "relation": "IDEA_BROADER_THAN_CODE"}]}), meta
