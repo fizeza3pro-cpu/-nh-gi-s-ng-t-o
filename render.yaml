@@ -2,10 +2,14 @@ services:
   - type: web
     name: aut-backend
     runtime: python
+    # Gói Free: không hỗ trợ preDeployCommand và ngủ sau ~15 phút không truy cập (worker dừng theo).
+    # Khi thu khảo sát thật nên chuyển plan: starter để worker chấm liên tục.
+    plan: free
     rootDir: backend
     buildCommand: pip install uv && uv sync --no-dev
-    preDeployCommand: uv run python -m scripts.prepare_database
-    startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # Chuẩn bị DB trước khi khởi động: DB có version thì upgrade (không đổi gì nếu đã ở head),
+    # DB trống thì tạo schema; DB có bảng nhưng không version thì dừng để tránh stamp nhầm.
+    startCommand: uv run python -m scripts.prepare_database && uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: APP_ENV
         value: production

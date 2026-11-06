@@ -257,7 +257,7 @@ Chuẩn bị DB từ thư mục `backend`:
 uv run python -m scripts.prepare_database
 ```
 
-Script chỉ tạo schema hiện hành, 12 đồ vật mặc định và stamp head khi DB hoàn toàn trống. DB đã có Alembic version chạy upgrade; DB có bảng nhưng chưa có version bị từ chối để tránh stamp nhầm. Không tạo tài khoản admin mặc định. Render dùng script này trong `preDeployCommand`; nếu gói hosting không hỗ trợ pre-deploy, chạy bước này từ quy trình phát hành trước khi khởi động app. Sao lưu và kiểm tra revision trước khi nâng DB cũ: lịch sử migration có các bước reset dữ liệu có chủ đích.
+Script chỉ tạo schema hiện hành, 12 đồ vật mặc định và stamp head khi DB hoàn toàn trống. DB đã có Alembic version chạy upgrade; DB có bảng nhưng chưa có version bị từ chối để tránh stamp nhầm. Không tạo tài khoản admin mặc định. Render đang dùng gói Free (không hỗ trợ `preDeployCommand`), nên `startCommand` chạy script này trước uvicorn mỗi lần khởi động; script an toàn khi chạy lặp lại. Gói Free ngủ sau khoảng 15 phút không truy cập và worker dừng theo; khi thu khảo sát thật nên chuyển `plan: starter` và có thể đưa script về `preDeployCommand`. Sao lưu và kiểm tra revision trước khi nâng DB cũ: lịch sử migration có các bước reset dữ liệu có chủ đích.
 
 Giới hạn tải: `LOGIN_REQUESTS_PER_MINUTE=20`, `PUBLIC_REQUESTS_PER_MINUTE=120` theo IP/mỗi tiến trình; `MAX_PENDING_RESPONSES_PER_PARTICIPANT=3` dùng khóa DB. Có thể điều chỉnh theo quy mô khảo sát chung mạng. Lớp IP limiter không dùng chung giữa replica, reset khi restart; với nhiều replica cần giới hạn chung ở gateway/WAF. Chỉ cấu hình tin proxy đã xác định; không tin tùy ý X-Forwarded-For từ Internet.
 
