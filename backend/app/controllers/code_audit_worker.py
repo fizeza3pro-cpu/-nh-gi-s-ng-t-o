@@ -76,6 +76,9 @@ def run_one_audit():
     """Tối đa một cặp mỗi bước; gọi LLM ngoài khóa và chỉ đổi mã sau audit toàn member."""
     if settings.mock_mode or not settings.auto_code_audit_enabled:
         return False
+    from app.pipeline.model_pool import has_capacity
+    if not has_capacity():
+        return False
     job = _claim()
     if job is None:
         return False

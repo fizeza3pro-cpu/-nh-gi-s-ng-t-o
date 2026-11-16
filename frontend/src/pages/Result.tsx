@@ -21,11 +21,13 @@ type ResultNavigationState = {
 function ResultThinkingPanel({
   loadingInitial = false,
   pollError = false,
+  waitingModel = false,
   showAnimation,
   onRetry,
 }: {
   loadingInitial?: boolean;
   pollError?: boolean;
+  waitingModel?: boolean;
   showAnimation: boolean;
   onRetry?: () => void;
 }) {
@@ -33,12 +35,13 @@ function ResultThinkingPanel({
     ? "Chưa kết nối được với hệ thống"
     : loadingInitial
       ? "Đang mở lại kết quả"
-      : "AI đang phân tích bài làm";
+      : waitingModel ? "Bài làm đang chờ xử lý" : "AI đang phân tích bài làm";
   const description = pollError
     ? "Bài đã được lưu. Hãy kết nối lại để xem tiến độ; bạn không cần nộp lại bài."
     : loadingInitial
       ? "Hệ thống đang lấy trạng thái mới nhất của bài làm từ lịch sử."
-      : "Bài đã được lưu. AI đang xử lý các ý tưởng của bạn, kết quả sẽ tự động xuất hiện khi hoàn tất. Quá trình chấm có thể mất vài phút, bạn có thể thoát trang này và xem lại kết quả trong mục Lịch sử.";
+      : waitingModel ? "Bài đã được lưu. Hệ thống đang chờ model khả dụng để tiếp tục; bạn không cần nộp lại. Bạn có thể xem tiến độ trong mục Lịch sử."
+        : "Bài đã được lưu. AI đang xử lý các ý tưởng của bạn, kết quả sẽ tự động xuất hiện khi hoàn tất. Quá trình chấm có thể mất vài phút, bạn có thể thoát trang này và xem lại kết quả trong mục Lịch sử.";
 
   return (
     <div className="container grid min-h-[70vh] max-w-xl place-items-center py-12">
@@ -130,7 +133,7 @@ export default function Result() {
             setResp(data);
             setLoading(false);
             if (responseNeedsProcessing(data)) {
-              delay = Math.min(delay * 1.4, 10000);
+              delay = data.result_state === "WAITING_MODEL" ? 15000 : Math.min(delay * 1.4, 10000);
               timer = setTimeout(poll, delay);
             }
           }
@@ -232,7 +235,8 @@ export default function Result() {
     return (
       <ResultThinkingPanel
         pollError={pollError}
-        showAnimation={openedFromHistory}
+        waitingModel={resp.result_state === "WAITING_MODEL"}
+        showAnimation={openedFromHistory && resp.result_state !== "WAITING_MODEL"}
         onRetry={() => setPollAttempt((value) => value + 1)}
       />
     );

@@ -11,6 +11,7 @@ import {
   Layers,
   LogOut,
   Menu,
+  Cpu,
   Search,
   Send,
   Settings,
@@ -54,6 +55,7 @@ const SECTIONS: NavSection[] = [
   {
     label: "Quản trị",
     items: [
+      { to: "/admin/models", label: "Model", icon: Cpu },
       { label: "Quản trị viên", icon: ShieldCheck, disabled: true },
       { label: "Cài đặt hệ thống", icon: Settings, disabled: true },
       { label: "Nhật ký hoạt động", icon: History, disabled: true },

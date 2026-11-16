@@ -199,7 +199,7 @@ class ScoreRequest(BaseModel):
 
 
 class ScoreResponse(BaseModel):
-    result_state: Literal["QUEUED", "MAPPING", "RESOLVING", "SCORING", "COLLECTING", "REVIEW", "FINAL", "EXCLUDED", "FAILED"] = "COLLECTING"
+    result_state: Literal["QUEUED", "MAPPING", "RESOLVING", "SCORING", "WAITING_MODEL", "COLLECTING", "REVIEW", "FINAL", "EXCLUDED", "FAILED"] = "COLLECTING"
     needs_processing: bool = False
     response_id: str
     item: Item

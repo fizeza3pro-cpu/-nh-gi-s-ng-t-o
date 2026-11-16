@@ -5,6 +5,22 @@ cần **mở 2 cửa sổ terminal**.
 
 ---
 
+## Quản lý 5 model BytePlus
+
+Tab **Model** tại `/admin/models` lưu tên/ID, thứ tự ưu tiên và nhóm quota trong PostgreSQL. API key vẫn dùng chung qua `BYTEPLUS_API_KEY`; không nhập key vào giao diện. `BYTEPLUS_MODEL` chỉ được nhập vào vị trí đầu tiên một lần, không ghi đè khai báo khi restart/deploy. Khi bật quản lý, mọi lượt chat BytePlus dùng danh sách này, gồm Curator/Challenger, retry, scoring, nhận xét và audit nền; các biến override model cũ không điều khiển lựa chọn trong pool. Embedding giữ nguyên.
+
+Trước khi sử dụng, áp dụng migration **`c5b7d9e1f236`** theo quy trình DB, kiểm tra revision và sao lưu trước khi nâng cấp DB có dữ liệu. Migration chỉ thêm năm bảng quản lý model; không sửa bảng khảo sát. Khi chưa có migration hoặc chưa bật quản lý, backend tiếp tục dùng cấu hình cũ. Chế độ mock không gọi model hay trừ token.
+
+1. Lưu Model ID/Endpoint ID ở trạng thái tắt. Vị trí 1–5 cũng là thứ tự ưu tiên.
+2. Đối chiếu console BytePlus, nhập số token còn lại và ghi chú. Không mặc định model đang dùng còn đủ 500.000 token. Endpoint chung model gốc phải dùng chung nhóm quota.
+3. Bật từng model cần dùng, sau đó bật quản lý và tự động chuyển. Ngưỡng mặc định là 10.000 token.
+
+Số dư là **ước tính cục bộ**, không phải số dư lấy trực tiếp từ BytePlus. Mỗi request giữ chỗ dự phòng theo số byte UTF-8 của input và output tối đa, nên có thể chuyển sớm. Sau phản hồi, sổ trừ `usage.total_tokens`, kể cả JSON lỗi/retry; không cộng lại cached/reasoning token đã nằm trong tổng. Nhiều worker/replica cùng khóa hàng cấu hình trong DB. Usage không rõ hoặc lease hết hạn được giữ dự phòng đến khi admin đối chiếu, không mặc định là 0.
+
+`SetLimitExceeded` đánh dấu nhóm hết quota và chọn model tiếp theo; lỗi tốc độ dùng retry cũ. Lỗi chung API key/tài khoản dừng pool để admin kiểm tra. Khi không còn model phù hợp, bài giữ trong hàng đợi với trạng thái chờ model, không tiêu lượt retry kỹ thuật. Các lượt scoring lấy đa số giữ cùng model; nếu hết quota giữa chừng thì chạy lại nhóm chưa chốt, token đã tiêu vẫn nằm trong sổ. Nhận xét lỗi dùng bản nhận xét dự phòng. Bài FINAL không bị chấm lại.
+
+Mọi điều chỉnh số dư có nhật ký. Khi tắt quản lý, sổ không theo dõi các lời gọi theo cấu hình cũ; cần đối chiếu lại trước khi bật. Các lời gọi ngoài ứng dụng cũng cần đối chiếu thủ công. API tra cứu usage trực tiếp của BytePlus cần Access Key quản trị riêng; bản này không dùng thêm credential hoặc tự bật trả phí.
+
 ## Bước 0 — Cài công cụ (chỉ làm 1 lần)
 
 Kiểm tra máy đã có sẵn chưa — mở terminal (PowerShell hoặc CMD) và gõ:

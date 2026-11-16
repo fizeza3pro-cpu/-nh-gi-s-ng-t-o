@@ -190,7 +190,7 @@ def _summary(per_idea_scores: list[PerIdeaScore]) -> str:
     return f"{observation}\n\nBạn có thể thử: {suggestion}"
 
 
-def run_scoring(
+def _run_scoring(
     item: Item,
     fluency: int,
     flexibility: int,
@@ -288,7 +288,7 @@ def run_scoring(
     )
     meta = {
         "provider": settings.llm_provider,
-        "model": settings.active_llm_model,
+        "model": metas[0].get("model", settings.active_llm_model),
         "temperature": settings.scoring_temperature,
         "runs": n_runs,
         "successful_runs": len(metas),
@@ -308,3 +308,25 @@ def run_scoring(
         "note": "Mọi chỉ số do công thức tính. LLM trích bằng chứng Elaboration và viết nhận xét định tính riêng sau khi chấm.",
     }
     return result, meta
+
+
+def run_scoring(item, fluency, flexibility, flexibility_codes, per_idea_originality, client, runs=None):
+    """Giữ cùng model cho đa số scoring; model hết quota thì chạy lại cả nhóm chưa chốt."""
+    from app.pipeline.model_pool import scoring_group
+    from app.pipeline.pool_errors import ModelPoolChanged, ModelPoolWait
+    if not per_idea_originality:
+        return _run_scoring(item, fluency, flexibility, flexibility_codes, per_idea_originality, client, runs)
+    payload = [{"idea_id": p.idea_id, "original": p.original, "normalized": p.normalized, "code": p.code}
+               for p in per_idea_originality]
+    excluded, discarded = set(), []
+    for _ in range(5):
+        try:
+            with scoring_group(build_prompt(item, payload), settings.max_tokens_for("scoring"),
+                               max(1, runs if runs is not None else settings.scoring_runs), excluded=excluded):
+                result, meta = _run_scoring(item, fluency, flexibility, flexibility_codes, per_idea_originality, client, runs)
+                meta["discarded_model_groups"] = discarded
+                return result, meta
+        except ModelPoolChanged as exc:
+            excluded.add(exc.slot)
+            discarded.append({"slot": exc.slot, "reason": "MODEL_CHANGED", "usage_source": "model_token_requests"})
+    raise ModelPoolWait()

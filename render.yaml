@@ -22,7 +22,10 @@ services:
       - key: BYTEPLUS_BASE_URL
         value: https://ark.ap-southeast.bytepluses.com/api/v3
       - key: BYTEPLUS_MODEL
+        # Chỉ dùng để khởi tạo vị trí đầu tiên; danh sách vận hành nằm trong tab Model.
         value: deepseek-v4-1-flash-economy-261017
+      - key: BYTEPLUS_MODEL_POOL_AVAILABLE
+        value: "true"
       - key: BYTEPLUS_REASONING_EFFORT
         value: minimal
       - key: GROQ_API_KEY

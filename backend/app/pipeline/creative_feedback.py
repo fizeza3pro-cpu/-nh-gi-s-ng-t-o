@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 from app.config import settings
 from app.pipeline.llm import chat_json, LLMJSONError
+from app.pipeline.pool_errors import ModelPoolChanged, ModelPoolWait
 
 
 _TEMPLATE_PATH = Path(__file__).parent / "prompts/creative_feedback.txt"
@@ -72,7 +73,7 @@ def generate_creative_feedback(item, scores, client, *, fallback):
         paragraphs.append(f"Bạn có thể thử: {feedback.suggestion.strip()}")
         return "\n\n".join(paragraphs), {**meta, "status": "GENERATED", "feedback": feedback.model_dump(),
                                        "depends_on_frequency": False, "feedback_contract": "grounded-directions-v2"}
-    except (LLMJSONError, ValueError, TypeError, OSError) as exc:
+    except (LLMJSONError, ModelPoolChanged, ModelPoolWait, ValueError, TypeError, OSError) as exc:
         failure = getattr(exc, "metadata", None) or meta
         reason = str(exc) if isinstance(exc, ValueError) and str(exc).startswith("feedback_") else type(exc).__name__
         return fallback, {**failure, "status": "FALLBACK", "error_type": type(exc).__name__, "fallback_reason": reason}

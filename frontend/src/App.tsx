@@ -10,6 +10,7 @@ import AdminParticipants from "@/pages/AdminParticipants";
 import AdminParticipantDetail from "@/pages/AdminParticipantDetail";
 import AdminCodebooks from "@/pages/AdminCodebooks";
 import AdminReports from "@/pages/AdminReports";
+import AdminModels from "@/pages/AdminModels";
 import Login from "./components/auth/Login";
 import AdminRoute from "./components/auth/AdminRoute";
 
@@ -78,6 +79,7 @@ export default function App() {
           <Route element={<AdminRoute />}>
             <Route path="/admin" element={<AdminOverview />} />
             <Route path="/admin/reports" element={<AdminReports />} />
+            <Route path="/admin/models" element={<AdminModels />} />
             <Route path="/admin/participants" element={<AdminParticipants />} />
             <Route path="/admin/participants/:participantId" element={<AdminParticipantDetail />} />
             <Route path="/admin/responses/:responseId" element={<Result />} />

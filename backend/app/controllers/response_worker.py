@@ -494,6 +494,21 @@ def _run_scoring(response_id: str, token: str) -> None:
 
 def _record_failure(response_id: str, token: str, kind: str, error: Exception) -> None:
     """Không lưu nội dung exception vì provider có thể lặp lại câu trả lời cá nhân."""
+    from app.pipeline.pool_errors import ModelPoolWait
+    if isinstance(error, ModelPoolWait):
+        with SessionLocal() as db:
+            row = db.scalar(select(Response).where(Response.id == response_id).with_for_update())
+            if row is None or row.processing_claim_token != token:
+                return
+            row.processing_state = "QUEUED" if kind == "mapping" else "DONE"
+            row.processing_attempts = max(0, row.processing_attempts - 1)
+            row.processing_error = "MODEL_POOL_WAIT"
+            row.processing_claim_token = None
+            row.processing_lease_until = _now() + timedelta(seconds=60)
+            db.add(PipelineAudit(item_id=row.item_id, response_id=row.id, event="MODEL_POOL_WAIT",
+                                 payload={"kind": kind, **error.metadata}))
+            db.commit()
+        return
     logger.exception("Xử lý %s thất bại cho response %s", kind, response_id)
     with SessionLocal() as db:
         row = db.scalar(select(Response).where(Response.id == response_id).with_for_update())
@@ -556,6 +571,9 @@ def _expire_exhausted() -> bool:
 
 def run_one_job(*, prefer_scoring: bool = False) -> bool:
     """Một bước của worker; trả False khi không có việc."""
+    from app.pipeline.model_pool import has_capacity, response_context
+    if not has_capacity():
+        return _recount_one_item() or _refresh_one_centroid()
     # Luân phiên ưu tiên để dòng bài mới không làm các bài đã mapping chờ điểm mãi.
     if prefer_scoring:
         _recount_one_item()
@@ -577,10 +595,11 @@ def run_one_job(*, prefer_scoring: bool = False) -> bool:
     )
     heartbeat.start()
     try:
-        if kind in {"mapping", "resolution"}:
-            _run_mapping(response_id, token, resolving=kind == "resolution")
-        else:
-            _run_scoring(response_id, token)
+        with response_context(response_id):
+            if kind in {"mapping", "resolution"}:
+                _run_mapping(response_id, token, resolving=kind == "resolution")
+            else:
+                _run_scoring(response_id, token)
     except Exception as error:  # noqa: BLE001 - retry có giới hạn và audit trạng thái
         _record_failure(response_id, token, kind, error)
     finally:

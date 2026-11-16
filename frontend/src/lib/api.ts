@@ -19,6 +19,7 @@ import type {
   User,
 } from "@/lib/types";
 import type { AdminResearchReport } from "@/lib/report-types";
+import type { ModelConfiguration, ModelPoolSnapshot } from "@/lib/model-types";
 
 const BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 const TOKEN_KEY = "aut:token";
@@ -268,6 +269,20 @@ export const api = {
     }).then(handle<ResponseSummary[]>),
 
   // --- Admin (cần role admin, backend tự chặn 403 nếu không đủ quyền) ---
+  adminModels: () => fetch(`${BASE}/admin/models`, { headers: authHeaders() }).then(handle<ModelPoolSnapshot>),
+
+  adminModelSettings: (expectedRevision: number, options: { enabled: boolean; auto_switch: boolean; threshold: number }) =>
+    fetch(`${BASE}/admin/models/settings`, { method: "PATCH", headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ expected_revision: expectedRevision, ...options }) }).then(handle<ModelPoolSnapshot>),
+
+  adminSaveModel: (slot: number, expectedRevision: number, model: ModelConfiguration) =>
+    fetch(`${BASE}/admin/models/${slot}`, { method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ expected_revision: expectedRevision, ...model }) }).then(handle<ModelPoolSnapshot>),
+
+  adminModelBalance: (slot: number, expectedRevision: number, balance: { remaining_tokens: number; quota_limit: number; note: string }) =>
+    fetch(`${BASE}/admin/models/${slot}/balance`, { method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ expected_revision: expectedRevision, ...balance }) }).then(handle<ModelPoolSnapshot>),
+
   adminSetSurveyVisibility: (itemId: string, visible: boolean) =>
     fetch(`${BASE}/admin/items/${encodeURIComponent(itemId)}/survey-visibility`, {
       method: "PATCH",

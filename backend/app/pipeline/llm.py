@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from openai import OpenAI
+from app.pipeline.pool_errors import ModelPoolChanged, ModelPoolWait
 
 
 class LLMJSONError(RuntimeError):
@@ -38,6 +39,7 @@ def quota_exhausted(error: Exception) -> bool:
         "insufficient credit", "credit balance", "quota exhausted",
         "exceeded your current quota", "billing hard limit", "billing_hard_limit",
         "arrearage", "accountoverdue", "account overdue", "balance is not enough",
+        "setlimitexceeded",
     ))
 
 
@@ -184,7 +186,7 @@ def collect_llm_calls(value: Any) -> list[dict[str, Any]]:
                     identity = (node.get("call_id") or detail.get("response_id") or
                                 f"{node.get('prompt_hash')}:{node.get('stage')}:{node.get('response_id')}")
                     key = f"{identity}:{index}"
-                    calls.setdefault(key, {"id": key, "stage": node["stage"], "model": node.get("model"),
+                    calls.setdefault(key, {"id": key, "stage": node["stage"], "model": detail.get("model") or node.get("model"),
                         "usage": detail.get("usage") or {}, "usage_known": detail.get("usage_known", bool((detail.get("usage") or {}).get("total_tokens"))),
                         "latency_ms": detail.get("latency_ms"), "status": detail.get("status"),
                         "finish_reason": detail.get("finish_reason"),
@@ -232,6 +234,7 @@ def chat_json(
         attempt_started_at = time.perf_counter()
         request_started_at = attempt_started_at
         completion = None
+        dispatch_meta = {"model": model}
         try:
             request = {
                 "model": model,
@@ -253,9 +256,13 @@ def chat_json(
             while True:
                 request_started_at = time.perf_counter()
                 try:
-                    completion = client.chat.completions.create(**request)
+                    from app.pipeline.model_pool import complete
+                    completion, dispatch_meta = complete(client, request, provider=provider, stage=stage, call_id=call_id)
                     break
                 except Exception as err:  # noqa: BLE001 - fallback tương thích từng model
+                    if isinstance(err, (ModelPoolWait, ModelPoolChanged)):
+                        raise
+                    dispatch_meta = getattr(err, "pool_metadata", None) or dispatch_meta
                     fallback = None
                     if "response_format" in request and _response_format_is_unsupported(err):
                         use_json_mode = False
@@ -278,11 +285,13 @@ def chat_json(
                     attempt_details.append({"attempt": len(attempt_details) + 1,
                         "latency_ms": round((time.perf_counter() - request_started_at) * 1000, 2),
                         "status": "REQUEST_FALLBACK", "error_type": type(err).__name__,
-                        "fallback": fallback, "usage": _usage_values(None), "usage_known": False})
+                        "fallback": fallback, "usage": _usage_values(None), "usage_known": False,
+                        **dispatch_meta})
             choice = completion.choices[0]
             content = choice.message.content or ""
             finish_reason = getattr(choice, "finish_reason", None)
             attempt_meta = {
+                **dispatch_meta,
                 "attempt": len(attempt_details) + 1,
                 "response_id": getattr(completion, "id", None),
                 "latency_ms": round((time.perf_counter() - request_started_at) * 1000, 2),
@@ -306,7 +315,8 @@ def chat_json(
                 "prompt_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
                 "stage": stage,
                 "provider": provider,
-                "model": model,
+                "model": dispatch_meta["model"],
+                "requested_model": model,
                 "temperature": temperature,
                 "effective_temperature": effective_temperature,
                 "response_id": completion.id,
@@ -318,7 +328,7 @@ def chat_json(
                 "response_chars": len(content),
                 "json_mode": use_json_mode,
                 "reasoning_effort": request.get("reasoning_effort"),
-                "thinking_type": thinking_type,
+                "thinking_type": dispatch_meta.get("thinking_type", thinking_type),
                 "max_tokens": effective_max_tokens,
                 "configured_max_tokens": max_tokens,
                 "finish_reason": finish_reason,
@@ -328,6 +338,8 @@ def chat_json(
                 meta["raw_response"] = content
             return data, meta
         except Exception as err:  # noqa: BLE001 - cần retry cả lỗi mạng lẫn JSON
+            if isinstance(err, (ModelPoolWait, ModelPoolChanged)):
+                raise
             last_err = err
             if completion is None:
                 attempt_details.append(
@@ -340,6 +352,7 @@ def chat_json(
                         "error_type": type(err).__name__,
                         "usage": _usage_values(None),
                         "usage_known": False,
+                        **dispatch_meta,
                     }
                 )
             output_was_truncated = (
@@ -375,7 +388,8 @@ def chat_json(
             "prompt_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "stage": stage,
             "provider": provider,
-            "model": model,
+            "model": dispatch_meta["model"],
+            "requested_model": model,
             "attempts": attempts_made,
             "attempt_details": attempt_details,
             "usage": aggregate_usage(attempt_details),

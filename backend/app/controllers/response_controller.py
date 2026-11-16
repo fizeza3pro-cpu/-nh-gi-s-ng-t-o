@@ -53,9 +53,13 @@ def _to_response(row: ResponseModel) -> ScoreResponse:
         result_state = "REVIEW"
     else:
         result_state = "COLLECTING"
+    if result_state in {"QUEUED", "MAPPING", "RESOLVING", "SCORING"}:
+        from app.pipeline.model_pool import has_capacity
+        if row.processing_error == "MODEL_POOL_WAIT" or (row.processing_state in {"QUEUED", "DONE"} and not has_capacity()):
+            result_state = "WAITING_MODEL"
     return ScoreResponse(
         result_state=result_state,
-        needs_processing=result_state in {"QUEUED", "MAPPING", "RESOLVING", "SCORING"},
+        needs_processing=result_state in {"QUEUED", "MAPPING", "RESOLVING", "SCORING", "WAITING_MODEL"},
         response_id=row.id,
         item=Item(id=row.item.id, name=row.item.name, description=row.item.description),
         raw_input=row.raw_input,
@@ -70,6 +74,9 @@ def _to_response(row: ResponseModel) -> ScoreResponse:
         processing_state=row.processing_state,
         resolution_pending=resolving,
         status_message=(
+            "Bài đã lưu; hệ thống đang chờ model khả dụng để tiếp tục xử lý. Bạn không cần nộp lại."
+            if result_state == "WAITING_MODEL"
+            else
             "Bài đã được lưu; hệ thống đang chấm. Bạn có thể đóng trang và xem lại trong lịch sử."
             if row.processing_state in {"QUEUED", "RUNNING", "SCORING"}
             else "Bài đã lưu nhưng xử lý chưa thành công. Vui lòng liên hệ quản trị viên để thử lại."

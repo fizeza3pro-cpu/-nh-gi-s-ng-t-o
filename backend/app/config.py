@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     byteplus_model: str = "deepseek-v4-1-flash-economy-261017"
     byteplus_code_curator_model: str | None = None
     byteplus_challenger_model: str | None = None
+    # Cho phép module quản lý; công tắc vận hành và năm model được lưu trong DB.
+    byteplus_model_pool_available: bool = True
     # Mức reasoning chỉ là một tham số; DeepSeek v4 cần thêm byteplus_thinking
     # để bật/tắt reasoning rõ ràng, tránh chiếm ngân sách output JSON.
     byteplus_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "minimal"

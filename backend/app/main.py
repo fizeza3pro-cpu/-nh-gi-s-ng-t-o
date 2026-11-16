@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import admin, auth, items, participants, responses
+from app.routers import model_pool
 from app.controllers.response_worker import start_workers
 
 
@@ -37,6 +38,7 @@ app.include_router(items.router)
 app.include_router(participants.router)
 app.include_router(responses.router)
 app.include_router(admin.router)
+app.include_router(model_pool.router)
 
 
 @app.get("/api/health")

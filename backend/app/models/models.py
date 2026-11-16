@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.models.model_pool import ModelPoolSettings, ModelQuota, ManagedModel, ModelTokenRequest, ModelPoolEvent  # noqa: F401
 import enum
 from sqlalchemy import Enum as SAEnum
 

@@ -16,6 +16,9 @@ from app.controllers import participant_controller, response_controller
 from app.models.models import Item, Participant, Response
 from app.schemas.schemas import ParticipantCreate, ScoreRequest
 from scripts.prepare_database import prepare_database
+from app.pipeline import model_pool
+from app.pipeline.pool_errors import ModelPoolWait
+from app.models.model_pool import ManagedModel, ModelPoolSettings, ModelQuota
 
 
 @pytest.fixture()
@@ -83,3 +86,42 @@ def test_simultaneous_profile_creation_has_no_server_error(pg_engine):
     assert sum(bool(token) for _, token in results) == 1
     with Session(pg_engine) as db:
         assert db.scalar(select(func.count(Participant.id))) == 1
+
+
+def test_model_reservations_are_serialized_by_postgres_without_process_lock(pg_engine, monkeypatch):
+    """Bỏ khóa Python để chứng minh khóa hàng DB bảo vệ nhiều tiến trình/replica."""
+    class NoProcessLock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(model_pool, "SessionLocal", lambda: Session(pg_engine))
+    monkeypatch.setattr(model_pool, "_local_lock", NoProcessLock())
+    monkeypatch.setattr(settings, "mock_mode", False)
+    monkeypatch.setattr(settings, "byteplus_model_pool_available", True)
+    request = {"messages": [{"role": "user", "content": "test"}], "max_tokens": 1024}
+    budget = model_pool.estimate_tokens(request)
+    with Session(pg_engine) as db:
+        config = model_pool.initialize(db)
+        model = db.get(ManagedModel, 1)
+        quota = db.get(ModelQuota, model.quota_id)
+        quota.confirmed_remaining = config.threshold + budget
+        model.enabled = True
+        config.enabled = True
+        db.commit()
+    barrier = Barrier(2)
+
+    def reserve():
+        barrier.wait(timeout=5)
+        try:
+            return model_pool.reserve(request, "scoring", str(uuid.uuid4()))
+        except ModelPoolWait:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: reserve(), range(2)))
+    assert sum(row is not None for row in results) == 1
+    with Session(pg_engine) as db:
+        assert db.scalar(select(ModelQuota.reserved_tokens)) == budget
