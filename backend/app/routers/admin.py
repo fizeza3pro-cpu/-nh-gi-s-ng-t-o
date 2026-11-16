@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.controllers import admin_controller, participant_controller, analysis_export, research_report_controller
+from app.controllers import item_controller
 from app.core.deps import require_admin
 from app.db import get_db
 from app.models.models import User as UserModel
@@ -23,6 +24,8 @@ from app.schemas.schemas import (
     AdminParticipantSummary,
     ScoreResponse,
     ParticipantIdentityOut,
+    Item,
+    ItemVisibilityUpdate,
 )
 
 router = APIRouter(
@@ -33,6 +36,13 @@ router = APIRouter(
 @router.get("/dashboard", response_model=AdminDashboardStats)
 def dashboard(db: Session = Depends(get_db)) -> AdminDashboardStats:
     return admin_controller.get_dashboard_stats(db)
+
+
+@router.patch("/items/{item_id}/survey-visibility", response_model=Item)
+def update_survey_visibility(
+    item_id: str, payload: ItemVisibilityUpdate, db: Session = Depends(get_db)
+) -> Item:
+    return item_controller.update_survey_visibility(db, item_id, payload.survey_visible)
 
 
 @router.get("/reports/research", response_model=AdminResearchReport)

@@ -128,10 +128,11 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         # Biểu mẫu một bước đồng thời là nơi người tham gia xác nhận lại hồ sơ.
         _guard_research_group(db, existing, payload.ai_usage_group)
         existing.email = payload.email
-        existing.full_name = payload.full_name
-        existing.age = payload.age
-        existing.gender = payload.gender
-        existing.occupation = payload.occupation
+        # Biểu mẫu rút gọn không ghi đè thông tin đã thu ở hồ sơ cũ.
+        for field in ("full_name", "age", "gender", "occupation"):
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(existing, field, value)
         existing.ai_usage_group = payload.ai_usage_group
         _commit_profile(db)
         db.refresh(existing)
@@ -151,10 +152,10 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
         existing_id.email_hash = email_hash
         existing_id.email_masked = _mask_email(payload.email)
         existing_id.email = payload.email
-        existing_id.full_name = payload.full_name
-        existing_id.age = payload.age
-        existing_id.gender = payload.gender
-        existing_id.occupation = payload.occupation
+        for field in ("full_name", "age", "gender", "occupation"):
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(existing_id, field, value)
         existing_id.ai_usage_group = payload.ai_usage_group
         _commit_profile(db)
         db.refresh(existing_id)
@@ -164,13 +165,13 @@ def create_participant(db: Session, payload: ParticipantCreate) -> ParticipantId
     participant = ParticipantModel(
         access_token_hash=hashlib.sha256(token.encode()).hexdigest(),
         id=participant_id,
-        full_name=payload.full_name,
+        full_name=payload.full_name or "-",
         email_hash=email_hash,
         email_masked=_mask_email(payload.email),
         email=payload.email,
         age=payload.age,
-        gender=payload.gender,
-        occupation=payload.occupation,
+        gender=payload.gender or "-",
+        occupation=payload.occupation or "-",
         ai_usage_group=payload.ai_usage_group,
     )
     db.add(participant)

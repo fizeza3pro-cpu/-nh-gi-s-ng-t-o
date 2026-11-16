@@ -268,6 +268,13 @@ export const api = {
     }).then(handle<ResponseSummary[]>),
 
   // --- Admin (cần role admin, backend tự chặn 403 nếu không đủ quyền) ---
+  adminSetSurveyVisibility: (itemId: string, visible: boolean) =>
+    fetch(`${BASE}/admin/items/${encodeURIComponent(itemId)}/survey-visibility`, {
+      method: "PATCH",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ survey_visible: visible }),
+    }).then(handle<Item>),
+
   adminResearchReport: (
     options: {
       source?: string;

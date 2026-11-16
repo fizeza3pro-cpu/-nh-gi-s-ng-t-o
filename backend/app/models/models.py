@@ -114,6 +114,7 @@ class Item(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
+    survey_visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     calibration_status: Mapped[ItemCalibrationStatus] = mapped_column(
         SAEnum(ItemCalibrationStatus, name="item_calibration_status"),
         default=ItemCalibrationStatus.COLLECTING,

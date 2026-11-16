@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import type { Item } from "@/lib/types";
-import { SURVEY_ITEMS } from "@/lib/survey-items";
+import { getSurveyItems, SURVEY_ITEMS } from "@/lib/survey-items";
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 
 const DIMENSIONS = [
@@ -123,11 +123,7 @@ export default function Home() {
   }, [reducedMotion]);
 
   const sample = SAMPLE_RESULTS[sampleIndex];
-  const itemsById = new Map(items?.map((item) => [item.id, item]));
-  const surveyItems = SURVEY_ITEMS.flatMap(({ id, name }) => {
-    const item = itemsById.get(id);
-    return item ? [{ ...item, name }] : [];
-  });
+  const surveyItems = getSurveyItems(items ?? []);
   const [heroLoaded, setHeroLoaded] = useState(false);
   const methodReveal = useRevealOnScroll<HTMLDivElement>();
   const itemsReveal = useRevealOnScroll<HTMLDivElement>();
@@ -346,7 +342,13 @@ export default function Home() {
               </div>
             )}
 
-            {items && (
+            {items && surveyItems.length === 0 && (
+              <p className="rounded-lg border border-border bg-card p-7 text-sm text-muted-foreground">
+                Hiện chưa có đồ vật nào được mở khảo sát. Vui lòng quay lại sau.
+              </p>
+            )}
+
+            {items && surveyItems.length > 0 && (
               <ul className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-2 lg:grid-cols-4">
                 {surveyItems.map((item, idx) => (
                   <li

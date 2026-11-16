@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, FileWarning, Fingerprint, Search, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Ban, BookOpen, FileWarning, Fingerprint, Search, Sparkles } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,9 @@ const decisionLabel: Record<string, string> = {
   SCOPE_REJECTED: "Không qua cổng phạm vi",
   CURATOR_OBJECT_GUARD: "Sai đồ vật",
   MISSING_DECISION: "Thiếu quyết định",
+  ADMIN_MATCH_EXISTING: "Gán mã hiện có",
+  ADMIN_CREATE_NEW: "Tạo mã mới",
+  ADMIN_MARK_INVALID: "Loại bỏ (không hợp lệ)",
 };
 
 const gateLabel: Record<string, string> = {
@@ -84,6 +87,13 @@ const relationLabel: Record<string, string> = {
   DIFFERENT: "Khác chức năng",
   UNCERTAIN: "Chưa rõ quan hệ",
 };
+
+function AdminProcessingNote({ reviewedAt }: { reviewedAt: string | null }) {
+  return <p className="mt-2 text-xs text-research">
+    <span className="font-medium">Do admin xử lý</span>
+    {reviewedAt && <> · {new Date(reviewedAt).toLocaleString("vi-VN")}</>}
+  </p>;
+}
 
 function Signature({ value, compact = false }: { value: FunctionalSignature; compact?: boolean }) {
   const entries = [
@@ -319,7 +329,7 @@ function ReviewCard({ review, itemId, epoch, codes, onResolved }: {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
   const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<"MATCH_EXISTING" | "MARK_INVALID" | null>(null);
   const [error, setError] = useState("");
   const proposal = review.mapping_evidence.proposal;
   const legacyGates = proposal && typeof proposal === "object" && !Array.isArray(proposal)
@@ -331,18 +341,23 @@ function ReviewCard({ review, itemId, epoch, codes, onResolved }: {
       : gateValues.codebook_conflict ? "CODEBOOK_CONFLICT" : "";
   const issueLabel = ISSUE_LABELS[issue] ?? ISSUE_LABELS.SEMANTIC_AMBIGUITY;
   const options = codes.filter(code => code.id === selected || `${code.name} ${code.description ?? ""}`.toLocaleLowerCase("vi").includes(query.trim().toLocaleLowerCase("vi")));
-  async function assign() {
-    if (!selected || saving) return;
-    setSaving(true); setError("");
+  async function resolve(action: "MATCH_EXISTING" | "MARK_INVALID") {
+    if (saving || (action === "MATCH_EXISTING" && !selected)) return;
+    setSaving(action); setError("");
     try {
       await api.adminResolveMappingReview(itemId, review.idea_id, {
-        action: "MATCH_EXISTING", existing_code_id: selected,
-        expected_codebook_epoch: epoch, note: note.trim(),
+        action,
+        existing_code_id: action === "MATCH_EXISTING" ? selected : undefined,
+        expected_codebook_epoch: epoch,
+        note: note.trim() || (action === "MARK_INVALID"
+          ? "Quản trị viên loại bỏ ý vì vô nghĩa, không mô tả được công dụng hợp lệ."
+          : ""),
       });
       onResolved();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Không gán được mã. Hãy thử lại.");
-      setSaving(false);
+      setError(reason instanceof Error ? reason.message
+        : action === "MARK_INVALID" ? "Không loại bỏ được ý. Hãy thử lại." : "Không gán được mã. Hãy thử lại.");
+      setSaving(null);
     }
   }
   return <article className="border-b border-border p-6">
@@ -352,7 +367,7 @@ function ReviewCard({ review, itemId, epoch, codes, onResolved }: {
     <p className="mt-3 text-sm">{review.reason}</p>
     <div className="mt-3"><Signature value={review.functional_signature} /></div>
     <p className="mt-3 text-xs text-muted-foreground">Chọn mã phù hợp với công dụng của ý này. Ý chưa được phân loại không được tính là điểm 0.</p>
-    <fieldset disabled={saving} className="mt-4 grid max-w-xl gap-3">
+    <fieldset disabled={saving !== null} className="mt-4 grid max-w-xl gap-3">
       <label className="text-sm">Tìm mã
         <input className="mt-1 w-full rounded border border-border bg-background p-2" value={query} onChange={e => setQuery(e.target.value)} placeholder="Nhập tên nhóm chức năng" />
       </label>
@@ -364,10 +379,20 @@ function ReviewCard({ review, itemId, epoch, codes, onResolved }: {
       </label>
       {!codes.length && <p className="text-sm text-muted-foreground">Đồ vật chưa có mã đang hoạt động để gán.</p>}
       {selected && <p className="text-sm text-muted-foreground">{codes.find(code => code.id === selected)?.description}</p>}
-      <label className="text-sm">Lý do gán (không bắt buộc)
+      <label className="text-sm">Lý do phân xử (không bắt buộc)
         <input className="mt-1 w-full rounded border border-border bg-background p-2" value={note} onChange={e => setNote(e.target.value)} maxLength={2000} />
       </label>
-      <Button type="button" disabled={!selected || saving} onClick={assign}>{saving ? "Đang lưu…" : "Xác nhận gán mã"}</Button>
+      <div className="flex flex-wrap gap-3">
+        <Button type="button" disabled={!selected || saving !== null} onClick={() => resolve("MATCH_EXISTING")}>
+          {saving === "MATCH_EXISTING" ? "Đang lưu…" : "Xác nhận gán mã"}
+        </Button>
+        <Button type="button" variant="outline" disabled={saving !== null} onClick={() => resolve("MARK_INVALID")}
+          className="border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive">
+          <Ban className="h-4 w-4" aria-hidden="true" />
+          {saving === "MARK_INVALID" ? "Đang loại bỏ…" : "Loại bỏ"}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Loại bỏ sẽ đánh dấu ý là vô nghĩa/không hợp lệ (INVALID), giữ lại câu gốc và lý do phân xử.</p>
     </fieldset>
     {error && <div role="alert" className="mt-3 text-sm text-red-700"><p>{error}</p><Button variant="outline" onClick={onResolved}>Tải lại căn cứ</Button></div>}
   </article>;
@@ -465,7 +490,7 @@ export default function AdminCodebooks() {
           <section className="mt-6 overflow-hidden rounded-xl border border-stone-300 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
             <div className="border-b border-stone-300 bg-card px-5 py-5 md:px-7">
               <h2 className="font-serif text-2xl text-stone-900">Ý chưa đủ căn cứ phân loại</h2>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">AI tự phân loại trước. Với các ý chưa giải quyết được, quản trị viên có thể chọn mã phù hợp và xác nhận bên dưới.</p>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-stone-500">AI tự phân loại trước. Với các ý chưa giải quyết được, quản trị viên có thể gán mã phù hợp hoặc loại bỏ ý vô nghĩa, không hợp lệ.</p>
               {reviews?.issue_counts && Object.keys(reviews.issue_counts).length > 0 ? (
                 <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1 font-mono text-xs text-stone-500">
                   {Object.entries(reviews.issue_counts).sort((a, b) => b[1] - a[1]).map(([issue, count]) => (
@@ -494,6 +519,7 @@ export default function AdminCodebooks() {
             <div className="border-b border-stone-200 bg-card px-5 py-5 md:px-7">
               <h2 className="font-serif text-2xl text-stone-900">Nhật ký phân xử</h2>
               <p className="mt-1 text-sm text-stone-500">Mỗi quyết định giữ lại response gốc, chữ ký chức năng và bằng chứng tại thời điểm chấm.</p>
+              <p className="mt-2 text-xs text-stone-500">{audit?.admin_count ?? 0} quyết định do admin xử lý; thống kê quyết định AI được theo dõi riêng.</p>
             </div>
             <div className="divide-y divide-stone-200">
               {audit?.decisions.map((decision) => (
@@ -502,8 +528,13 @@ export default function AdminCodebooks() {
                     <div>
                       <p className="text-base font-medium leading-6 text-stone-900">{decision.original}</p>
                       <p className="mt-1 text-xs leading-5 text-stone-400">{decision.normalized}</p>
+                      {decision.processed_by === "ADMIN" && <AdminProcessingNote reviewedAt={decision.reviewed_at} />}
                     </div>
-                    <Badge variant={decision.decision === "CREATE_NEW" || decision.decision === "EXPAND_EXISTING" ? "success" : decision.decision === "MATCH_EXISTING" ? "outline" : decision.decision === "INVALID" ? "destructive" : "warning"}>{decisionLabel[decision.decision] ?? decision.decision}</Badge>
+                    <Badge variant={["CREATE_NEW", "EXPAND_EXISTING", "ADMIN_CREATE_NEW"].includes(decision.decision) ? "success"
+                      : ["MATCH_EXISTING", "ADMIN_MATCH_EXISTING"].includes(decision.decision) ? "outline"
+                        : ["INVALID", "ADMIN_MARK_INVALID"].includes(decision.decision) ? "destructive" : "warning"}>
+                      {decisionLabel[decision.decision] ?? decision.decision}
+                    </Badge>
                     <div className="md:text-right">
                       <p className="text-[10px] uppercase tracking-[0.14em] text-stone-400">Category</p>
                       <p className="mt-1 font-mono text-xs text-stone-700">{decision.code_name ?? "Chưa gán mã"}</p>
@@ -515,8 +546,10 @@ export default function AdminCodebooks() {
                       <Signature value={decision.functional_signature} />
                     </div>
                     <div className="rounded-lg border border-stone-200 bg-white p-4">
-                      <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-stone-400">Căn cứ quyết định</p>
-                      <DecisionEvidence decision={decision.decision} reason={decision.reason} value={decision.mapping_evidence} />
+                      <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-stone-400">{decision.processed_by === "ADMIN" ? "Ghi chú admin" : "Căn cứ quyết định"}</p>
+                      {decision.processed_by === "ADMIN"
+                        ? <p className="text-sm leading-6 text-stone-600">{decision.reason}</p>
+                        : <DecisionEvidence decision={decision.decision} reason={decision.reason} value={decision.mapping_evidence} />}
                     </div>
                   </div>
                 </article>
@@ -526,7 +559,32 @@ export default function AdminCodebooks() {
           </section>
         )}
 
-        {view === "EXCLUDED" && <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]"><div className="border-b border-stone-200 bg-card px-6 py-5"><p className="flex items-center gap-2 font-serif text-2xl text-stone-900"><FileWarning className="h-5 w-5 text-rose-600" /> Response không được mã hóa</p><p className="mt-1 text-sm text-stone-500">Giữ nguyên dữ liệu gốc cùng lý do loại hoặc trùng.</p></div><div className="divide-y divide-stone-200">{excluded?.ideas.map((idea) => <div key={idea.idea_id} className="grid gap-3 px-6 py-4 md:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)]"><Badge variant={idea.status === "DUPLICATE" ? "secondary" : "destructive"}>{idea.status === "DUPLICATE" ? "Trùng ý" : "Không hợp lệ"}</Badge><div><p className="text-sm text-stone-900">{idea.original}</p><p className="mt-1 text-xs text-stone-400">{idea.normalized}</p></div><p className="text-xs leading-5 text-stone-500">{idea.reason}</p></div>)}</div></section>}
+        {view === "EXCLUDED" && (
+          <section className="mt-6 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-[0_18px_45px_-34px_rgba(56,39,30,0.55)]">
+            <div className="border-b border-stone-200 bg-card px-6 py-5">
+              <p className="flex items-center gap-2 font-serif text-2xl text-stone-900"><FileWarning className="h-5 w-5 text-rose-600" /> Response không được mã hóa</p>
+              <p className="mt-1 text-sm text-stone-500">Giữ nguyên dữ liệu gốc cùng lý do loại hoặc trùng.</p>
+              <p className="mt-2 text-xs text-stone-500">{excluded?.admin_count ?? 0} ý do admin loại bỏ.</p>
+            </div>
+            <div className="divide-y divide-stone-200">
+              {excluded?.ideas.map((idea) => (
+                <div key={idea.idea_id} className="grid gap-3 px-6 py-4 md:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)]">
+                  <div><Badge variant={idea.status === "DUPLICATE" ? "secondary" : "destructive"}>{idea.status === "DUPLICATE" ? "Trùng ý" : "Không hợp lệ"}</Badge></div>
+                  <div>
+                    <p className="text-sm text-stone-900">{idea.original}</p>
+                    <p className="mt-1 text-xs text-stone-400">{idea.normalized}</p>
+                    {idea.processed_by === "ADMIN" && <AdminProcessingNote reviewedAt={idea.reviewed_at} />}
+                  </div>
+                  <div className="text-xs leading-5 text-stone-500">
+                    {idea.processed_by === "ADMIN" && <p className="mb-1 font-medium text-stone-700">Ghi chú admin</p>}
+                    <p>{idea.reason}</p>
+                  </div>
+                </div>
+              ))}
+              {!excluded?.ideas.length && <p className="px-6 py-14 text-center text-sm text-stone-500">Chưa có ý bị loại.</p>}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

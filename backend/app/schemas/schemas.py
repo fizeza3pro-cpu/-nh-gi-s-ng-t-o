@@ -48,16 +48,18 @@ class ParticipantIdentify(BaseModel):
 
 
 class ParticipantCreate(ParticipantIdentify):
-    full_name: str = Field(min_length=2, max_length=255)
-    age: int = Field(ge=10, le=100)
-    gender: Literal["male", "female", "other", "prefer_not_to_say"]
-    occupation: str = Field(min_length=2, max_length=255)
+    full_name: str | None = Field(default=None, min_length=2, max_length=255)
+    age: int | None = Field(default=None, ge=10, le=100)
+    gender: Literal["male", "female", "other", "prefer_not_to_say"] | None = None
+    occupation: str | None = Field(default=None, min_length=2, max_length=255)
     ai_usage_group: Literal["LOW", "HIGH"]
 
     @field_validator("full_name", "occupation")
     @classmethod
-    def normalize_profile_text(cls, value: str) -> str:
+    def normalize_profile_text(cls, value: str | None) -> str | None:
         """Loại khoảng trắng thừa trước khi lưu họ tên và ngành/nghề."""
+        if value is None:
+            return None
         normalized = " ".join(value.split())
         if len(normalized) < 2:
             raise ValueError("Thông tin phải có ít nhất 2 ký tự.")
@@ -101,6 +103,11 @@ class Item(BaseModel):
     id: str
     name: str
     description: str
+    survey_visible: bool = True
+
+
+class ItemVisibilityUpdate(BaseModel):
+    survey_visible: bool = Field(strict=True)
 
 
 
@@ -649,6 +656,8 @@ class AdminExtractionExcludedIdea(BaseModel):
     status: Literal["INVALID", "DUPLICATE"]
     reason: str
     created_at: datetime
+    processed_by: Literal["AI", "ADMIN"] = "AI"
+    reviewed_at: datetime | None = None
 
 
 class AdminExtractionAudit(BaseModel):
@@ -658,6 +667,7 @@ class AdminExtractionAudit(BaseModel):
     duplicate_count: int
     total_count: int
     displayed_count: int
+    admin_count: int = 0
     ideas: list[AdminExtractionExcludedIdea]
 
 
@@ -674,6 +684,8 @@ class AdminCuratorDecisionIdea(BaseModel):
     confidence: float
     reason: str
     created_at: datetime
+    processed_by: Literal["AI", "ADMIN"] = "AI"
+    reviewed_at: datetime | None = None
     functional_signature: FunctionalSignature = Field(default_factory=FunctionalSignature)
     mapping_evidence: dict = Field(default_factory=dict)
 
@@ -688,6 +700,7 @@ class AdminCuratorAudit(BaseModel):
     guarded_count: int
     total_count: int
     displayed_count: int
+    admin_count: int = 0
     decisions: list[AdminCuratorDecisionIdea]
 
 

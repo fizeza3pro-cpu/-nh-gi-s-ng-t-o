@@ -1,4 +1,6 @@
-// Danh sách và thứ tự đồ vật hiển thị ở trang chọn bài. Thêm/bớt ở đây khi đổi đợt khảo sát.
+import type { Item } from "@/lib/types";
+
+// Thứ tự và tên hiển thị của đồ vật; trạng thái ẩn/hiện do admin quản lý.
 export const SURVEY_ITEMS = [
   { id: "vo_dan", name: "Vỏ đạn" },
   { id: "cuon_chi", name: "Kim chỉ" },
@@ -9,3 +11,13 @@ export const SURVEY_ITEMS = [
   { id: "ghim_kep_giay", name: "Ghim kẹp giấy" },
   { id: "kinh_lup", name: "Kính lúp" },
 ] as const;
+
+export function getSurveyItems(items: Item[], includeHidden = false): Item[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return SURVEY_ITEMS.flatMap(({ id, name }) => {
+    const item = byId.get(id);
+    return item && (includeHidden || item.survey_visible !== false)
+      ? [{ ...item, name }]
+      : [];
+  });
+}

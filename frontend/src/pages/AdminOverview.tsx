@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { AreaSparkline } from "@/components/charts/Areasparkline";
 import { DonutChart } from "@/components/charts/DonutChart";
+import SurveyItemVisibility from "@/components/SurveyItemVisibility";
 import { api } from "@/lib/api";
 import type { AdminDashboardStats } from "@/lib/types";
 
@@ -235,6 +236,8 @@ export default function AdminOverview() {
         <Metric icon={FlaskConical} label="7 ngày gần nhất" value={stats.responses_last_7_days} note={trendNote} />
         <Metric icon={BookOpenCheck} label="Mã đang hoạt động" value={stats.accepted_code_count} note={`${stats.uncertain_code_count} cần theo dõi · ${stats.rejected_code_count} bị loại`} />
       </section>
+
+      <SurveyItemVisibility />
 
       <div className="mt-6">
         <Panel title="Hai nhóm nghiên cứu" note="Hồ sơ là toàn bộ người đã đăng ký. Đã nộp và có điểm chỉ tính nguồn khảo sát hiện hành; điểm trung bình theo người dùng các lượt FINAL đã đồng bộ, cùng cách tính với báo cáo.">

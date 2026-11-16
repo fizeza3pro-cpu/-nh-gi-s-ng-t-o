@@ -329,6 +329,40 @@ def test_items_are_public(client):
     assert response.status_code == 200
     assert {item["id"] for item in response.json()} == {"dua"}
     assert "codes" not in response.json()[0]
+    assert response.json()[0]["survey_visible"] is True
+
+
+def test_item_visibility_requires_admin(client):
+    """Người tham gia không được tự đổi danh sách đồ vật công khai."""
+    response = client.patch("/api/admin/items/dua/survey-visibility", json={"survey_visible": False})
+    assert response.status_code == 401
+    assert client.get("/api/items/dua").json()["survey_visible"] is True
+
+
+def test_admin_can_hide_and_show_item_without_changing_survey_data(client):
+    """Ẩn ở frontend không đổi bài đã lưu hoặc ngăn đọc lại đồ vật."""
+    participant_id = create_participant(client)
+    submitted = client.post("/api/score", headers={"X-Participant-Id": participant_id},
+                            json={"item_id": "dua", "raw_input": "làm cọc đánh dấu"})
+    response_id = submitted.json()["response_id"]
+    app.dependency_overrides[require_admin] = lambda: object()
+    before = client.get(f"/api/admin/responses/{response_id}").json()
+    dashboard_before = client.get("/api/admin/dashboard").json()
+    for visible in (False, True):
+        changed = client.patch("/api/admin/items/dua/survey-visibility", json={"survey_visible": visible})
+        assert changed.status_code == 200
+        assert changed.json()["survey_visible"] is visible
+        assert client.get("/api/items").json()[0]["survey_visible"] is visible
+        assert client.get("/api/items/dua").json()["name"] == "Đũa"
+        assert client.get(f"/api/admin/responses/{response_id}").json() == before
+        assert client.get("/api/admin/dashboard").json() == dashboard_before
+
+
+def test_item_visibility_rejects_unknown_item_and_invalid_value(client):
+    app.dependency_overrides[require_admin] = lambda: object()
+    assert client.patch("/api/admin/items/missing/survey-visibility", json={"survey_visible": False}).status_code == 404
+    assert client.patch("/api/admin/items/dua/survey-visibility", json={"survey_visible": "false"}).status_code == 422
+    assert client.patch("/api/admin/items/dua/survey-visibility", json={}).status_code == 422
 
 
 def test_empty_admin_dashboard_still_lists_all_items(client):
@@ -341,6 +375,58 @@ def test_empty_admin_dashboard_still_lists_all_items(client):
     assert payload["scoring_status_counts"]["collecting"] == 0
     assert payload["by_item"][0]["item_id"] == "dua"
     assert payload["by_item"][0]["response_count"] == 0
+
+
+@pytest.mark.parametrize("group", ["LOW", "HIGH"])
+def test_participant_can_register_with_only_email_and_ai_group(client, group):
+    """Hồ sơ mới dùng dấu gạch cho thông tin không còn thu thập."""
+    email = "minimal-profile@example.test"
+    response = client.post("/api/participants", json={"email": email, "ai_usage_group": group})
+    assert response.status_code == 201
+    identity = response.json()
+    assert identity["full_name"] == "-"
+    assert identity["ai_usage_group"] == group
+    assert identity["access_token"]
+
+    app.dependency_overrides[require_admin] = lambda: object()
+    detail = client.get(f"/api/admin/participants/{identity['id']}").json()["participant"]
+    assert detail["email"] == email
+    assert detail["full_name"] == "-"
+    assert detail["age"] is None
+    assert detail["gender"] == "-"
+    assert detail["occupation"] == "-"
+    identified = client.post("/api/participants/identify", json={"email": email})
+    assert identified.status_code == 200
+    assert identified.json()["profile_required"] is False
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("explicit_nulls", [False, True])
+def test_minimal_participant_form_preserves_existing_demographics(client, legacy, explicit_nulls):
+    """Bỏ trường hoặc gửi null đều không làm mất thông tin hồ sơ cũ."""
+    email = "preserve-profile@example.test"
+    participant_id = create_participant(client, email)
+    if legacy:
+        db_dependency = app.dependency_overrides[get_db]()
+        db = next(db_dependency)
+        try:
+            db.get(Participant, participant_id).email_hash = None
+            db.commit()
+        finally:
+            db_dependency.close()
+    payload = {"email": email, "participant_id": participant_id, "ai_usage_group": "LOW"}
+    if explicit_nulls:
+        payload.update(full_name=None, age=None, gender=None, occupation=None)
+    response = client.post("/api/participants", json=payload)
+    assert response.status_code == 201
+    assert response.json()["id"] == participant_id
+    app.dependency_overrides[require_admin] = lambda: object()
+    detail = client.get(f"/api/admin/participants/{participant_id}").json()["participant"]
+    assert detail["full_name"] == "Nguyễn Minh Anh"
+    assert detail["age"] == 20
+    assert detail["gender"] == "female"
+    assert detail["occupation"] == "Sinh viên"
+    assert detail["ai_usage_group"] == "LOW"
 
 
 def test_participant_form_updates_existing_profile(client):
@@ -1170,6 +1256,8 @@ def test_admin_can_audit_ideas_rejected_by_extraction(client, monkeypatch):
     assert payload["invalid_count"] == 1
     assert payload["duplicate_count"] == 1
     assert {idea["status"] for idea in payload["ideas"]} == {"INVALID", "DUPLICATE"}
+    assert payload["admin_count"] == 0
+    assert all(idea["processed_by"] == "AI" and idea["reviewed_at"] is None for idea in payload["ideas"])
     assert payload["ideas"][0]["participant_id"] == participant_id
 
     summary = client.get("/api/admin/items/dua/codebook").json()
@@ -1220,6 +1308,8 @@ def test_admin_can_audit_an_idea_rejected_by_curator(client, monkeypatch):
     payload = audit.json()
     assert payload["invalid_count"] == 1
     assert payload["decisions"][0]["decision"] == "INVALID"
+    assert payload["admin_count"] == 0
+    assert payload["decisions"][0]["processed_by"] == "AI"
     assert payload["decisions"][0]["code_name"] is None
 
 
@@ -1272,6 +1362,12 @@ def test_admin_can_resolve_pending_idea_by_creating_code(client, monkeypatch):
     ).json()
     assert detail["mapping"]["ideas"][0]["code"] == "Móc và giá treo từ đũa"
     assert detail["mapping"]["ideas"][0]["curator_decision"] == "ADMIN_CREATE_NEW"
+    audit = client.get("/api/admin/items/dua/curator-audit").json()
+    assert audit["admin_count"] == 1
+    assert audit["create_new_count"] == 0
+    assert audit["decisions"][0]["processed_by"] == "ADMIN"
+    assert audit["decisions"][0]["decision"] == "ADMIN_CREATE_NEW"
+    assert audit["decisions"][0]["reviewed_at"] is not None
 
 
 @pytest.mark.parametrize("blocked", [None, "wrong_item", "final"])
@@ -1315,6 +1411,11 @@ def test_admin_assign_existing_code_preserves_review_contract(client, monkeypatc
         assert idea.coding_state == "ASSIGNED"
         assert idea.review_status == "RESOLVED"
         assert idea.mapping_evidence["admin_resolution"]["note"] == payload["note"]
+        audit = client.get("/api/admin/items/dua/curator-audit").json()
+        assert audit["admin_count"] == 1
+        assert audit["match_existing_count"] == 0
+        assert audit["decisions"][0]["decision"] == "ADMIN_MATCH_EXISTING"
+        assert audit["decisions"][0]["processed_by"] == "ADMIN"
         assert client.post(path, json=payload).status_code == 409
         assert client.get("/api/admin/items/dua/mapping-reviews").json()["pending_count"] == 0
     next(database, None)
@@ -1379,3 +1480,57 @@ def test_admin_can_mark_pending_idea_invalid_with_audit_reason(client, monkeypat
     assert idea["code"] is None
     assert idea["curator_decision"] == "ADMIN_MARK_INVALID"
     assert idea["reason"] == "Câu không mô tả được công dụng có nghĩa của đũa."
+    for endpoint, rows_key in (("curator-audit", "decisions"), ("extraction-audit", "ideas")):
+        audit = client.get(f"/api/admin/items/dua/{endpoint}").json()
+        assert audit["admin_count"] == 1
+        assert audit["total_count"] == audit["displayed_count"] == 1
+        assert audit[rows_key][0]["idea_id"] == review["idea_id"]
+        assert audit[rows_key][0]["processed_by"] == "ADMIN"
+        assert audit[rows_key][0]["reviewed_at"] is not None
+        assert audit[rows_key][0]["reason"] == idea["reason"]
+    assert client.get("/api/admin/items/dua/curator-audit").json()["invalid_count"] == 0
+
+
+def test_admin_audits_keep_sources_counts_and_final_data_separate(client):
+    """Đọc cả quyết định cũ của admin, giữ thống kê AI và snapshot FINAL nguyên vẹn."""
+    from app.controllers import admin_controller
+
+    participant_id = create_participant(client)
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    now = datetime.now(timezone.utc)
+    response = Response(participant_id=participant_id, item_id="dua", raw_input="Dữ liệu giả",
+                        mapping={"ideas": []},
+                        processing_state="DONE", scoring_status=ResponseScoringStatus.FINAL,
+                        scoring={"frozen": True}, scoring_meta={"snapshot": "không đổi"}, scored_at=now)
+    db.add(response)
+    db.flush()
+    decisions = ("ADMIN_MARK_INVALID", "EXTRACTION", "INVALID")
+    ideas = [ResponseIdea(response_id=response.id, original=decision, normalized=decision,
+                          mapping_status="INVALID", curator_decision=decision, reason=f"Lý do {decision}",
+                          created_at=now - timedelta(days=2),
+                          reviewed_at=now if decision.startswith("ADMIN_") else None)
+             for decision in decisions]
+    db.add_all(ideas)
+    db.commit()
+    db.refresh(response)
+    for idea in ideas:
+        db.refresh(idea)
+    def snapshot(row):
+        return {column.name: getattr(row, column.name) for column in row.__table__.columns}
+    before = [snapshot(row) for row in [response, *ideas]]
+
+    curator = admin_controller.get_curator_audit(db, "dua", limit=1)
+    excluded = admin_controller.get_extraction_audit(db, "dua", limit=1)
+    for audit in (curator, excluded):
+        assert audit.total_count == 2
+        assert audit.displayed_count == 1
+        assert audit.admin_count == 1
+    assert curator.invalid_count == 1
+    assert excluded.invalid_count == 2
+    assert curator.decisions[0].processed_by == excluded.ideas[0].processed_by == "ADMIN"
+    assert admin_controller._extraction_exclusion_counts(db, "dua") == {"INVALID": 1}
+    for row in [response, *ideas]:
+        db.refresh(row)
+    assert [snapshot(row) for row in [response, *ideas]] == before
+    next(database, None)

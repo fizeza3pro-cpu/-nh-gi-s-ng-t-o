@@ -2,6 +2,7 @@ export interface Item {
   id: string;
   name: string;
   description: string;
+  survey_visible: boolean;
 }
 
 export type IdeaStatus = "VALID" | "INVALID" | "DUPLICATE";
@@ -78,15 +79,15 @@ export type ParticipantGender =
 export type AiUsageGroup = "LOW" | "HIGH";
 
 export interface ParticipantProfile {
-  full_name: string;
-  age: number;
-  gender: ParticipantGender;
-  occupation: string;
   ai_usage_group: AiUsageGroup;
 }
 
 export interface Participant extends ParticipantProfile {
   id: string;
+  full_name: string | null;
+  age: number | null;
+  gender: string | null;
+  occupation: string | null;
   email_masked: string | null;
   email_verified_at: string | null;
   created_at: string;
@@ -308,6 +309,8 @@ export interface AdminExtractionExcludedIdea {
   status: "INVALID" | "DUPLICATE";
   reason: string;
   created_at: string;
+  processed_by: "AI" | "ADMIN";
+  reviewed_at: string | null;
 }
 
 export interface AdminExtractionAudit {
@@ -318,6 +321,7 @@ export interface AdminExtractionAudit {
   total_count: number;
   displayed_count: number;
   ideas: AdminExtractionExcludedIdea[];
+  admin_count: number;
 }
 
 export interface AdminCuratorDecisionIdea {
@@ -337,12 +341,17 @@ export interface AdminCuratorDecisionIdea {
     | "SCOPE_REJECTED"
     | "INVALID"
     | "CURATOR_OBJECT_GUARD"
-    | "MISSING_DECISION";
+    | "MISSING_DECISION"
+    | "ADMIN_MATCH_EXISTING"
+    | "ADMIN_CREATE_NEW"
+    | "ADMIN_MARK_INVALID";
   code_id: string | null;
   code_name: string | null;
   confidence: number;
   reason: string;
   created_at: string;
+  processed_by: "AI" | "ADMIN";
+  reviewed_at: string | null;
   functional_signature: FunctionalSignature;
   mapping_evidence: Record<string, unknown>;
 }
@@ -358,6 +367,7 @@ export interface AdminCuratorAudit {
   total_count: number;
   displayed_count: number;
   decisions: AdminCuratorDecisionIdea[];
+  admin_count: number;
 }
 
 export interface AdminCodeOption {

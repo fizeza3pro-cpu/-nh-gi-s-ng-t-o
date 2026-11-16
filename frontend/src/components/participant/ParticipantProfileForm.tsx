@@ -12,17 +12,9 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import type {
   AiUsageGroup,
-  ParticipantGender,
   ParticipantIdentity,
   ParticipantProfile,
 } from "@/lib/types";
-
-const GENDER_OPTIONS: Array<{ value: ParticipantGender; label: string }> = [
-  { value: "male", label: "Nam" },
-  { value: "female", label: "Nữ" },
-  { value: "other", label: "Khác" },
-  { value: "prefer_not_to_say", label: "Không muốn trả lời" },
-];
 
 const AI_USAGE_OPTIONS: Array<{
   value: AiUsageGroup;
@@ -49,44 +41,24 @@ export default function ParticipantProfileForm({
   onComplete: (participant: ParticipantIdentity) => void;
 }) {
   const [email, setEmail] = useState("");
-  const [recoveryToken, setRecoveryToken] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [age, setAge] = useState("");
-  const [gender, setGender] = useState<ParticipantGender | "">("");
-  const [occupation, setOccupation] = useState("");
   const [aiUsageGroup, setAiUsageGroup] = useState<AiUsageGroup | "">("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const emailReady = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const profileReady =
-    emailReady &&
-    fullName.trim().length >= 2 &&
-    Number(age) >= 10 &&
-    Number(age) <= 100 &&
-    gender !== "" &&
-    occupation.trim().length >= 2 &&
-    aiUsageGroup !== "";
+  const profileReady = emailReady && aiUsageGroup !== "";
 
   async function handleProfileSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!profileReady || submitting || !gender || !aiUsageGroup) return;
+    if (!profileReady || submitting || !aiUsageGroup) return;
 
     const profile: ParticipantProfile = {
-      full_name: fullName.trim(),
-      age: Number(age),
-      gender,
-      occupation: occupation.trim(),
       ai_usage_group: aiUsageGroup,
     };
     setSubmitting(true);
     setError(null);
     try {
-      const participant = await api.createParticipant(
-        email.trim(),
-        profile,
-        recoveryToken.trim(),
-      );
+      const participant = await api.createParticipant(email.trim(), profile);
       onComplete(participant);
     } catch (err) {
       setError(
@@ -125,31 +97,7 @@ export default function ParticipantProfileForm({
         <form onSubmit={handleProfileSubmit} className="p-7 lg:p-9">
           <div className="max-w-2xl">
             <h3 className="font-serif text-2xl">Hồ sơ khảo sát</h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Điền thông tin và chọn mức sử dụng AI phù hợp nhất với bạn.
-            </p>
-
-            <div className="mt-7 space-y-2">
-              <label
-                htmlFor="participant-full-name"
-                className="text-sm font-medium"
-              >
-                Họ và tên
-              </label>
-              <Input
-                id="participant-full-name"
-                name="fullName"
-                type="text"
-                autoComplete="name"
-                required
-                autoFocus
-                minLength={2}
-                maxLength={255}
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                placeholder="Ví dụ: Nguyễn Minh Anh…"
-              />
-            </div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground"></p>
 
             <div className="mt-7 space-y-2">
               <label
@@ -168,6 +116,7 @@ export default function ParticipantProfileForm({
                   autoComplete="email"
                   spellCheck={false}
                   required
+                  autoFocus
                   maxLength={320}
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -175,97 +124,7 @@ export default function ParticipantProfileForm({
                   className="pl-10"
                 />
               </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Email được lưu đầy đủ và chỉ hiển thị cho quản trị viên.
-              </p>
             </div>
-            <details className="mt-4 text-sm text-muted-foreground">
-              <summary className="cursor-pointer">
-                Khôi phục hồ sơ trên thiết bị mới
-              </summary>
-              <Input
-                type="password"
-                aria-label="Mã khôi phục hồ sơ"
-                autoComplete="off"
-                value={recoveryToken}
-                onChange={(event) => setRecoveryToken(event.target.value)}
-                placeholder="Mã khôi phục của bạn"
-                className="mt-3"
-              />
-            </details>
-
-            <div className="mt-6 grid gap-6 sm:grid-cols-[140px_1fr]">
-              <div className="space-y-2">
-                <label
-                  htmlFor="participant-age"
-                  className="text-sm font-medium"
-                >
-                  Tuổi
-                </label>
-                <Input
-                  id="participant-age"
-                  name="age"
-                  type="number"
-                  inputMode="numeric"
-                  min={10}
-                  max={100}
-                  required
-                  value={age}
-                  onChange={(event) => setAge(event.target.value)}
-                  placeholder="Ví dụ: 20…"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label
-                  htmlFor="participant-occupation"
-                  className="text-sm font-medium"
-                >
-                  Lớp/Chuyên ngành
-                </label>
-                <Input
-                  id="participant-occupation"
-                  name="occupation"
-                  type="text"
-                  autoComplete="organization-title"
-                  required
-                  minLength={2}
-                  maxLength={255}
-                  value={occupation}
-                  onChange={(event) => setOccupation(event.target.value)}
-                  placeholder="Ví dụ: cntt1-c160"
-                />
-              </div>
-            </div>
-
-            <fieldset className="mt-6">
-              <legend className="text-sm font-medium">Giới tính</legend>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {GENDER_OPTIONS.map((option) => (
-                  <label
-                    key={option.value}
-                    className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring ${
-                      gender === option.value
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-input bg-background hover:bg-muted/50"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="participant-gender"
-                      value={option.value}
-                      checked={gender === option.value}
-                      onChange={() => setGender(option.value)}
-                      className="sr-only"
-                    />
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${gender === option.value ? "bg-background" : "border border-foreground/40"}`}
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
 
             <fieldset className="mt-7 border-t border-border pt-6">
               <legend className="pr-3 text-sm font-medium">

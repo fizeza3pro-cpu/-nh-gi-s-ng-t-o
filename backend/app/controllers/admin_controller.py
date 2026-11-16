@@ -596,21 +596,31 @@ def _extraction_exclusion_counts(db: Session, item_id: str) -> dict[str, int]:
 def get_extraction_audit(
     db: Session, item_id: str, limit: int = 200
 ) -> AdminExtractionAudit:
-    """Trả nhật ký ý bị Idea Extraction loại để admin có thể kiểm toán."""
+    """Trả ý bị Extraction hoặc admin loại, giữ riêng số liệu của từng nguồn."""
     item = db.get(ItemModel, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
 
     counts = _extraction_exclusion_counts(db, item_id)
+    admin_count = int(db.scalar(
+        select(func.count(ResponseIdea.id))
+        .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
+        .where(
+            ResponseModel.item_id == item_id,
+            ResponseIdea.curator_decision == "ADMIN_MARK_INVALID",
+            ResponseIdea.mapping_status == "INVALID",
+        )
+    ) or 0)
     rows = db.execute(
         select(ResponseIdea, ResponseModel.participant_id)
         .join(ResponseModel, ResponseModel.id == ResponseIdea.response_id)
         .where(
             ResponseModel.item_id == item_id,
-            ResponseIdea.curator_decision.like("EXTRACTION%"),
+            or_(ResponseIdea.curator_decision.like("EXTRACTION%"),
+                ResponseIdea.curator_decision == "ADMIN_MARK_INVALID"),
             ResponseIdea.mapping_status.in_(["INVALID", "DUPLICATE"]),
         )
-        .order_by(ResponseIdea.created_at.desc(), ResponseIdea.id.desc())
+        .order_by(func.coalesce(ResponseIdea.reviewed_at, ResponseIdea.created_at).desc(), ResponseIdea.id.desc())
         .limit(limit)
     ).all()
     ideas = [
@@ -623,12 +633,14 @@ def get_extraction_audit(
             status=idea.mapping_status,
             reason=idea.reason,
             created_at=idea.created_at,
+            processed_by="ADMIN" if idea.curator_decision == "ADMIN_MARK_INVALID" else "AI",
+            reviewed_at=idea.reviewed_at,
             functional_signature=idea.functional_signature or {},
             mapping_evidence=idea.mapping_evidence or {},
         )
         for idea, participant_id in rows
     ]
-    invalid_count = counts.get("INVALID", 0)
+    invalid_count = counts.get("INVALID", 0) + admin_count
     duplicate_count = counts.get("DUPLICATE", 0)
     return AdminExtractionAudit(
         item_id=item.id,
@@ -637,6 +649,7 @@ def get_extraction_audit(
         duplicate_count=duplicate_count,
         total_count=invalid_count + duplicate_count,
         displayed_count=len(ideas),
+        admin_count=admin_count,
         ideas=ideas,
     )
 
@@ -644,11 +657,12 @@ def get_extraction_audit(
 def get_curator_audit(
     db: Session, item_id: str, limit: int = 500
 ) -> AdminCuratorAudit:
-    """Trả quyết định Curator hiện tại của từng ý để admin kiểm toán."""
+    """Trả quyết định hiện tại của AI và admin, không trộn số liệu đánh giá AI."""
     item = db.get(ItemModel, item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đồ vật.")
 
+    admin_decisions = ["ADMIN_MATCH_EXISTING", "ADMIN_CREATE_NEW", "ADMIN_MARK_INVALID"]
     curator_decisions = [
         "MATCH_EXISTING",
         "CREATE_NEW",
@@ -660,6 +674,7 @@ def get_curator_audit(
         "SCOPE_REJECTED",
         "CURATOR_OBJECT_GUARD",
         "MISSING_DECISION",
+        *admin_decisions,
     ]
     count_rows = db.execute(
         select(ResponseIdea.curator_decision, func.count(ResponseIdea.id))
@@ -680,7 +695,7 @@ def get_curator_audit(
             ResponseModel.item_id == item_id,
             ResponseIdea.curator_decision.in_(curator_decisions),
         )
-        .order_by(ResponseIdea.created_at.desc(), ResponseIdea.id.desc())
+        .order_by(func.coalesce(ResponseIdea.reviewed_at, ResponseIdea.created_at).desc(), ResponseIdea.id.desc())
         .limit(limit)
     ).all()
     decisions = [
@@ -697,6 +712,8 @@ def get_curator_audit(
             confidence=idea.confidence,
             reason=idea.reason,
             created_at=idea.created_at,
+            processed_by="ADMIN" if idea.curator_decision in admin_decisions else "AI",
+            reviewed_at=idea.reviewed_at,
             functional_signature=idea.functional_signature or {},
             mapping_evidence=idea.mapping_evidence or {},
         )
@@ -713,7 +730,8 @@ def get_curator_audit(
     ) + counts.get(
         "SCOPE_REJECTED", 0
     )
-    total_count = match_count + create_count + expand_count + invalid_count + guarded_count
+    admin_count = sum(counts.get(decision, 0) for decision in admin_decisions)
+    total_count = match_count + create_count + expand_count + invalid_count + guarded_count + admin_count
     return AdminCuratorAudit(
         item_id=item.id,
         item_name=item.name,
@@ -724,6 +742,7 @@ def get_curator_audit(
         guarded_count=guarded_count,
         total_count=total_count,
         displayed_count=len(decisions),
+        admin_count=admin_count,
         decisions=decisions,
     )
 
