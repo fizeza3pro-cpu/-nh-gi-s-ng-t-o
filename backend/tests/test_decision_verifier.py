@@ -248,9 +248,55 @@ def test_compact_coverage_and_single_target_relation(monkeypatch):
     assert result.decisions[0].pair_verified
 
 
-def test_compact_coverage_cannot_hide_competitor_or_duplicate_target(monkeypatch):
+def test_legacy_id_list_is_not_semantic_evidence(monkeypatch):
     row = final()
     row["different_code_ids"] = ["support"]
+    result, _, _ = execute(monkeypatch, {"decisions": [row]})
+    assert result.decisions[0].pair_verified
+    assert result.decisions[0].different_code_ids == []
+
+
+def test_target_only_match_does_not_invent_negative_evaluations(monkeypatch):
+    row = final()
+    row["comparisons"] = row["comparisons"][1:]
+    # Mô phỏng lỗi thật: output cũ liệt kê thêm mã ở danh mục chung.
+    row["different_code_ids"] = ["block", "foreign"]
+    result, _, calls = execute(monkeypatch, {"decisions": [row]})
+    decision = result.decisions[0]
+    assert len(calls) == 1 and decision.pair_verified
+    assert decision.compared_code_ids == ["support"]
+    assert {r["code_id"] for r in decision.existing_code_evaluations} == {"support"}
+
+
+def test_explicit_foreign_comparison_still_rejected(monkeypatch):
+    row = final()
+    row["comparisons"][0]["code_id"] = "foreign"
+    result, _, _ = execute(monkeypatch, {"decisions": [row]})
+    assert result.decisions[0].policy_gates["contract_error"]
+
+
+def test_create_needs_reasoned_nearest_comparison(monkeypatch):
+    row = final(decision="CREATE_NEW", existing_code_id=None, **scope_fields())
+    row["comparisons"] = []
+    row["different_code_ids"] = ["block", "support"]
+    result, _, _ = execute(monkeypatch, {"decisions": [row]})
+    assert result.decisions[0].policy_gates["contract_error"]
+
+
+def test_curator_records_only_explicit_comparisons():
+    from app.pipeline.dynamic_mapping import _normalize_curator_contract
+    ideas, _, candidates = fixture()
+    row = final()
+    row["comparisons"] = row["comparisons"][1:]
+    result = _normalize_curator_contract(CuratorResult(decisions=[CuratorDecision.model_validate(row)]), ideas, candidates)
+    assert result.decisions[0].compared_code_ids == ["support"]
+    assert result.decisions[0].policy_gates["curator_evidence_checked"]
+
+
+def test_sparse_expand_cannot_absorb_without_comparison(monkeypatch):
+    row = final(decision="EXPAND_EXISTING", absorbed_code_ids=["block"], **scope_fields())
+    row["comparisons"] = row["comparisons"][1:]
+    row["comparisons"][0]["relation"] = "IDEA_BROADER_THAN_CODE"
     result, _, _ = execute(monkeypatch, {"decisions": [row]})
     assert result.decisions[0].policy_gates["contract_error"]
 

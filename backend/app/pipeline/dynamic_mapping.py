@@ -583,7 +583,9 @@ def _normalize_curator_contract(
         update = {
             "retrieval_candidates": retrieval_snapshot,
             "nearest_code_ids": sorted(allowed_ids),
-            "compared_code_ids": sorted(allowed_ids),
+            "compared_code_ids": [row["code_id"] for row in decision.existing_code_evaluations
+                                  if row.get("source") == "CURATOR" and row.get("code_id") in allowed_ids]
+                                 if decision.policy_gates.get("curator_evidence_checked") else [],
         }
         if idea is not None:
             decision = _hydrate_curator_decision(decision, idea)

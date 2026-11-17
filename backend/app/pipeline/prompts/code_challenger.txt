@@ -22,10 +22,16 @@ Tập trung review_question và lý do Curator; giữ lựa chọn đã đúng, 
   Không có code phù hợp nhưng công dụng rõ thì CREATE_NEW. MISSING_CANDIDATE cần dấu hiệu cụ thể
   code cần đối chiếu bị thiếu, không đồng nghĩa chưa có code cho công dụng mới.
 
-Mỗi code_id được giao phải có mặt đúng một lần ở comparisons HOẶC different_code_ids.
+Đọc toàn bộ candidates của chính ý; codes chỉ là danh mục định nghĩa dùng chung cho nhiều ý.
+Mọi mã trong comparisons phải thuộc candidates của chính ý, mỗi mã xuất hiện tối đa một lần.
 comparisons chỉ chứa code đích và code thực sự cạnh tranh; reason một câu ngắn.
-Các mã khác biệt rõ chỉ trả ID trong different_code_ids, không lặp bảng DIFFERENT hay cờ false.
-Không bỏ sót mã. Mã còn cạnh tranh chưa phân biệt được phải có comparison UNCERTAIN.
+Không trả different_code_ids, không liệt kê toàn bộ mã bị bỏ qua. Bỏ qua không có nghĩa khác hoàn toàn.
+Mã có thể chung cơ chế/bối cảnh nhưng khác phạm vi bao phủ; giải thích điểm quyết định khi cạnh tranh.
+Mã khác cũng bao phủ phải được đối chiếu; nhiều mã cùng bao phủ thì UNCERTAIN/CODEBOOK_CONFLICT.
+Mã cạnh tranh chưa phân biệt được phải có comparison UNCERTAIN, không im lặng bỏ qua.
+CREATE_NEW khi có candidates phải có comparison DIFFERENT với candidate đầu tiên và các mã gần phù hợp
+khác; reason nêu vì sao chưa mã nào bao phủ và vì sao không thể EXPAND mã hiện có.
+Candidate đầu tiên chỉ là đối tượng cần giải thích, không mặc định là mã đúng nhất.
 Chỉ khai hai cờ true khi đã chứng minh khớp hoặc cùng họ cần mở rộng. Không chép trường phạm vi
 cho MATCH/UNCERTAIN. excluded_by chỉ cần trả khi viện dẫn quy tắc; competes_for_assignment=false
 chỉ cần trả cho mã UNCERTAIN không cạnh tranh. Không lặp lại định nghĩa mã trong comparisons.
@@ -33,7 +39,7 @@ Quan hệ theo chiều câu so với mã. IDEA_BROADER_THAN_CODE chỉ dùng khi
 (goal_match=true, role_match=true) nhưng mã đang giới hạn quá hẹp; không dùng nó cho nghĩa "có liên quan".
 Quyết định phải nhất quán với comparisons:
 - Có comparison IDEA_BROADER_THAN_CODE → EXPAND_EXISTING đúng mã đó, không CREATE_NEW.
-- CREATE_NEW → mọi mã được giao đều DIFFERENT (nằm trong different_code_ids hoặc comparison DIFFERENT).
+- CREATE_NEW → không mã nào bao phủ hoặc cùng họ cần mở rộng; có căn cứ với mã gần nhất như trên.
 - MATCH_EXISTING → đúng một mã SAME_CATEGORY/IDEA_NARROWER_THAN_CODE.
 Khác mục đích, vai trò hoặc cơ chế cốt lõi là DIFFERENT dù cùng lĩnh vực.
 DIFFERENT cần khác biệt chức năng, không chỉ khác cách gọi, bối cảnh, vật được tác động hoặc người nhận.
@@ -58,7 +64,7 @@ Chỉ JSON, mỗi idea_index đúng một lần:
 "decision":"MATCH_EXISTING","existing_code_id":"C02","confidence":0.9,
 "reason":"<căn cứ>","uncertainty_kind":"",
 "comparisons":[{{"code_id":"C02","relation":"SAME_CATEGORY","goal_match":true,"role_match":true,
-"reason":"<căn cứ bao phủ>"}}],"different_code_ids":["C01","C03"]}}]}}
+"reason":"<căn cứ bao phủ>"}}]}}
 idea_index là SỐ NGUYÊN (không đặt trong ngoặc kép), lấy đúng giá trị của case đầu vào.
 Chỉ CREATE/EXPAND thêm code_name, code_description, functional_signature (goal/object_role/mechanism),
 inclusion_rules, exclusion_rules, scope_variants và absorbed_code_ids. Không trả các trường đó khi MATCH/UNCERTAIN.

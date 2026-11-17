@@ -269,6 +269,7 @@ class CuratorDecision(BaseModel):
     grounded: bool = False
     evidence: str = ""
     comparisons: list[dict] = Field(default_factory=list)
+    # Chỉ đọc tương thích lịch sử; không dùng danh sách ID làm căn cứ DIFFERENT mới.
     different_code_ids: list[str] = Field(default_factory=list)
     uncertainty_kind: str = ""
     proposal_group: str = ""

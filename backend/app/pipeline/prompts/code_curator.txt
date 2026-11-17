@@ -31,15 +31,20 @@ Mã code là mã ngắn dạng C01, C02 trong codes; trả đúng mã ngắn đ�
 Trả căn cứ gọn: evidence chỉ chép NGUYÊN VĂN một đoạn của original, không chép chữ ký chức năng,
 diễn giải hay thêm chữ; nếu original không quá 8 từ, để evidence="". grounded cho biết cách hiểu có căn cứ.
 comparisons chỉ giải thích code đích và các code thực sự cạnh tranh; mỗi reason một câu ngắn.
-Các code khác biệt rõ chỉ liệt kê ID trong different_code_ids, không viết comparison hay các cờ false.
-Mỗi candidate của chính ý phải xuất hiện đúng một lần ở comparisons hoặc different_code_ids.
-Nếu chưa phân biệt được một code cạnh tranh, ghi relation=UNCERTAIN trong comparisons, không giấu nó
-trong different_code_ids. Nhiều code cùng bao phủ thì UNCERTAIN/CODEBOOK_CONFLICT.
+Đọc toàn bộ candidates của chính ý; codes chỉ là danh mục định nghĩa dùng chung cho nhiều ý.
+Mọi mã trong comparisons phải thuộc candidates của chính ý, mỗi mã xuất hiện tối đa một lần.
+Không trả different_code_ids, không liệt kê toàn bộ mã bị bỏ qua. Bỏ qua không có nghĩa khác hoàn toàn.
+Mã có thể chung cơ chế/bối cảnh nhưng khác phạm vi bao phủ; giải thích điểm quyết định khi cạnh tranh.
+Mã khác cũng bao phủ phải được đối chiếu; nhiều mã cùng bao phủ thì UNCERTAIN/CODEBOOK_CONFLICT.
+Mã cạnh tranh chưa phân biệt được phải có comparison UNCERTAIN, không im lặng bỏ qua.
+CREATE_NEW khi có candidates phải có comparison DIFFERENT với candidate đầu tiên và các mã gần phù hợp
+khác; reason nêu vì sao chưa mã nào bao phủ và vì sao không thể EXPAND mã hiện có.
+Candidate đầu tiên chỉ là đối tượng cần giải thích, không mặc định là mã đúng nhất.
 Quan hệ code đích chỉ khai trong comparisons; không trả code_relation ở cấp quyết định.
 MATCH cần SAME_CATEGORY hoặc IDEA_NARROWER_THAN_CODE, goal_match=true và role_match=true.
 EXPAND cần IDEA_BROADER_THAN_CODE cùng mục đích/vai trò; CREATE có existing_code_id=null.
 IDEA_BROADER_THAN_CODE chỉ dùng khi cùng mục đích VÀ cùng vai trò nhưng mã quá hẹp, không dùng cho nghĩa
-"có liên quan". Có comparison IDEA_BROADER_THAN_CODE thì phải EXPAND mã đó; CREATE_NEW thì mọi mã đều DIFFERENT.
+"có liên quan". Có comparison IDEA_BROADER_THAN_CODE thì phải EXPAND mã đó; CREATE_NEW không được có mã bao phủ hoặc cùng họ cần mở rộng.
 Khác mục đích, vai trò hoặc cơ chế cốt lõi là DIFFERENT dù cùng lĩnh vực.
 excluded_by chỉ trả khi cần, chép đúng một exclusion_rules thật của code; không tự đặt điều kiện loại.
 Không chép câu nguồn, không trả vector hoặc cờ kiểm chứng. Giữ nguyên idea_index đầu vào,
@@ -51,7 +56,7 @@ Chỉ JSON, mỗi idea_index đầu vào đúng một lần:
 "grounded":true,"evidence":"<đoạn nguyên văn của original hoặc rỗng>",
 "comparisons":[{{"code_id":"C02","relation":"IDEA_NARROWER_THAN_CODE",
 "goal_match":true,"role_match":true,"reason":"<căn cứ bao phủ>"}}],
-"different_code_ids":["C01","C03"],"uncertainty_kind":""}}]}}
+"uncertainty_kind":""}}]}}
 idea_index là SỐ NGUYÊN (không đặt trong ngoặc kép), lấy đúng giá trị của ý đầu vào.
 Chỉ CREATE/EXPAND thêm các trường sau vào quyết định:
 {{"code_name":"<họ chức năng>","code_description":"<định nghĩa>",

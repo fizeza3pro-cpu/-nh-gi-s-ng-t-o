@@ -1,5 +1,12 @@
 # AGENTS.md — Tài liệu định hướng cho AI Agent
 
+## Quyết định ngày 17/11/2026 — đối chiếu chọn lọc
+
+- Curator/Challenger không yêu cầu `different_code_ids` hoặc coverage toàn bộ candidate nữa. Trường cũ chỉ để đọc tương thích, không sinh căn cứ DIFFERENT/NO_MATCH từ danh sách ID.
+- MATCH cần căn cứ bao phủ ở mã đích; comparisons chỉ gồm mã đích và mã thực sự cạnh tranh, thuộc candidates của chính ý. Nhiều mã bao phủ hoặc đối thủ còn UNCERTAIN vẫn chặn gán tự động.
+- CREATE với candidate cần comparison DIFFERENT có lý do với candidate đầu tiên; prompt yêu cầu giải thích vì sao không MATCH/EXPAND. EXPAND giữ audit phạm vi/member, mỗi mã bị hấp thụ cần căn cứ riêng.
+- `compared_code_ids` ở quyết định chỉ ghi mã thực sự có comparison; candidate không được nhắc tới không bị coi là NO_MATCH. Giữ guard thay đổi phạm vi/epoch, snapshot FINAL và audit cũ.
+
 > File này dành cho AI agent (Claude, Copilot, Cursor...) đọc trước khi chỉnh sửa code trong repo này.
 > Mục tiêu: hiểu đúng bối cảnh nghiệp vụ, kiến trúc, quy ước, và tránh phá vỡ pipeline chấm điểm
 > vốn là phần lõi học thuật của dự án.

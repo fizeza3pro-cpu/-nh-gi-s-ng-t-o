@@ -90,9 +90,9 @@ def _validate_decision(value, source, idea, offered, *, provenance="FINAL_ADJUDI
     if evidence is None or not row.reason.strip():
         raise ValueError("Thiếu trích dẫn nguyên văn hoặc lý do phân xử.")
     row = row.model_copy(update={"evidence": evidence})
-    # Các mã khác biệt rõ chỉ khai ID, không lặp lời giải thích và cờ false.
-    comparisons = [*row.comparisons, *[CodeComparison(code_id=code_id, relation="DIFFERENT",
-        reason="Mô hình xác nhận khác chức năng.") for code_id in row.different_code_ids]]
+    # different_code_ids chỉ còn để đọc output lịch sử; danh sách ID không phải căn cứ.
+    # Chỉ các đối chiếu có giải thích mới được kiểm tra và lưu thành đánh giá ngữ nghĩa.
+    comparisons = list(row.comparisons)
     # IDEA_BROADER nghĩa là cùng mục đích và vai trò nhưng mã quá hẹp. Nhãn này đi kèm cả hai cờ false
     # là tự mâu thuẫn (model dùng nó cho nghĩa "có liên quan"); chính model đã khẳng định khác chức năng.
     relabeled = [comparison.code_id for comparison in comparisons
@@ -101,8 +101,11 @@ def _validate_decision(value, source, idea, offered, *, provenance="FINAL_ADJUDI
     comparisons = [comparison.model_copy(update={"relation": "DIFFERENT"})
                    if comparison.code_id in relabeled else comparison for comparison in comparisons]
     compared = [comparison.code_id for comparison in comparisons]
-    if len(compared) != len(set(compared)) or set(compared) != set(offered):
-        raise ValueError("Thiếu, trùng hoặc sai code ứng viên được giao.")
+    if len(compared) != len(set(compared)):
+        raise ValueError("comparisons có mã trùng; mỗi mã chỉ đối chiếu một lần.")
+    if set(compared) - set(offered):
+        raise ValueError("comparisons chứa mã ngoài candidates của chính ý: "
+                         + ", ".join(sorted(set(compared) - set(offered))))
     for comparison in comparisons:
         if not comparison.reason.strip():
             raise ValueError("Thiếu lý do đối chiếu code.")
@@ -125,17 +128,20 @@ def _validate_decision(value, source, idea, offered, *, provenance="FINAL_ADJUDI
         "policy_gates": {"final_adjudication_checked": True, "semantic_grounding_checked": row.grounded,
                          **({"broader_relabeled_different": True} if relabeled else {})},
         "existing_code_evaluations": evaluations,
-        "compared_code_ids": list(offered), "nearest_code_ids": list(offered),
+        "compared_code_ids": compared, "nearest_code_ids": list(offered),
+        "different_code_ids": [],
         "retrieval_candidates": source.retrieval_candidates,
     }
     if len(matches) > 1 and row.grounded:
         result = _unresolved(source, "Nhiều mã cùng bao phủ công dụng; cần xử lý ranh giới codebook: "
                              + ", ".join(comparison.code_id for comparison in matches), "CODEBOOK_CONFLICT")
-        return result.model_copy(update={"existing_code_evaluations": evaluations}), "CODEBOOK_CONFLICT"
+        return result.model_copy(update={"existing_code_evaluations": evaluations,
+            "compared_code_ids": compared, "nearest_code_ids": list(offered), "different_code_ids": []}), "CODEBOOK_CONFLICT"
     if not row.grounded or competing or row.decision == "UNCERTAIN":
         kind = row.uncertainty_kind or "SEMANTIC_AMBIGUITY"
         result = _unresolved(source, row.reason, kind)
-        return result.model_copy(update={"existing_code_evaluations": evaluations}), kind
+        return result.model_copy(update={"existing_code_evaluations": evaluations,
+            "compared_code_ids": compared, "nearest_code_ids": list(offered), "different_code_ids": []}), kind
     if row.decision == "MATCH_EXISTING":
         if row.existing_code_id not in offered:
             raise ValueError("MATCH sai mã đích hoặc quan hệ.")
@@ -146,6 +152,11 @@ def _validate_decision(value, source, idea, offered, *, provenance="FINAL_ADJUDI
         row = row.model_copy(update={"code_relation": matches[0].relation})
         update.update(pair_verified=True, code_name=offered[row.existing_code_id]["name"])
     elif row.decision == "CREATE_NEW":
+        # Không suy mã bị bỏ qua là DIFFERENT. Mã gần nhất cần căn cứ riêng trước khi tạo mới.
+        nearest_id = next(iter(offered), None)
+        if nearest_id and not any(c.code_id == nearest_id and c.relation == "DIFFERENT"
+                                  for c in comparisons):
+            raise ValueError("CREATE_NEW cần comparison DIFFERENT có lý do với candidate đầu tiên: " + nearest_id)
         if matches or any(comparison.relation == "IDEA_BROADER_THAN_CODE" for comparison in comparisons):
             raise ValueError("CREATE_NEW khi đã có mã bao phủ hoặc cùng họ cần sửa phạm vi.")
         if row.existing_code_id is not None or row.absorbed_code_ids:
@@ -160,6 +171,8 @@ def _validate_decision(value, source, idea, offered, *, provenance="FINAL_ADJUDI
             raise ValueError("EXPAND chưa chứng minh cùng họ chức năng hoặc đã có mã bao phủ.")
         if not set(row.absorbed_code_ids) <= (set(offered) - {row.existing_code_id}):
             raise ValueError("Mã gộp nằm ngoài ứng viên hoặc trùng mã đích.")
+        if not set(row.absorbed_code_ids) <= set(compared):
+            raise ValueError("Mỗi mã bị hấp thụ cần comparison có căn cứ riêng.")
         if any(comparison.relation != "IDEA_BROADER_THAN_CODE" or not comparison.goal_match or not comparison.role_match
                for comparison in comparisons if comparison.code_id in row.absorbed_code_ids):
             raise ValueError("EXPAND chưa có căn cứ cùng họ và quan hệ cho mã bị hấp thụ.")
